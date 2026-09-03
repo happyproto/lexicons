@@ -1,0 +1,69 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One deploy at a time. Two concurrent runs would race each other's uploads
+# against the same instance, and the loser would win.
+concurrency:
+  group: happyview-deploy
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: gamesgamesgamesgamesgames/happyview-actions/lint@v1
+
+  plan:
+    name: Plan (dry run)
+    # On a pull request, show what WOULD change without writing anything.
+    # A lint pass proves the files are well-formed; it does not tell you which
+    # lexicons and scripts a merge would actually replace.
+    if: github.event_name == 'pull_request'
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
+        with:
+          happyview-url: ${{ vars.HAPPYVIEW_URL }}
+          api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          dry-run: "true"
+
+  deploy:
+    name: Deploy
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: lint
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
+        id: deploy
+        with:
+          happyview-url: ${{ vars.HAPPYVIEW_URL }}
+          api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          # prune is deliberately OFF. Turning it on makes a deleted file
+          # delete live lexicons and scripts, which for a record-type lexicon
+          # also orphans indexed data. Delete deliberately, by hand, until
+          # there is a reason to automate it.
+          prune: "false"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Deployed to \`${{ vars.HAPPYVIEW_URL }}\`"
+            echo ""
+            echo "| what | count |"
+            echo "| --- | --- |"
+            echo "| lexicons | ${{ steps.deploy.outputs.lexicons-deployed }} |"
+            echo "| scripts | ${{ steps.deploy.outputs.scripts-deployed }} |"
+            echo "| jobs | ${{ steps.deploy.outputs.jobs-deployed }} |"
+            echo "| labelers | ${{ steps.deploy.outputs.labelers-deployed }} |"
+            echo "| errors | ${{ steps.deploy.outputs.errors }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
