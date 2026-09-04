@@ -11,14 +11,7 @@
 -- matching on the space TYPE alone would admit everyone, since any user can
 -- create a space of any type and is auto-added to their own as a write member.
 
-local SPACE_URI = env.HAPPYPROTO_ADMIN_SPACE
-
--- Expected conditions are returned, never raised. Lua's `error()` produces a
--- 500 with a stack traceback — the wrong status for "you are not signed in",
--- and it puts internal file paths in front of the caller.
-local function failure(name, message)
-  return { error = name, message = message }
-end
+-- @prelude space, failure
 
 --- Public basics for any actor. This is the DEFAULT projection: every caller
 --- gets exactly this, and the entitlement fields are added afterwards only

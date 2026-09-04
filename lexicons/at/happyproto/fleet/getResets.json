@@ -1,0 +1,99 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getResets",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Counter resets \u2014 the negative deltas instance_daily_deltas discards. A reset is a restored backup, a wiped volume, a re-provision or a wrong clock. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "resets"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "windowDays": {
+              "type": "integer"
+            },
+            "resets": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#reset"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "reset": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "day",
+        "metric",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "day": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "from": {
+          "type": "integer",
+          "description": "Value before the reset."
+        },
+        "to": {
+          "type": "integer",
+          "description": "Value after it. Both are carried because \"records fell\" is not actionable and \"fell from 412,000 to 12\" is."
+        }
+      }
+    }
+  }
+}

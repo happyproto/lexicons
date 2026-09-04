@@ -1,0 +1,94 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getVersions",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "HappyView version distribution and upgrade lag. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "versions"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "versions": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#version"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "version": {
+      "type": "object",
+      "required": [
+        "version",
+        "instances"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "instances": {
+          "type": "integer"
+        },
+        "firstSeen": {
+          "type": "string",
+          "format": "datetime",
+          "description": "First appearance anywhere in the fleet."
+        },
+        "medianDaysToAdopt": {
+          "type": "integer",
+          "description": "Median days from fleet-first-seen to adoption. Non-adopters excluded, never counted as infinite."
+        },
+        "adopters": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

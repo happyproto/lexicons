@@ -1,0 +1,14 @@
+{
+  "name": "@happyproto/lexicons",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen": "bun run scripts/gen.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5"
+  }
+}

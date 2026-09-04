@@ -1,0 +1,131 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getBenchmarks",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Where one instance sits in its size cohort. Withheld below a cohort of 10: a percentile over fewer is not an aggregate, it is individual data with a statistic drawn over it. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "metrics"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "cohort": {
+              "type": "string"
+            },
+            "cohortSize": {
+              "type": "integer"
+            },
+            "minimum": {
+              "type": "integer",
+              "description": "Smallest cohort a benchmark is published for."
+            },
+            "reason": {
+              "type": "string",
+              "knownValues": [
+                "cohort"
+              ]
+            },
+            "computedAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "The rollup refreshes daily, so this can be 24 hours old."
+            },
+            "metrics": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#metric"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "instance is required."
+        },
+        {
+          "name": "NotFound",
+          "description": "No snapshots for that instance."
+        }
+      ],
+      "parameters": {
+        "type": "params",
+        "required": [
+          "instance"
+        ],
+        "properties": {
+          "instance": {
+            "type": "string",
+            "description": "Instance id to position within its cohort."
+          }
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": [
+        "metric",
+        "value",
+        "p50",
+        "percentile"
+      ],
+      "properties": {
+        "metric": {
+          "type": "string"
+        },
+        "value": {
+          "type": "integer"
+        },
+        "p50": {
+          "type": "integer"
+        },
+        "percentile": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

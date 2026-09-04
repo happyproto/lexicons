@@ -1,0 +1,130 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getIngestHealth",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Report lag, clock skew and schema-version spread. Lag and skew are separate facts and must not be averaged together. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "windowDays": {
+              "type": "integer"
+            },
+            "lag": {
+              "type": "ref",
+              "ref": "#lag"
+            },
+            "skewed": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#skew"
+              }
+            },
+            "schemaVersions": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#schemaVersion"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "lag": {
+      "type": "object",
+      "required": [
+        "p50",
+        "p90",
+        "max"
+      ],
+      "properties": {
+        "p50": {
+          "type": "integer"
+        },
+        "p90": {
+          "type": "integer"
+        },
+        "max": {
+          "type": "integer"
+        }
+      }
+    },
+    "skew": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "aheadSeconds"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "aheadSeconds": {
+          "type": "integer",
+          "description": "Seconds the snapshot was stamped ahead of receipt. A wrong clock makes every delta from this instance suspect."
+        }
+      }
+    },
+    "schemaVersion": {
+      "type": "object",
+      "required": [
+        "version",
+        "instances"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer"
+        },
+        "instances": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+*.log
+
+# luac writes bytecode here unless -p is passed
+luac.out
+
+# Build output. Scripts are authored in src/; run `bun run gen` to produce this.
+lua/

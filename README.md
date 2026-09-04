@@ -19,6 +19,47 @@ Everything is discovered by directory layout. There is no manifest.
 | `jobs/`     | `**/*.lua`           | `job.run:<type>`                                 |
 | `labelers/` | `**/*.lua`           | `labeler.apply:<nsid>`                           |
 
+### `lua/` is generated
+
+Scripts are **authored in `src/`** and generated into `lua/` by `bun run gen`.
+`lua/` is build output and is not in version control.
+
+Discovery still works on directory layout — `src/at/happyproto/fleet/getSignals.lua`
+becomes `lua/at/happyproto/fleet/getSignals.lua` becomes
+`at.happyproto.fleet.getSignals` — but the deployed file is generated, and the
+shared admin gate lives once in `src/shared/prelude.lua` instead of being
+copied by hand into every script.
+
+The sandbox has no `require`, so sharing code at runtime is impossible; the
+duplication has to be resolved at build time. Each source declares which
+prelude blocks it needs:
+
+```lua
+-- @prelude gate, clickhouse
+```
+
+| Block | Provides | Implies |
+| --- | --- | --- |
+| `space` | `SPACE_URI` | — |
+| `failure` | `failure(name, message)` | — |
+| `gate` | `denied()` — the admin gate | `space`, `failure` |
+| `config` | `CH_*` locals, `missing_config()` | — |
+| `urlencode` | `url_encode(s)` | — |
+| `clickhouse` | `query(sql, params)` | `config`, `urlencode` |
+
+Blocks are emitted in **prelude file order**, never directive order, because a
+Lua local must be declared before any function closing over it.
+
+`gate` is deliberately separable from `space`/`failure`: `actor.getProfile`
+needs the space uri and the failure helper but must **not** be admin-gated. It
+is the endpoint that tells a caller whether they are a member, so gating it on
+membership would be circular.
+
+`bun test` checks that every generated gate is byte-identical, that every fleet
+script actually has one, that every script has a paired lexicon, that no source
+re-declares a prelude helper or interpolates a caller value into SQL, and that
+all generated output parses under `luac -p`.
+
 A script's path becomes its NSID — `lua/com/happyproto/getMe.lua` binds to
 `com.happyproto.getMe` — and the **trigger type comes from the paired
 lexicon's `defs.main.type`**, not from the script. A `query` lexicon yields

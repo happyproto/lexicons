@@ -12,11 +12,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  lint:
-    name: Lint
+  # Generate ONCE and pass the output downstream. Generating separately in each
+  # job would have lint verifying one set of bytes and deploy uploading another
+  # that merely ought to be identical.
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      # luac -p syntax-checks every generated script. Without Lua installed the
+      # test FAILS rather than skipping, so a runner missing it is visible
+      # instead of quietly checking nothing.
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - run: bun install --frozen-lockfile
+      # gen BEFORE test: lua/ is build output and is not in the repo, so on a
+      # fresh checkout the tests that inspect generated scripts have nothing to
+      # read. Generation does not depend on the tests; the tests depend on it.
+      - run: bun run gen
+      - run: bun test
+      # Second of three fail-loud guards: the generator already exits non-zero
+      # on a zero-file run, this catches an empty upload, and download-artifact
+      # below errors on a missing artifact. Artifacts rather than actions/cache
+      # deliberately -- a cache miss is SILENT, and lint would then pass having
+      # linted lexicons/ alone: green, intermittent, and worthless.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lua
+          path: lua/
+          if-no-files-found: error
+
+  lint:
+    name: Lint
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lua
+          path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/lint@v1
 
   plan:
@@ -25,10 +60,14 @@ jobs:
     # A lint pass proves the files are well-formed; it does not tell you which
     # lexicons and scripts a merge would actually replace.
     if: github.event_name == 'pull_request'
-    needs: lint
+    needs: [build, lint]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lua
+          path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
         with:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
@@ -38,11 +77,15 @@ jobs:
   deploy:
     name: Deploy
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: lint
+    needs: [build, lint]
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lua
+          path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
         id: deploy
         with:

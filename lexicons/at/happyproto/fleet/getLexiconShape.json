@@ -1,0 +1,104 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getLexiconShape",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Lexicon counts and top-collection concentration. Reads tier-1 shape only; consent-gated lexicon names are not read here. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "instances": {
+              "type": "integer"
+            },
+            "lexiconCount": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "topCollectionShare": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "coverage": {
+              "type": "ref",
+              "ref": "#coverage"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "p50",
+        "p90"
+      ],
+      "properties": {
+        "p50": {
+          "type": "integer"
+        },
+        "p90": {
+          "type": "integer"
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "sharing",
+        "of"
+      ],
+      "properties": {
+        "sharing": {
+          "type": "integer"
+        },
+        "of": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

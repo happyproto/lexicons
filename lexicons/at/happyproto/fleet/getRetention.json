@@ -1,0 +1,102 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getRetention",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Survival by first-seen cohort. Manual-mode instances are excluded: they have no reporting cadence to miss, so their silence is not churn. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "cohorts"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "cohorts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#cohort"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "cohort": {
+      "type": "object",
+      "required": [
+        "cohort",
+        "started"
+      ],
+      "properties": {
+        "cohort": {
+          "type": "string",
+          "description": "Month the cohort was first seen."
+        },
+        "started": {
+          "type": "integer"
+        },
+        "survived30": {
+          "type": "integer"
+        },
+        "survived60": {
+          "type": "integer"
+        },
+        "survived90": {
+          "type": "integer"
+        },
+        "eligible30": {
+          "type": "integer",
+          "description": "Instances old enough to have survived 30 days. THIS is the denominator, not `started` \u2014 a cohort ten days old has not failed to survive thirty."
+        },
+        "eligible60": {
+          "type": "integer"
+        },
+        "eligible90": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

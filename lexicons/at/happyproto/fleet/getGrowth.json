@@ -1,0 +1,114 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getGrowth",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Fleet and per-instance growth rates from instance_daily_deltas. Counter resets are excluded by the view, so a wiped volume lowers no rate. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "fleet",
+            "byInstance"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "windowDays": {
+              "type": "integer"
+            },
+            "fleet": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#fleetRate"
+              }
+            },
+            "byInstance": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#instanceRate"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "fleetRate": {
+      "type": "object",
+      "required": [
+        "metric",
+        "perDay"
+      ],
+      "properties": {
+        "metric": {
+          "type": "string"
+        },
+        "perDay": {
+          "type": "integer",
+          "description": "Fleet-wide daily growth over the window."
+        }
+      }
+    },
+    "instanceRate": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "metric",
+        "rate"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "rate": {
+          "type": "integer",
+          "description": "Mean daily delta over the window."
+        }
+      }
+    }
+  }
+}

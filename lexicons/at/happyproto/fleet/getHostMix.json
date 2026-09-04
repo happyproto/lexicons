@@ -1,0 +1,132 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getHostMix",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Categorical host facts across the fleet, with consent coverage. Keys whose values vary per instance, or that carry embedded documents, are named but not enumerated. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "coverage",
+            "facts",
+            "varying"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "coverage": {
+              "type": "ref",
+              "ref": "#coverage"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#fact"
+              },
+              "description": "Only keys whose values repeat across instances. A value seen once per instance is a measurement, not a category."
+            },
+            "varying": {
+              "type": "array",
+              "description": "Host keys that are not a mix: values differ per instance, or are JSON documents. Named so a reader knows the key exists, without rendering one row per instance.",
+              "items": {
+                "type": "ref",
+                "ref": "#varyingKey"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "sharing",
+        "of"
+      ],
+      "properties": {
+        "sharing": {
+          "type": "integer"
+        },
+        "of": {
+          "type": "integer",
+          "description": "A count over twelve of thirty instances is a different claim from a count over thirty."
+        }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "required": [
+        "key",
+        "value",
+        "instances"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "instances": {
+          "type": "integer"
+        }
+      }
+    },
+    "varyingKey": {
+      "type": "object",
+      "required": [
+        "key",
+        "distinctValues"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "distinctValues": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

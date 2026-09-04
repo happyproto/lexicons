@@ -1,0 +1,135 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getCostShape",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Disk and memory distribution, and bytes per record. Memory is reported as separate anonymous and file-backed figures and is never totalled. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer"
+            },
+            "need": {
+              "type": "integer"
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "instances": {
+              "type": "integer"
+            },
+            "windowDays": {
+              "type": "integer"
+            },
+            "bytesPerRecord": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "diskBytes": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "memoryAnon": {
+              "type": "ref",
+              "ref": "#pair",
+              "description": "Anonymous memory. Never summed with memoryFile."
+            },
+            "memoryFile": {
+              "type": "ref",
+              "ref": "#pair",
+              "description": "File-backed memory, dominated by page cache. Its own figure: adding it to memoryAnon is how a healthy instance is diagnosed as leaking."
+            },
+            "sources": {
+              "type": "ref",
+              "ref": "#sources"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "p50",
+        "p90",
+        "instances"
+      ],
+      "properties": {
+        "p50": {
+          "type": "integer"
+        },
+        "p90": {
+          "type": "integer"
+        },
+        "instances": {
+          "type": "integer",
+          "description": "Instances contributing to this figure."
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "description": "Which map each figure came from. These metrics live in `host` on the current fleet (db_bytes, memory_anon_bytes) but the collector's benchmark rollup reads `totals` (database_bytes, rss_anon). Reporting the source makes a disagreement visible rather than silently resolved; \"none\" means the key is absent from both, so a 0 is not a measurement.",
+      "properties": {
+        "diskBytes": {
+          "type": "string",
+          "knownValues": [
+            "host",
+            "totals",
+            "none"
+          ]
+        },
+        "memoryAnon": {
+          "type": "string",
+          "knownValues": [
+            "host",
+            "totals",
+            "none"
+          ]
+        },
+        "memoryFile": {
+          "type": "string",
+          "knownValues": [
+            "host",
+            "totals",
+            "none"
+          ]
+        }
+      }
+    }
+  }
+}

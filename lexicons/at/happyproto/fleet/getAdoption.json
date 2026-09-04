@@ -1,0 +1,94 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getAdoption",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Per-subsystem feature adoption, ever-used against active now. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "features"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "ok",
+                "accruing",
+                "withheld"
+              ],
+              "description": "Why a figure is absent. Branch on this, never on field presence."
+            },
+            "have": {
+              "type": "integer",
+              "description": "History available, when accruing."
+            },
+            "need": {
+              "type": "integer",
+              "description": "History required, when accruing."
+            },
+            "unit": {
+              "type": "string",
+              "knownValues": [
+                "days",
+                "snapshots"
+              ]
+            },
+            "instances": {
+              "type": "integer"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#feature"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto admin."
+        },
+        {
+          "name": "Upstream",
+          "description": "The telemetry store could not be queried."
+        }
+      ]
+    },
+    "feature": {
+      "type": "object",
+      "required": [
+        "feature",
+        "everUsed",
+        "activeNow",
+        "builtNotUsed"
+      ],
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "everUsed": {
+          "type": "integer"
+        },
+        "activeNow": {
+          "type": "integer"
+        },
+        "builtNotUsed": {
+          "type": "integer",
+          "description": "Ever used but not active now. This column is the finding being paid for."
+        }
+      }
+    }
+  }
+}
