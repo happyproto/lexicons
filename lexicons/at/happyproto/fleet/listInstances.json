@@ -1,0 +1,55 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.listInstances",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The reporting fleet, one row per instance, from its most recent snapshot. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["instances", "consent"],
+          "properties": {
+            "instances": { "type": "array", "items": { "type": "ref", "ref": "#instance" } },
+            "consent": {
+              "type": "ref",
+              "ref": "#consent",
+              "description": "What the fleet has consented to share. Absence of a field is a consent decision, not a gap in collection."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired", "description": "This endpoint requires an authenticated caller." },
+        { "name": "Forbidden", "description": "The caller is not a HappyProto admin." },
+        { "name": "Upstream", "description": "The telemetry store could not be queried." }
+      ]
+    },
+    "instance": {
+      "type": "object",
+      "required": ["instanceId", "lastSeen", "version", "reportMode"],
+      "properties": {
+        "instanceId": { "type": "string" },
+        "lastSeen": { "type": "string", "format": "datetime" },
+        "version": { "type": "string" },
+        "reportMode": { "type": "string", "knownValues": ["auto", "manual"] },
+        "records": { "type": "integer" },
+        "users": { "type": "integer" },
+        "spaces": { "type": "integer" },
+        "lexicons": { "type": "integer" },
+        "scriptErrors": { "type": "integer" }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {
+        "total": { "type": "integer" },
+        "withContact": { "type": "integer" },
+        "withLexiconNames": { "type": "integer" },
+        "withHost": { "type": "integer" }
+      }
+    }
+  }
+}

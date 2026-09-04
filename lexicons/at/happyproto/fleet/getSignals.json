@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getSignals",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Fleet-wide failure signals, derived from each instance's most recent snapshot. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["instances", "signals", "quiet"],
+          "properties": {
+            "instances": { "type": "integer", "description": "Instances with at least one snapshot." },
+            "signals": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#signal" }
+            },
+            "quiet": {
+              "type": "array",
+              "description": "Instances whose most recent snapshot is older than the quiet threshold.",
+              "items": { "type": "ref", "ref": "#quietInstance" }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired", "description": "This endpoint requires an authenticated caller." },
+        { "name": "Forbidden", "description": "The caller is not a HappyProto admin." },
+        { "name": "Upstream", "description": "The telemetry store could not be queried." }
+      ]
+    },
+    "signal": {
+      "type": "object",
+      "required": ["key", "label", "instances"],
+      "properties": {
+        "key": { "type": "string" },
+        "label": { "type": "string" },
+        "instances": { "type": "integer", "description": "How many instances reported this at least once." },
+        "total": { "type": "integer", "description": "Sum across the fleet." },
+        "severity": { "type": "string", "knownValues": ["warn", "info"] }
+      }
+    },
+    "quietInstance": {
+      "type": "object",
+      "required": ["instanceId", "lastSeen"],
+      "properties": {
+        "instanceId": { "type": "string" },
+        "lastSeen": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

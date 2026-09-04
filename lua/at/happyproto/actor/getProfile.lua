@@ -13,29 +13,36 @@
 
 local SPACE_URI = env.HAPPYPROTO_ADMIN_SPACE
 
+-- Expected conditions are returned, never raised. Lua's `error()` produces a
+-- 500 with a stack traceback — the wrong status for "you are not signed in",
+-- and it puts internal file paths in front of the caller.
+local function failure(name, message)
+  return { error = name, message = message }
+end
+
 --- Public basics for any actor. This is the DEFAULT projection: every caller
 --- gets exactly this, and the entitlement fields are added afterwards only
 --- when the actor is provably the caller. Written this way round so a later
 --- edit cannot widen disclosure by forgetting a guard.
+---
+--- Returns nil rather than raising. `xrpc.query` RAISES on a non-2xx — it does
+--- not hand back a status — so a bare call here kills the whole script. And it
+--- will fail routinely: `app.bsky.actor.getProfile` is not served locally, it
+--- is proxied to the actor's PDS, which answers 401 because the proxy carries
+--- no credentials. Profile decoration is therefore best-effort by nature, and
+--- entitlements must never depend on it.
 local function basics(identifier)
-  local response = xrpc.query("app.bsky.actor.getProfile", { actor = identifier })
-  if response.status ~= 200 or not response.body or not response.body.did then
-    return nil
-  end
+  local ok, response = pcall(xrpc.query, "app.bsky.actor.getProfile", { actor = identifier })
+  if not ok then return nil end
+  if type(response) ~= "table" or response.status ~= 200 then return nil end
   local profile = response.body
+  if type(profile) ~= "table" or not profile.did then return nil end
   return {
     did = profile.did,
     handle = profile.handle,
     displayName = profile.displayName,
     avatar = profile.avatar,
   }
-end
-
--- Expected conditions are returned, never raised. Lua's `error()` produces a
--- 500 with a stack traceback — the wrong status for "you are not signed in",
--- and it puts internal file paths in front of the caller.
-local function failure(name, message)
-  return { error = name, message = message }
 end
 
 function handle()
@@ -54,11 +61,14 @@ function handle()
 
   local profile = basics(identifier)
   if not profile then
-    -- Falling back to the bare DID for the caller keeps sign-in working even
-    -- if the profile lookup is unavailable: entitlements do not depend on it.
     if identifier == caller_did then
+      -- The caller is known from the token; decoration is optional. Sign-in
+      -- must not depend on a third-party profile lookup succeeding.
       profile = { did = caller_did }
     else
+      -- For another actor there is nothing left to return. Resolving a handle
+      -- without PDS credentials needs a different path (DID document, or a
+      -- public AppView) — not built, because nothing needs it yet.
       return failure("ActorNotFound", "Could not resolve " .. tostring(identifier) .. ".")
     end
   end
@@ -84,7 +94,13 @@ function handle()
     return profile
   end
 
-  local access = atproto.spaces.get_access(SPACE_URI, caller_did)
+  -- pcall for the same reason as the fleet scripts: a raise here would turn a
+  -- feature-flag problem into a 500 and make sign-in impossible to diagnose.
+  local ok, access = pcall(atproto.spaces.get_access, SPACE_URI, caller_did)
+  if not ok then
+    profile.isMember = false
+    return profile
+  end
   profile.access = access
   profile.isMember = access ~= nil
   return profile

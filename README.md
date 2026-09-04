@@ -82,6 +82,21 @@ works.
 | Key | Value |
 | --- | --- |
 | `HAPPYPROTO_ADMIN_SPACE` | `at://did:plc:4jrld6fwpnwqehtce56qshzv/space/at.happyproto.admin/main` |
+| `HAPPYPROTO_CLICKHOUSE_URL` | `http://clickhouse:8123` |
+| `HAPPYPROTO_CLICKHOUSE_USER` | `readonly` |
+| `HAPPYPROTO_CLICKHOUSE_PASSWORD` | from the infrastructure vault (`vault_clickhouse_readonly_password`) |
+| `HAPPYPROTO_CLICKHOUSE_DB` | `happyproto_telemetry` |
+
+ClickHouse is reached over the shared Docker network by container name, which
+is why the URL is `http://clickhouse:8123` and not a public address —
+ClickHouse never leaves loopback. The `readonly` user holds `SELECT` only on
+the telemetry database, verified by the infrastructure repo's `happyview`
+tag: it asserts both that the credential works *and* that a `CREATE TABLE`
+through it is refused.
+
+Credentials travel to ClickHouse as `x-clickhouse-*` headers rather than in
+the URL, so they stay out of any proxy or access log that records query
+strings.
 
 ```bash
 curl -sX POST https://api.happyproto.at/admin/script-variables \
