@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.getProfile",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get an actor's profile. Returns full detail — including dashboard entitlements — only for the authenticated caller; for any other actor it returns public basics only.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "Handle or DID to look up. Defaults to the authenticated caller."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did", "isSelf"],
+          "properties": {
+            "did": { "type": "string", "format": "did" },
+            "handle": { "type": "string", "format": "handle" },
+            "displayName": { "type": "string" },
+            "avatar": { "type": "string", "format": "uri" },
+            "isSelf": {
+              "type": "boolean",
+              "description": "Whether this profile is the authenticated caller's. When false, the entitlement fields are absent — they are never populated for another actor."
+            },
+            "isMember": {
+              "type": "boolean",
+              "description": "Caller only. Whether the actor may use the dashboard."
+            },
+            "access": {
+              "type": "string",
+              "knownValues": ["read", "write"],
+              "description": "Caller only. Access level in the HappyProto admin space."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired", "description": "This endpoint requires an authenticated caller." },
+        { "name": "ActorNotFound", "description": "The requested actor could not be resolved." }
+      ]
+    }
+  }
+}

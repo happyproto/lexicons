@@ -71,3 +71,35 @@ Two rules that matter more than they look:
    of 10 and withholds the metric instead; a query endpoint must not become
    the way around that by letting a caller narrow a filter until the cohort is
    one other customer.
+
+## Script variables
+
+Secrets and configuration the scripts read from the `env` global. Set them on
+the instance with the admin API — they are encrypted at rest using
+`TOKEN_ENCRYPTION_KEY`, so that key must be configured before any of this
+works.
+
+| Key | Value |
+| --- | --- |
+| `HAPPYPROTO_ADMIN_SPACE` | `at://did:plc:4jrld6fwpnwqehtce56qshzv/space/at.happyproto.admin/main` |
+
+```bash
+curl -sX POST https://api.happyproto.at/admin/script-variables \
+  -H "Authorization: Bearer $HV_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key": "HAPPYPROTO_ADMIN_SPACE",
+    "value": "at://did:plc:4jrld6fwpnwqehtce56qshzv/space/at.happyproto.admin/main"
+  }'
+```
+
+The space uri lives here rather than in the dashboard's bundle on purpose. The
+gate is "is the caller a member of *this* space", and the authority DID is the
+part that makes it mean anything — matching on the space *type* would admit
+everyone, because any user can create a space of any type and is auto-added to
+their own as a write member. Keeping the uri server-side means a browser
+cannot be pointed at a different space, and the rule cannot be edited by
+anyone holding the bundle.
+
+Scripts fail closed when it is absent: no space configured means nobody is a
+member.
