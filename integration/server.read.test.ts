@@ -17,6 +17,7 @@ const RUNNING_ID = "11111111-1111-4111-8111-111111111111";
 const PROVISIONING_ID = "22222222-2222-4222-8222-222222222222";
 const STAFF_OWN_ID = "33333333-3333-4333-8333-333333333333";
 const SOMEONE_ELSES_ID = "44444444-4444-4444-8444-444444444444";
+const DELETED_ID = "77777777-7777-4777-8777-777777777777";
 const CREATE_OP_ID = "55555555-5555-4555-8555-555555555555";
 
 /** A tenant row with every column the provisioner's Tenant serialises. */
@@ -77,6 +78,12 @@ beforeEach(async () => {
       }),
       tenant(STAFF_OWN_ID, "staffs-own", staff.did),
       tenant(SOMEONE_ELSES_ID, "gamma", "did:plc:someoneelseentirely"),
+      // Deleted but not yet purged: the provisioner still returns it by id.
+      tenant(DELETED_ID, "delta", customer.did, {
+        desired_state: "stopped",
+        deleted_at: "2026-10-02T09:00:00Z",
+        purge_after: "2026-11-01T09:00:00Z",
+      }),
     ],
     operations: [
       {
@@ -290,6 +297,23 @@ describe("server.getInstance", () => {
     await fails(server("getInstance"), "customer", "NotFound", {
       params: { id: "66666666-6666-4666-8666-666666666666" },
     });
+  });
+});
+
+describe("deleted instances", () => {
+  test("are not listed", async () => {
+    const out = await ok(server("listInstances"), "customer");
+    expect(out.instances.map((i: { id: string }) => i.id)).not.toContain(DELETED_ID);
+  });
+
+  test("are NotFound by id, though the provisioner still returns them", async () => {
+    const reply = await fails(server("getInstance"), "customer", "NotFound", {
+      params: { id: DELETED_ID },
+    });
+    // The same words as any other missing instance.
+    expect(reply.body.message).toBe("instance not found");
+    const [request] = await provisioner.requests();
+    expect(request.path).toBe(`/v1/tenants/${DELETED_ID}`);
   });
 });
 

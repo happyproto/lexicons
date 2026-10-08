@@ -46,7 +46,7 @@ describe("parsePrelude", () => {
     // must come after it.
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
-      "json", "failure", "validate", "gate", "clickhouse", "provisioner", "instance",
+      "json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance",
     ]);
   });
 
@@ -73,14 +73,14 @@ describe("parseDirective", () => {
 });
 
 describe("expand", () => {
-  const order = ["json", "failure", "validate", "gate", "clickhouse", "provisioner", "instance"];
+  const order = ["json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance"];
 
   test("gate implies failure", () => {
     expect(expand(["gate"], order)).toEqual(["failure", "gate"]);
   });
 
-  test("clickhouse implies json and failure", () => {
-    expect(expand(["clickhouse"], order)).toEqual(["json", "failure", "clickhouse"]);
+  test("clickhouse implies json, failure and urlencode", () => {
+    expect(expand(["clickhouse"], order)).toEqual(["json", "failure", "urlencode", "clickhouse"]);
   });
 
   test("provisioner implies json and failure", () => {
@@ -113,7 +113,8 @@ describe("expand", () => {
   });
 
   test("the v2 blocks are gone", () => {
-    for (const old of ["space", "config", "urlencode"]) {
+    // urlencode came back in v3 as a block of its own; space and config did not.
+    for (const old of ["space", "config"]) {
       expect(() => expand([old], order)).toThrow(new RegExp(old));
     }
   });

@@ -12,18 +12,19 @@
 #
 # Host ports sit in the 55xxx range so the stack does not collide with
 # HappyView's own dev, test and e2e stacks (5432-5434, 2582, 3100, 3200).
-# The HappyView release comes from .env beside this file.
+# Ports bind to loopback only: the stack runs with known secrets.
+# The HappyView release and every image digest come from .env beside this file.
 name: happyproto-lexicons-integration
 
 services:
   postgres:
-    image: postgres:17
+    image: ${POSTGRES_IMAGE:?set in integration/.env}
     environment:
       POSTGRES_USER: happyview
       POSTGRES_PASSWORD: happyview
       POSTGRES_DB: happyview
     ports:
-      - "55432:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - ./init-dbs.sql:/docker-entrypoint-initdb.d/init-dbs.sql:ro
     healthcheck:
@@ -33,14 +34,14 @@ services:
       retries: 30
 
   plc:
-    image: ghcr.io/happyproto/pds-test/plc:latest
+    image: ${PLC_IMAGE:?set in integration/.env}
     environment:
       DB_CREDS_JSON: '{"username":"happyview","password":"happyview","host":"postgres","port":"5432","database":"plc"}'
       ENABLE_MIGRATIONS: "true"
       DB_MIGRATE_CREDS_JSON: '{"username":"happyview","password":"happyview","host":"postgres","port":"5432","database":"plc"}'
       PORT: "2582"
     ports:
-      - "55582:2582"
+      - "127.0.0.1:55582:2582"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2582/_health >/dev/null"]
       interval: 2s
@@ -52,7 +53,7 @@ services:
 
   pds:
     # Distroless, so it has no healthcheck; setup.ts waits for /health.
-    image: ghcr.io/happyproto/pds-test/tranquil:latest
+    image: ${PDS_IMAGE:?set in integration/.env}
     environment:
       DATABASE_URL: postgres://happyview:happyview@postgres:5432/pds
       PLC_DIRECTORY_URL: http://plc:2582
@@ -62,7 +63,7 @@ services:
     volumes:
       - ./pds-config.toml:/etc/tranquil-pds/config.toml:ro
     ports:
-      - "55100:3000"
+      - "127.0.0.1:55100:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,7 +98,7 @@ services:
     volumes:
       - ./plugins.txt:/plugins.txt:ro
     ports:
-      - "55200:3000"
+      - "127.0.0.1:55200:3000"
     healthcheck:
       test:
         - CMD
@@ -114,7 +115,7 @@ services:
         condition: service_healthy
 
   fake-provisioner:
-    image: oven/bun:1
+    image: ${BUN_IMAGE:?set in integration/.env}
     working_dir: /app
     command: ["bun", "run", "fake-provisioner.ts"]
     environment:
@@ -123,7 +124,7 @@ services:
     volumes:
       - ./fake-provisioner.ts:/app/fake-provisioner.ts:ro
     ports:
-      - "55300:8080"
+      - "127.0.0.1:55300:8080"
     healthcheck:
       test: ["CMD", "bun", "-e", "process.exit((await fetch('http://127.0.0.1:8080/__health')).ok ? 0 : 1)"]
       interval: 2s
@@ -131,7 +132,7 @@ services:
       retries: 30
 
   fake-clickhouse:
-    image: oven/bun:1
+    image: ${BUN_IMAGE:?set in integration/.env}
     working_dir: /app
     command: ["bun", "run", "fake-clickhouse.ts"]
     environment:
@@ -139,7 +140,7 @@ services:
     volumes:
       - ./fake-clickhouse.ts:/app/fake-clickhouse.ts:ro
     ports:
-      - "55400:8123"
+      - "127.0.0.1:55400:8123"
     healthcheck:
       test: ["CMD", "bun", "-e", "process.exit((await fetch('http://127.0.0.1:8123/__health')).ok ? 0 : 1)"]
       interval: 2s

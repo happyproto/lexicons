@@ -7,21 +7,13 @@
 -- tenant; a staff member who is also a customer must still see only their
 -- own here. The admin endpoints are where staff see everyone's.
 
--- @prelude gate, provisioner, instance
-
---- A DID as a query-string value. A did:web can carry `%` (a percent-encoded
---- port), which the provisioner would otherwise decode into a different DID.
-local function query_value(s)
-  return (s:gsub("[^%w%-%._~:]", function(c)
-    return string.format("%%%02X", string.byte(c))
-  end))
-end
+-- @prelude gate, urlencode, provisioner, instance
 
 function handle(input, ctx)
   local refused = gate_customer(ctx)
   if refused then return refused end
 
-  local status, body = provisioner(ctx, "GET", "/v1/tenants?owner_did=" .. query_value(ctx.caller_did))
+  local status, body = provisioner(ctx, "GET", "/v1/tenants?owner_did=" .. url_encode(ctx.caller_did))
   if status ~= 200 or type(body) ~= "table" or type(body.tenants) ~= "table" then
     return provisioner_failure(status, body)
   end

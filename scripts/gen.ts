@@ -35,7 +35,7 @@ const DIRECTIVE = /^--\s*@prelude\s+(.+)$/m;
  */
 const IMPLIES: Record<string, string[]> = {
   gate: ["failure"],
-  clickhouse: ["json", "failure"],
+  clickhouse: ["json", "failure", "urlencode"],
   provisioner: ["json", "failure"],
   instance: ["json"],
 };

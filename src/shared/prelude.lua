@@ -3,8 +3,9 @@
 --
 -- Blocks are emitted in the order they appear HERE, not the order a script
 -- lists them, because Lua requires a local to be declared before any function
--- closing over it. `gate` implies `failure`; `clickhouse` and `provisioner`
--- imply `json` and `failure`; `instance` implies `json`.
+-- closing over it. `gate` implies `failure`; `clickhouse` implies `json`,
+-- `failure` and `urlencode`; `provisioner` implies `json` and `failure`;
+-- `instance` implies `json`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
 -- failure helper but must NOT be admin-gated. It is the endpoint that tells a
@@ -131,6 +132,18 @@ local function gate_customer(ctx)
 end
 -- @endblock
 
+-- @block urlencode
+--- Percent-encode a value for a URL query string or path segment: everything
+--- but RFC 3986's unreserved characters. A DID goes through this too: a
+--- did:web can carry `%` (an encoded port) and `#`, and sent raw the first
+--- would be decoded into a different DID and the second would end the URL.
+local function url_encode(s)
+  return (tostring(s):gsub("[^%w%-%_%.%~]", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end))
+end
+-- @endblock
+
 -- @block clickhouse
 local http = require("happyview.http")
 
@@ -156,13 +169,6 @@ local function missing_config(env)
     return "missing script variable(s): " .. table.concat(absent, ", ")
   end
   return nil
-end
-
---- Percent-encode a parameter value for the ClickHouse query string.
-local function url_encode(s)
-  return (tostring(s):gsub("[^%w%-%_%.%~]", function(c)
-    return string.format("%%%02X", string.byte(c))
-  end))
 end
 
 --- Rows from ClickHouse, or nil and a message. Reads its configuration from

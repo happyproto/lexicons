@@ -45,7 +45,8 @@ Each source declares which prelude blocks it needs:
 | `failure` | `failure(name, message)` | — |
 | `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
 | `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure` |
-| `clickhouse` | `query(ctx, sql, params)` | `json`, `failure` |
+| `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
+| `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 

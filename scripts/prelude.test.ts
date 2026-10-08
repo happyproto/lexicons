@@ -539,6 +539,25 @@ describe("clickhouse", () => {
   });
 });
 
+describe("urlencode", () => {
+  it("encodes a did:web with %, : and # into one opaque query value", () => {
+    const { r1 } = run(`return url_encode("did:web:example.com%3A8080:u#frag")`);
+    expect(r1).toBe("did%3Aweb%3Aexample.com%253A8080%3Au%23frag");
+    // Decoding gives back exactly the DID, which is what the provisioner sees.
+    expect(decodeURIComponent(r1)).toBe("did:web:example.com%3A8080:u#frag");
+  });
+
+  it("leaves RFC 3986 unreserved characters alone", () => {
+    const { r1 } = run(`return url_encode("did:plc:abc-DEF_1.2~3")`);
+    expect(r1).toBe("did%3Aplc%3Aabc-DEF_1.2~3");
+  });
+
+  it("encodes &, = and spaces, so a value cannot add a parameter", () => {
+    const { r1 } = run(`return url_encode("a&owner_did=b c")`);
+    expect(r1).toBe("a%26owner_did%3Db%20c");
+  });
+});
+
 describe("validate", () => {
   // Copied from the provisioner's slug.rs tests.
   const VALID = ["abc", "alice", "a1b", "my-app", "a2345678901234567890123456789012"];

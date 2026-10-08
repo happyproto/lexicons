@@ -181,6 +181,58 @@ export async function removeMember(
   );
 }
 
+/**
+ * Plugins in plugins.txt that may be absent. Each needs a reason, and leaves
+ * this list when the reason does.
+ */
+const PLUGINS_NOT_YET_LOADABLE: Record<string, string> = {
+  // v1.1.0 declares jobs:read and jobs:read_any, which HappyView only learns
+  // in 3.0.0-alpha.4; alpha.3 refuses the manifest. Remove this entry when
+  // HAPPYVIEW_VERSION moves to alpha.4.
+  "happyview-jobs": "needs HappyView 3.0.0-alpha.4",
+};
+
+/**
+ * Every plugin in plugins.txt is installed and enabled, with the digest the
+ * file pins. HappyView logs a plugin that fails to load and boots anyway, so
+ * without this a bad entry surfaces as unrelated-looking script failures.
+ */
+async function assertPlugins(apiKey: string): Promise<void> {
+  const wanted = (await readFile("integration/plugins.txt", "utf8"))
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [id, , digest] = line.split("|");
+      return { id, sha256: digest?.replace(/^sha256:/, "") };
+    });
+  const { plugins } = await expectOk(
+    await fetch(`${HAPPYVIEW_URL}/admin/plugins`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+    }),
+    "list plugins",
+  );
+  const problems: string[] = [];
+  for (const { id, sha256 } of wanted) {
+    const found = (plugins as { id: string; enabled: boolean; sha256?: string }[]).find(
+      (p) => p.id === id,
+    );
+    if (!found) {
+      if (!PLUGINS_NOT_YET_LOADABLE[id]) problems.push(`${id} is not installed`);
+    } else if (!found.enabled) {
+      problems.push(`${id} is installed but disabled`);
+    } else if (found.sha256 !== sha256) {
+      problems.push(`${id} has digest ${found.sha256}, plugins.txt pins ${sha256}`);
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      `plugins.txt and the running HappyView disagree:\n  ${problems.join("\n  ")}\n` +
+        "See `docker compose -f integration/compose.yml logs happyview` for why a plugin failed to load.",
+    );
+  }
+}
+
 /** Set one script variable through the admin API. */
 export async function setVariable(apiKey: string, key: string, value: string): Promise<void> {
   await expectOk(
@@ -299,11 +351,14 @@ async function setup(): Promise<Stack> {
           "scripts:read",
           "script-variables:create",
           "script-variables:read",
+          "plugins:read",
         ],
       }),
     }),
     "create admin API key",
   );
+
+  await assertPlugins(apiKey);
 
   const registered = await expectOk(
     await fetch(`${HAPPYVIEW_URL}/admin/api-clients`, {
