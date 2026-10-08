@@ -44,7 +44,8 @@ Each source declares which prelude blocks it needs:
 | `json` | `json`, from `internal.json` | — |
 | `failure` | `failure(name, message)` | — |
 | `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
-| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure` |
+| `access` | `MEMBER_ACCESS`, the space access levels that admit | — |
+| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure`, `access` |
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |

@@ -28,10 +28,14 @@ export const provisioner = {
     hosts?: any[];
     staff?: string[];
     instanceLimit?: number;
+    entitlementMode?: "invite" | "staff";
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>
     post(`${PROVISIONER_URL}/__script`, { method, path, status, body }),
+  /** The next `method path` request gets no reply at all, once. */
+  drop: (method: string, path: string) =>
+    post(`${PROVISIONER_URL}/__script`, { method, path, status: 500, body: null, drop: true }),
   /**
    * The states the next operation a mutating route creates moves through,
    * one per read of it, holding at the last. `{ http, error? }` fails that

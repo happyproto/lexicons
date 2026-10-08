@@ -3,7 +3,7 @@
 --
 -- Blocks are emitted in the order they appear HERE, not the order a script
 -- lists them, because Lua requires a local to be declared before any function
--- closing over it. `gate` implies `failure`; `clickhouse` implies `json`,
+-- closing over it. `gate` implies `failure` and `access`; `clickhouse` implies `json`,
 -- `failure` and `urlencode`; `provisioner` implies `json` and `failure`;
 -- `instance` implies `json`; `jobs` implies `failure`.
 --
@@ -82,12 +82,16 @@ local function is_slug(s)
 end
 -- @endblock
 
--- @block gate
-local spaces = require("happyview.spaces")
-
+-- @block access
 -- Access levels that admit. An allowlist, so a level the spaces library adds
 -- later, or a value it was never meant to return, refuses rather than admits.
+-- Its own block so actor.getProfile can report exactly what the gate would
+-- decide without taking the gate.
 local MEMBER_ACCESS = { read = true, read_self = true, write = true }
+-- @endblock
+
+-- @block gate
+local spaces = require("happyview.spaces")
 
 --- nil when the caller may proceed, else a failure table. Fails closed: a
 --- missing caller, a missing or empty space variable, a space that cannot be
@@ -348,20 +352,23 @@ end
 
 --- The caller's own live tenant, as GET /v1/tenants/:id answers it --
 --- `{tenant, current_operation}` -- or nil and a failure table. `id` must
---- already be a UUID: it goes into the path.
+--- already be a UUID: it goes into the path. With `include_deleted`, the
+--- caller's own deleted tenant comes back too, for deleteInstance's retries;
+--- another owner's never does.
 ---
 --- The provisioner hands staff ANY tenant, so ownership is checked here, not
 --- trusted to it: a staff member who is also a customer must reach only their
 --- own instances through the customer endpoints. Another owner's tenant and a
 --- deleted one are both NotFound, in the provisioner's own words, so neither
 --- can be told apart from an id that does not exist.
-local function owned_tenant(ctx, id)
+local function owned_tenant(ctx, id, include_deleted)
   local status, body = provisioner(ctx, "GET", "/v1/tenants/" .. id)
   if status ~= 200 or type(body) ~= "table" or type(body.tenant) ~= "table" then
     return nil, provisioner_failure(status, body)
   end
   -- deleted_at is a timestamp string, or JSON null for a live instance.
-  if body.tenant.owner_did ~= ctx.caller_did or type(body.tenant.deleted_at) == "string" then
+  local deleted = type(body.tenant.deleted_at) == "string"
+  if body.tenant.owner_did ~= ctx.caller_did or (deleted and not include_deleted) then
     return nil, failure("NotFound", "instance not found")
   end
   return body

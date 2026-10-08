@@ -22,6 +22,8 @@ const BUSY_ID = "88888888-8888-4888-8888-888888888888";
 const BUSY_OP_ID = "99999999-9999-4999-8999-999999999990";
 const NOT_LIVE_ID = "22222222-2222-4222-8222-222222222222";
 const NOT_LIVE_OP_ID = "55555555-5555-4555-8555-555555555555";
+const DELETED_OWN_ID = "77777777-7777-4777-8777-777777777777";
+const DELETED_OTHER_ID = "66666666-6666-4666-8666-666666666666";
 
 const JOB_TIMEOUT = 90_000;
 const TERMINAL = new Set(["completed", "failed", "cancelled", "paused"]);
@@ -91,6 +93,16 @@ beforeEach(async () => {
       tenant(RUNNING_ID, "alpha", customer.did),
       tenant(SOMEONE_ELSES_ID, "gamma", "did:plc:someoneelseentirely"),
       tenant(BUSY_ID, "busy", customer.did),
+      tenant(DELETED_OWN_ID, "gone", customer.did, {
+        desired_state: "deleted",
+        deleted_at: "2026-10-02T09:00:00Z",
+        purge_after: "2026-11-01T09:00:00Z",
+      }),
+      tenant(DELETED_OTHER_ID, "gone-too", "did:plc:someoneelseentirely", {
+        desired_state: "deleted",
+        deleted_at: "2026-10-02T09:00:00Z",
+        purge_after: "2026-11-01T09:00:00Z",
+      }),
       tenant(NOT_LIVE_ID, "settling", customer.did, {
         routed: false,
         observed_state: "pending",
@@ -274,50 +286,61 @@ describe("the instance.operation job", () => {
     }
   }, JOB_TIMEOUT);
 
-  test("fails with the operation's error code and message", async () => {
-    await provisioner.progress([
-      { status: "running", step: "place" },
-      { status: "failed", step: "place", error_code: "NoCapacity", error_message: "no host has room" },
-    ]);
-    const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "doomed", plan: "small", idempotencyKey: crypto.randomUUID() },
+  /**
+   * Start an upgrade whose operation runs `states`, and wait for its job.
+   * Each goes to a new release: the fake, like the provisioner, refuses an
+   * upgrade to the version the instance already runs.
+   */
+  let release = 5;
+  async function upgradeEndingIn(states: Parameters<typeof provisioner.progress>[0]): Promise<any> {
+    await provisioner.progress(states);
+    const { jobId } = await ok(server("updateInstance"), "customer", {
+      input: { id: RUNNING_ID, version: `3.0.0-alpha.${release++}`, idempotencyKey: crypto.randomUUID() },
     });
     started.push(["customer", jobId]);
+    return (await untilDone(jobId)).at(-1);
+  }
 
-    const last = (await untilDone(jobId)).at(-1);
-    expect(last.status).toBe("failed");
-    expect(last.error).toContain("NoCapacity");
-    expect(last.error).toContain("no host has room");
-  }, JOB_TIMEOUT);
-
-  test("an operation's raw message is replaced unless its code's text is fixed", async () => {
-    await provisioner.progress([
-      { status: "failed", step: "apply", error_code: "AgentError", error_message: "SENTINEL-agent /var/lib/x refused" },
+  test("fails with the operation's fixed message, under a customer code", async () => {
+    // What a failed upgrade really ends in. UpgradeRolledBack is not one of
+    // the customer codes, so the job says Upstream; its text is fixed in the
+    // provisioner, so it is shown as it is.
+    const last = await upgradeEndingIn([
+      { status: "running", step: "apply" },
+      {
+        status: "failed",
+        step: "rollback",
+        error_code: "UpgradeRolledBack",
+        error_message: "the new version did not become healthy; the old one was restored",
+      },
     ]);
-    const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "leaky", plan: "small", idempotencyKey: crypto.randomUUID() },
-    });
-    started.push(["customer", jobId]);
-
-    const last = (await untilDone(jobId)).at(-1);
     expect(last.status).toBe("failed");
-    expect(last.error).toContain("AgentError: The change could not be completed.");
-    expect(JSON.stringify(last)).not.toContain("SENTINEL");
+    expect(last.error).toBe("Upstream: the new version did not become healthy; the old one was restored");
   }, JOB_TIMEOUT);
 
   test("fails on a timed-out operation too", async () => {
-    await provisioner.progress([
+    const last = await upgradeEndingIn([
       { status: "timeout", step: "wait_healthy", error_code: "Timeout", error_message: "never became healthy" },
     ]);
-    const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "slowpoke", plan: "small", idempotencyKey: crypto.randomUUID() },
-    });
-    started.push(["customer", jobId]);
-
-    const last = (await untilDone(jobId)).at(-1);
     expect(last.status).toBe("failed");
-    expect(last.error).toContain("Timeout: never became healthy");
+    expect(last.error).toBe("Upstream: never became healthy");
   }, JOB_TIMEOUT);
+
+  test("any other code's raw message is replaced, and the code becomes Upstream", async () => {
+    // StepFailed's text can carry a probe's error; AgentError and DnsRejected
+    // carry an agent's or a DNS provider's own words.
+    for (const code of ["AgentError", "DnsRejected", "StepFailed"]) {
+      const last = await upgradeEndingIn([
+        { status: "failed", step: "apply", error_code: code, error_message: `SENTINEL-${code} /var/lib/x refused` },
+      ]);
+      expect([code, last.status, last.error]).toEqual([
+        code,
+        "failed",
+        "Upstream: The change could not be completed.",
+      ]);
+      expect(JSON.stringify(last)).not.toContain("SENTINEL");
+    }
+  }, JOB_TIMEOUT * 2);
 
   test("a poll answered with a 5xx is tried again, not the end of the job", async () => {
     await provisioner.progress([{ http: 503 }, { http: 502 }, { status: "succeeded", step: "apply" }]);
@@ -494,7 +517,7 @@ describe("changes to an existing instance", () => {
   });
 });
 
-describe("Fix round 1: a customer the provisioner treats as staff", () => {
+describe("a customer the provisioner treats as staff reaches only their own instances", () => {
   // The provisioner lets staff act on ANY tenant. A staff member who is also
   // a customer must still reach only their own through these endpoints.
   beforeEach(async () => {
@@ -520,6 +543,82 @@ describe("Fix round 1: a customer the provisioner treats as staff", () => {
       input: { id: RUNNING_ID, idempotencyKey: crypto.randomUUID() },
     });
     started.push(["customer", jobId]);
+  });
+});
+
+describe("deleted instances", () => {
+  test("a retried delete is sent again with its key, and its operation followed", async () => {
+    const key = crypto.randomUUID();
+    const first = await ok(server("deleteInstance"), "customer", { input: { id: RUNNING_ID, idempotencyKey: key } });
+    // The instance is deleted now, so the retry must not stop at NotFound:
+    // the provisioner replays its first reply, operation and all.
+    const second = await ok(server("deleteInstance"), "customer", { input: { id: RUNNING_ID, idempotencyKey: key } });
+    started.push(["customer", first.jobId], ["customer", second.jobId]);
+
+    const deletes = (await writes()).filter((r) => r.method === "DELETE");
+    expect(deletes.map((r) => r.headers["idempotency-key"])).toEqual([key, key]);
+    expect((await untilDone(second.jobId)).at(-1).status).toBe("completed");
+  }, JOB_TIMEOUT);
+
+  test("deleting an instance already deleted, with a new key, is NotFound", async () => {
+    // Sent, since the provisioner alone knows whether the key is a retry; it
+    // answers TenantDeleted, which reads exactly like a missing instance.
+    const reply = await fails(server("deleteInstance"), "customer", "NotFound", {
+      input: { id: DELETED_OWN_ID, idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe("instance not found");
+    expect((await writes()).map((r) => `${r.method} ${r.path}`)).toEqual([`DELETE /v1/tenants/${DELETED_OWN_ID}`]);
+  });
+
+  test("another owner's deleted instance is NotFound, and nothing is sent", async () => {
+    await provisioner.state({ staff: [s.accounts.customer.did] });
+    await fails(server("deleteInstance"), "customer", "NotFound", {
+      input: { id: DELETED_OTHER_ID, idempotencyKey: crypto.randomUUID() },
+    });
+    expect(await writes()).toEqual([]);
+  });
+
+  test("any other change to a deleted instance is NotFound, and nothing is sent", async () => {
+    for (const name of ["updateInstance", "startInstance", "stopInstance"]) {
+      await fails(server(name), "customer", "NotFound", {
+        input: { id: DELETED_OWN_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+      });
+    }
+    expect(await writes()).toEqual([]);
+  });
+});
+
+describe("the ownership check gets no reply", () => {
+  for (const name of ["updateInstance", "startInstance", "stopInstance", "deleteInstance"]) {
+    test(`${name} is Upstream, and nothing is changed`, async () => {
+      await provisioner.drop("GET", `/v1/tenants/${RUNNING_ID}`);
+      await fails(server(name), "customer", "Upstream", {
+        input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+      });
+      expect(await writes()).toEqual([]);
+      expect((await sent()).map((r) => `${r.method} ${r.path}`)).toEqual([`GET /v1/tenants/${RUNNING_ID}`]);
+    });
+  }
+});
+
+describe("entitlement", () => {
+  // The harness runs "invite", as production will. Under "staff", what the
+  // provisioner enforces today, a customer may neither create nor change.
+  beforeEach(async () => {
+    await provisioner.state({ entitlementMode: "staff" });
+  });
+
+  test("createInstance is NotEntitled", async () => {
+    const reply = await fails(server("createInstance"), "customer", "NotEntitled", {
+      input: { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe("this account cannot do that yet");
+  });
+
+  test("updateInstance is NotEntitled", async () => {
+    await fails(server("updateInstance"), "customer", "NotEntitled", {
+      input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+    });
   });
 });
 

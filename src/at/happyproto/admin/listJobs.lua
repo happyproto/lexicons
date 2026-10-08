@@ -19,10 +19,15 @@ local STATUSES = {
 -- The jobs still in play, when no status is asked for.
 local ACTIVE = "pending,running,pausing,cancelling"
 
---- The statuses as an array, or nil when one is empty or unknown.
+--- The statuses as an array, or nil when one is empty or unknown. Spaces
+--- around each are ignored, so "failed, completed" reads as it looks. So is
+--- `+`: HappyView does not decode it to a space in a query string, though
+--- form encoding (URLSearchParams included) sends a space as one, and no
+--- status contains it.
 local function statuses(text)
   local out = {}
-  for part in (text .. ","):gmatch("([^,]*),") do
+  for raw in (text .. ","):gmatch("([^,]*),") do
+    local part = raw:match("^[%s+]*(.-)[%s+]*$")
     if not STATUSES[part] then return nil end
     out[#out + 1] = part
   end

@@ -11,12 +11,10 @@
 -- matching on the space TYPE alone would admit everyone, since any user can
 -- create a space of any type and is auto-added to their own as a write member.
 
--- @prelude failure, json
+-- @prelude failure, json, access
 
 local xrpc = require("happyview.xrpc")
 local spaces = require("happyview.spaces")
-
-local MEMBER_ACCESS = { read = true, read_self = true, write = true }
 
 --- Public basics for any actor. This is the DEFAULT projection: every caller
 --- gets exactly this, and the entitlement fields are added afterwards only

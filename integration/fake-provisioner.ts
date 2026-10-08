@@ -13,9 +13,15 @@
  * stored, so a retry runs again.
  *
  * Control routes, all under /__:
- *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit? }
+ *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
+ *                    entitlementMode? }. entitlementMode is "invite" (the
+ *                    default, as production runs: anyone may create and
+ *                    change) or "staff" (entitlement.rs today: only staff may,
+ *                    everyone else gets 403 NotEntitled).
  *   POST /__script   queue one canned reply { method, path, status, body }; the
- *                    next request matching method and path gets it, once
+ *                    next request matching method and path gets it, once.
+ *                    With { drop: true } instead, that request gets no reply:
+ *                    the connection closes, as a dead provisioner's would.
  *   POST /__progress queue the states the NEXT operation a mutating route
  *                    creates moves through, one per GET /v1/operations/:id:
  *                    [{ status, step?, error_code?, error_message? }, ...]. It
@@ -40,7 +46,7 @@ type Recorded = {
   body: Json;
 };
 
-type Scripted = { method: string; path: string; status: number; body: Json };
+type Scripted = { method: string; path: string; status: number; body: Json; drop?: boolean };
 
 type Progress =
   | { status: string; step?: string; error_code?: string; error_message?: string; http?: undefined }
@@ -71,6 +77,7 @@ function fresh() {
     hosts: [] as Json[],
     staff: [] as string[],
     instanceLimit: 3,
+    entitlementMode: "invite" as "invite" | "staff",
   };
 }
 
@@ -162,12 +169,22 @@ function advance(op: Json): { http: number; error?: string } | undefined {
   if (op.status !== "pending" && op.status !== "running") op.finished_at = new Date().toISOString();
 }
 
+/** entitlement::check_create and check_change, under the seeded mode. */
+function entitled(staff: boolean): boolean {
+  return state.entitlementMode === "invite" || staff;
+}
+
+function notEntitled(): Response {
+  return error(403, "NotEntitled", "this account cannot do that yet");
+}
+
 /** POST /v1/tenants, tenants::create's checks in its order. */
 function createTenant(body: Json, actor: string, staff: boolean): Response {
   if (!body || typeof body !== "object") return error(400, "InvalidRequest", "body must be JSON");
   if (!(staff || body.owner_did === actor)) {
     return error(403, "Forbidden", "you can only create instances for yourself");
   }
+  if (!entitled(staff)) return notEntitled();
   if (!state.plans.some((p) => p.id === body.plan)) {
     return error(400, "UnknownPlan", "no such plan");
   }
@@ -303,6 +320,8 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       (req.method === "DELETE" && parts.length === 3) ||
       (req.method === "POST" && parts.length === 4 && (verb === "start" || verb === "stop"));
     if (known) {
+      // tenants::update checks entitlement before it loads the tenant.
+      if (req.method === "PATCH" && !entitled(staff)) return notEntitled();
       const tenant = state.tenants.find((t) => t.id === id);
       if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
       if (tenant.desired_state === "deleted") {
@@ -393,6 +412,11 @@ const server = Bun.serve({
     const i = scripts.findIndex((s) => s.method === req.method && s.path === url.pathname);
     if (i >= 0) {
       const [canned] = scripts.splice(i, 1);
+      if (canned.drop) {
+        // Close the connection with nothing sent: the caller sees no reply.
+        server.timeout(req, 1);
+        await Bun.sleep(2_000);
+      }
       return reply(canned.status, canned.body);
     }
     if (req.method === "GET" || req.method === "HEAD") return route(req, url, actor, body);

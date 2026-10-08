@@ -12,6 +12,17 @@
 
 local jobs = require("happyview.jobs")
 
+--- A job's error as the job raised it: the first line, without the
+--- "runtime:" and "runtime error:" prefixes HappyView adds.
+local function job_error(text)
+  local line = text:match("^[^\n]*")
+  repeat
+    local before = line
+    line = line:gsub("^runtime:%s*", ""):gsub("^runtime error:%s*", "")
+  until line == before
+  return line
+end
+
 function handle(input, ctx)
   local refused = gate_customer(ctx)
   if refused then return refused end
@@ -27,6 +38,11 @@ function handle(input, ctx)
 
   -- Listed field by field: the job's input, creator and timestamps are not
   -- part of the customer shape. An empty table is no report at all.
+  --
+  -- HappyView records a raised error as "runtime: runtime error: <text>"
+  -- plus a Lua stack traceback. The job raised "<code>: <message>" for the
+  -- customer; the wrapper and the traceback (script line numbers) are not
+  -- theirs to read. Keep the first line, without the runtime prefixes.
   local function report(v)
     if type(v) == "table" and next(v) ~= nil then return v end
     return nil
@@ -37,7 +53,7 @@ function handle(input, ctx)
       status = job.status,
       progress = report(job.progress),
       result = report(job.result),
-      error = type(job.error) == "string" and job.error or nil,
+      error = type(job.error) == "string" and job_error(job.error) or nil,
     },
   }
 end

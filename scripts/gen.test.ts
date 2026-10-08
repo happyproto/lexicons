@@ -46,8 +46,8 @@ describe("parsePrelude", () => {
     // must come after it.
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
-      "json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance",
-      "jobs",
+      "json", "failure", "validate", "access", "gate", "urlencode", "clickhouse", "provisioner",
+      "instance", "jobs",
     ]);
   });
 
@@ -75,11 +75,12 @@ describe("parseDirective", () => {
 
 describe("expand", () => {
   const order = [
-    "json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance", "jobs",
+    "json", "failure", "validate", "access", "gate", "urlencode", "clickhouse", "provisioner",
+    "instance", "jobs",
   ];
 
   test("gate implies failure", () => {
-    expect(expand(["gate"], order)).toEqual(["failure", "gate"]);
+    expect(expand(["gate"], order)).toEqual(["failure", "access", "gate"]);
   });
 
   test("clickhouse implies json, failure and urlencode", () => {
@@ -103,6 +104,7 @@ describe("expand", () => {
       "json",
       "failure",
       "validate",
+      "access",
       "gate",
       "provisioner",
       "instance",
@@ -113,6 +115,10 @@ describe("expand", () => {
     // actor.getProfile reports membership, so gating it on membership would be
     // circular. It takes failure and must not receive the gate.
     expect(expand(["failure", "json"], order)).toEqual(["json", "failure"]);
+  });
+
+  test("access stands alone, so getProfile can take it without the gate", () => {
+    expect(expand(["access", "failure"], order)).toEqual(["failure", "access"]);
   });
 
   test("an unknown block names the offender", () => {

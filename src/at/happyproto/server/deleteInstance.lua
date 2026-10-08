@@ -7,7 +7,13 @@
 -- provisioner: it lets staff change ANY tenant, and a staff member who is
 -- also a customer must reach only their own instances through this
 -- endpoint. Another owner's instance, a deleted one and one that does not
--- exist are the same NotFound, and nothing is changed. Once this succeeds
+-- exist are the same NotFound, and nothing is changed.
+--
+-- The caller's own instance that is already deleted is still sent: only the
+-- provisioner knows whether this idempotencyKey is a retry of the delete
+-- that did it. A retry gets the original reply replayed, operation and all,
+-- and starts a job following it; a fresh key gets TenantDeleted, which reads
+-- as NotFound. Once this succeeds
 -- the instance leaves listInstances and getInstance at once; its data is
 -- purged after the provisioner's grace period.
 
@@ -26,7 +32,7 @@ function handle(input, ctx)
   end
 
   -- Safe in the path: is_uuid admits only hex digits and hyphens.
-  local found, missing = owned_tenant(ctx, id)
+  local found, missing = owned_tenant(ctx, id, true)
   if not found then return missing end
 
   local status, body = provisioner(ctx, "DELETE", "/v1/tenants/" .. id, nil, input.idempotencyKey)

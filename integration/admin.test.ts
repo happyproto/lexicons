@@ -483,6 +483,12 @@ describe("admin.listJobs", () => {
     for (const job of jobs) expect(["failed", "completed"]).toContain(job.status);
   });
 
+  test("spaces around the statuses are ignored", async () => {
+    const { jobs } = await ok(admin("listJobs"), "staff", { params: { status: " failed , completed ", limit: 200 } });
+    expect(jobs.map((j: { id: string }) => j.id)).toContain(customerJob);
+    for (const job of jobs) expect(["failed", "completed"]).toContain(job.status);
+  });
+
   test("jobType filters by type", async () => {
     const { jobs } = await ok(admin("listJobs"), "staff", {
       params: { status: "completed", jobType: "no.such.type" },

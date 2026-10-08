@@ -691,6 +691,30 @@ describe("owned_tenant", () => {
     expect(r2).toEqual({ error: "NotFound", message: "instance not found" });
   });
 
+  it("with include_deleted, the caller's own deleted tenant comes back", () => {
+    const { r1, r2 } = run(`${reply("did:plc:alice", '"2026-10-02T09:00:00Z"')}
+      return owned_tenant(${CTX}, "${ID}", true)`);
+    expect(r1.tenant.id).toBe(ID);
+    expect(r2).toBeNull();
+  });
+
+  it("with include_deleted, another owner's tenant is still NotFound", () => {
+    for (const deleted of ["nil", '"2026-10-02T09:00:00Z"']) {
+      const { r1, r2 } = run(`${reply("did:plc:mallory", deleted)}
+        return owned_tenant(${CTX}, "${ID}", true)`);
+      expect(r1).toBeNull();
+      expect(r2).toEqual({ error: "NotFound", message: "instance not found" });
+    }
+  });
+
+  it("MEMBER_ACCESS admits exactly the gate's levels", () => {
+    const { r1 } = run(`local out = {}
+      for k in pairs(MEMBER_ACCESS) do out[#out + 1] = k end
+      table.sort(out)
+      return out`);
+    expect(r1).toEqual(["read", "read_self", "write"]);
+  });
+
   it("a provisioner failure is mapped as any other", () => {
     const { r1, r2 } = run(`
       __decoded["E"] = { error = "Internal", message = "SECRET" }
