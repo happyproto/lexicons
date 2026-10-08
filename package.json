@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "gen": "bun run scripts/gen.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:integration": "bun test ./integration"
   },
   "devDependencies": {
+    "@atproto/lexicon": "^0.7.16",
     "@types/bun": "^1.1.0",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "typescript": "^5"
   }
 }

@@ -1,0 +1,4 @@
+# `bun test` runs the unit suite only. The integration suite needs the Compose
+# stack, so it runs on its own: `bun run test:integration`.
+[test]
+root = "scripts"

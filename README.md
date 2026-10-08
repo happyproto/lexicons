@@ -78,6 +78,26 @@ prelude helper or interpolates a caller value into SQL; and that all generated
 output parses under `luac -p`. `scripts/prelude.test.ts` runs the prelude
 itself under Lua 5.4 against stub modules, so it needs `lua` as well as `luac`.
 
+### Integration tests
+
+`integration/` runs the generated scripts on a real HappyView, at the release
+in `integration/.env`, with the plugins in `integration/plugins.txt` (the list
+infrastructure copies for `api.happyproto.at`):
+
+```sh
+docker compose -f integration/compose.yml up -d --wait
+bun run gen && bun run test:integration
+docker compose -f integration/compose.yml down -v
+```
+
+The stack has a PLC directory and a PDS holding four real accounts
+(`happyproto`, `staff`, `customer`, `outsider`), the admin and customers
+spaces with their members, and fakes for the provisioner and ClickHouse that
+record what they were sent. Tests sign HappyView sessions for those accounts
+with the stack's known `SESSION_SECRET` (`integration/session.ts`), and every
+successful reply is validated against its lexicon's output schema. CI runs it
+on every pull request, and `deploy` waits for it.
+
 A script's path becomes its NSID — `lua/com/happyproto/getMe.lua` binds to
 `com.happyproto.getMe` — and the **trigger type comes from the paired
 lexicon's `defs.main.type`**, not from the script. A `query` lexicon yields

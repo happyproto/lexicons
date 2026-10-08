@@ -55,6 +55,28 @@ jobs:
           path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/lint@v1
 
+  # The scripts on a real HappyView, at the release production runs, with
+  # real accounts and spaces and fakes for the provisioner and ClickHouse.
+  # See integration/compose.yml. Generates its own lua/ rather than taking
+  # the build artifact, because the stack has to be up first anyway and gen
+  # takes a second.
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: docker compose -f integration/compose.yml up -d --wait
+      - run: bun run gen
+      - run: bun run test:integration
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f integration/compose.yml logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose -f integration/compose.yml down -v
+
   plan:
     name: Plan (dry run)
     # On a pull request, show what WOULD change without writing anything.
@@ -78,7 +100,7 @@ jobs:
   deploy:
     name: Deploy
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [build, lint]
+    needs: [build, lint, integration]
     runs-on: ubuntu-latest
     environment: production
     steps:

@@ -1,0 +1,11 @@
+# The plugins api.happyproto.at runs, one PLUGIN_URLS entry per line:
+#   id|manifest url|sha256:<digest of the released .wasm>
+# Infrastructure copies this file into happyview_plugin_urls, so the stack
+# tests exactly what production installs. Digests from:
+#   gh release download <tag> --repo happyproto/plugins -p '*.wasm' -O - | shasum -a 256
+happyview-lua|https://github.com/happyproto/plugins/releases/download/happyview-lua-v1.0.0/manifest.json|sha256:9496eb497590e44c5c8a66441156499c63dd6f9c8b9ec01bf59c9b8a5e11382b
+happyview-http|https://github.com/happyproto/plugins/releases/download/happyview-http-v1.0.0/manifest.json|sha256:280684d73dd09a97ed6b7bc00784ac2f312afab12f61d7178b309da8cf0a5822
+happyview-spaces|https://github.com/happyproto/plugins/releases/download/happyview-spaces-v1.0.0/manifest.json|sha256:aa3a89d7d64fb72b27098eb372ec7c785b3f1a7280c4a0cf12822c1fab8c5b62
+happyview-xrpc|https://github.com/happyproto/plugins/releases/download/happyview-xrpc-v1.0.0/manifest.json|sha256:292eaebe9a40313a5b6467c0c11f4f12c02f3e22b81d111a6795457772fac783
+happyview-atproto|https://github.com/happyproto/plugins/releases/download/happyview-atproto-v1.0.0/manifest.json|sha256:307efd0f9290b7c7f5120b7ab5cae8d9307f76bf5f3efbb0d854ad99d5c2fdf2
+happyview-jobs|https://github.com/happyproto/plugins/releases/download/happyview-jobs-v1.1.0/manifest.json|sha256:472f3ac84a91e76459ceef9208a05f0141c9052bcc454e797594244e33485403

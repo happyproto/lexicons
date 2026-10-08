@@ -1,0 +1,26 @@
+# HappyView's scripts/e2e-config.toml -- open sign-up, no rate limits,
+# insecure test secrets -- plus two settings newer tranquil-pds releases need:
+#   allow_private_fetch: PLC lives on the Compose network, a private address
+#     the PDS otherwise refuses to reach ("not inside the allowed host reach").
+#   user_handle_domains: handles under pds.localhost or *.test are refused as
+#     reserved TLDs. Nothing resolves these handles; they only have to be valid.
+[server]
+hostname = "pds.localhost"
+allow_http_proxy = true
+invite_code_required = false
+disable_rate_limiting = true
+disable_account_verification_gate = true
+allow_private_fetch = true
+user_handle_domains = ["integration.happyproto.at"]
+
+[database]
+url = "postgres://happyview:happyview@postgres:5432/pds"
+
+[storage]
+path = "/var/lib/tranquil-pds/blobs"
+
+[plc]
+directory_url = "http://plc:2582"
+
+[secrets]
+allow_insecure = true
