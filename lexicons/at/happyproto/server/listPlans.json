@@ -1,0 +1,98 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.listPlans",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The plans a new or changed instance can use. Customers only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "plans"
+          ],
+          "properties": {
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#plan"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "memoryMb",
+        "cpuMillis",
+        "diskGb"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "memoryMb": {
+          "type": "integer"
+        },
+        "cpuMillis": {
+          "type": "integer",
+          "description": "Thousandths of a CPU core."
+        },
+        "diskGb": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

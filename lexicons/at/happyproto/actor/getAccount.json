@@ -1,0 +1,77 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.getAccount",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Whether the caller is a HappyProto customer, and how many instances they have of how many allowed. Any signed-in caller; a non-customer gets zeros.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "isCustomer",
+            "instanceCount",
+            "instanceLimit"
+          ],
+          "properties": {
+            "isCustomer": {
+              "type": "boolean",
+              "description": "Whether the caller may use the customer endpoints."
+            },
+            "instanceCount": {
+              "type": "integer",
+              "description": "Instances counting against the limit. 0 for a non-customer."
+            },
+            "instanceLimit": {
+              "type": "integer",
+              "description": "The most instances the caller may have. 0 for a non-customer."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
