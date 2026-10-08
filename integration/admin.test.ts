@@ -368,18 +368,16 @@ describe("customers", () => {
     expect(await customersOf()).toEqual(before);
   });
 
-  test("no customers space: Upstream, saying so", async () => {
+  test("no HAPPYPROTO_DID: the gate refuses, and nothing changes", async () => {
     try {
-      await setVariable(s.apiKey, "HAPPYPROTO_CUSTOMERS_SPACE", "");
+      await setVariable(s.apiKey, "HAPPYPROTO_DID", "");
       const did = s.accounts.outsider.did;
       for (const name of ["addCustomer", "removeCustomer"]) {
-        const reply = await fails(admin(name), "staff", "Upstream", { input: { did } });
-        expect(reply.body.message).toBe("customers space not configured");
+        await fails(admin(name), "staff", "Forbidden", { input: { did } });
       }
-      const reply = await fails(admin("listCustomers"), "staff", "Upstream");
-      expect(reply.body.message).toBe("customers space not configured");
+      await fails(admin("listCustomers"), "staff", "Forbidden");
     } finally {
-      await setVariable(s.apiKey, "HAPPYPROTO_CUSTOMERS_SPACE", s.variables.HAPPYPROTO_CUSTOMERS_SPACE);
+      await setVariable(s.apiKey, "HAPPYPROTO_DID", s.variables.HAPPYPROTO_DID);
     }
     expect(await customersOf()).not.toContain(s.accounts.outsider.did);
   });

@@ -34,7 +34,9 @@ const DIRECTIVE = /^--\s*@prelude\s+(.+)$/m;
  * membership, so gating it on membership is circular.
  */
 const IMPLIES: Record<string, string[]> = {
-  gate: ["failure", "access"],
+  // Not transitive: `gate` lists `validate` itself because `authority` needs it.
+  authority: ["validate"],
+  gate: ["failure", "access", "validate", "authority"],
   clickhouse: ["json", "failure", "urlencode"],
   provisioner: ["json", "failure"],
   instance: ["json"],

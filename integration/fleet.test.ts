@@ -288,7 +288,20 @@ describe("actor.getProfile", () => {
   test("staff are members, with their access level", async () => {
     const { accounts } = await stack();
     const out = await ok(nsid, "staff");
-    expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: true, access: "read" });
+    // createSpaces adds staff with write access.
+    expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: true, access: "write" });
+  });
+
+  test("with no HAPPYPROTO_DID, staff are not members", async () => {
+    const { accounts, apiKey, variables } = await stack();
+    try {
+      await setVariable(apiKey, "HAPPYPROTO_DID", "");
+      const out = await ok(nsid, "staff");
+      expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: false });
+      expect(out).not.toHaveProperty("access");
+    } finally {
+      await setVariable(apiKey, "HAPPYPROTO_DID", variables.HAPPYPROTO_DID);
+    }
   });
 
   test("an outsider is told they are not a member, and gets no access field", async () => {

@@ -45,7 +45,8 @@ Each source declares which prelude blocks it needs:
 | `failure` | `failure(name, message)` | — |
 | `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
 | `access` | `MEMBER_ACCESS`, the space access levels that admit | — |
-| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure`, `access` |
+| `authority` | `happyproto_did(ctx)`, `happyproto_space(ctx, type)`, `ADMIN_SPACE_TYPE`, `CUSTOMERS_SPACE_TYPE` | `validate` |
+| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)`, `gate_owner(ctx)` | `failure`, `access`, `validate`, `authority` |
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
@@ -56,8 +57,8 @@ Blocks are emitted in **prelude file order**, never directive order, because a
 Lua local must be declared before any function closing over it.
 
 Each gate returns nil when the caller may proceed and a failure table
-otherwise, and fails closed: no caller, an unset space variable, or a space
-that cannot be read all refuse. A gated handler opens with it:
+otherwise, and fails closed: no caller, an unset or malformed `HAPPYPROTO_DID`,
+or a space that cannot be read all refuse. A gated handler opens with it:
 
 ```lua
 function handle(input, ctx)
@@ -71,10 +72,15 @@ end
 failure helper but must **not** be admin-gated. It is the endpoint that tells a
 caller whether they are a member, so gating it on membership would be circular.
 
+`gate_owner` admits exactly `HAPPYPROTO_DID` and nobody else. Only
+`admin.createSpaces` takes it, because that endpoint creates the admin space
+and so cannot be gated on membership of it.
+
 `bun test` checks that every script has a paired lexicon and defines
 `handle(input, ctx)`; that nothing reads `ctx` or `env` at file scope; that
 every `fleet.*` and `admin.*` handler opens with `gate_admin(ctx)` and every
-`server.*` handler with `gate_customer(ctx)`; that every procedure writing
+`server.*` handler with `gate_customer(ctx)`, except `admin.createSpaces`,
+which opens with `gate_owner(ctx)` in the same idiom; that every procedure writing
 through the provisioner forwards `input.idempotencyKey`; that every lexicon
 declares each error its script can return; that no source re-declares a
 prelude helper or interpolates a caller value into SQL; and that all generated
@@ -94,9 +100,11 @@ docker compose -f integration/compose.yml down -v
 ```
 
 The stack has a PLC directory and a PDS holding four real accounts
-(`happyproto`, `staff`, `customer`, `outsider`), the admin and customers
-spaces with their members, and fakes for the provisioner and ClickHouse that
-record what they were sent. Tests sign HappyView sessions for those accounts
+(`happyproto`, `staff`, `customer`, `outsider`), and fakes for the provisioner
+and ClickHouse that record what they were sent. `HAPPYPROTO_DID` is
+`happyproto`'s DID, and setup bootstraps the admin and customers spaces by
+calling `admin.createSpaces` as `happyproto` with `staff` in the staff list,
+as production does. Tests sign HappyView sessions for those accounts
 with the stack's known `SESSION_SECRET` (`integration/session.ts`), and every
 successful reply is validated against its lexicon's output schema. CI runs it
 on every pull request, and `deploy` waits for it.
@@ -168,12 +176,11 @@ works.
 
 | Key | Value |
 | --- | --- |
-| `HAPPYPROTO_ADMIN_SPACE` | `at://did:plc:4jrld6fwpnwqehtce56qshzv/space/at.happyproto.admin/main` |
+| `HAPPYPROTO_DID` | HappyProto's own DID: the authority of both spaces |
 | `HAPPYPROTO_CLICKHOUSE_URL` | `http://clickhouse:8123` |
 | `HAPPYPROTO_CLICKHOUSE_USER` | `readonly` |
 | `HAPPYPROTO_CLICKHOUSE_PASSWORD` | from the infrastructure vault (`vault_clickhouse_readonly_password`) |
 | `HAPPYPROTO_CLICKHOUSE_DB` | `happyproto_telemetry` |
-| `HAPPYPROTO_CUSTOMERS_SPACE` | the customers space uri; its members may manage instances |
 | `PROVISIONER_URL` | the provisioner's base URL |
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
 
@@ -193,23 +200,50 @@ curl -sX POST https://api.happyproto.at/admin/script-variables \
   -H "Authorization: Bearer $HV_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "key": "HAPPYPROTO_ADMIN_SPACE",
-    "value": "at://did:plc:4jrld6fwpnwqehtce56qshzv/space/at.happyproto.admin/main"
+    "key": "HAPPYPROTO_DID",
+    "value": "did:plc:4jrld6fwpnwqehtce56qshzv"
   }'
 ```
 
-The space uri lives here rather than in the dashboard's bundle on purpose. The
-gate is "is the caller a member of *this* space", and the authority DID is the
-part that makes it mean anything — matching on the space *type* would admit
-everyone, because any user can create a space of any type and is auto-added to
-their own as a write member. Keeping the uri server-side means a browser
-cannot be pointed at a different space, and the rule cannot be edited by
-anyone holding the bundle.
+Both spaces are fixed, and derived from it:
 
-Scripts fail closed when it is absent: no space configured means nobody is a
-member. The same holds for `HAPPYPROTO_CUSTOMERS_SPACE`, and a missing
-`PROVISIONER_URL` or `PROVISIONER_TOKEN` answers `Upstream` rather than
-raising.
+| Space | Uri | Members may |
+| --- | --- | --- |
+| admin | `at://<HAPPYPROTO_DID>/space/at.happyproto.admin/main` | use the dashboard (staff) |
+| customers | `at://<HAPPYPROTO_DID>/space/at.happyproto.customers/main` | manage instances |
+
+The DID lives here rather than in the dashboard's bundle on purpose. The gate
+is "is the caller a member of *this* space", and the authority DID is the part
+that makes it mean anything — matching on the space *type* would admit
+everyone, because any user can create a space of any type and is auto-added to
+their own as a write member. Keeping it server-side means a browser cannot be
+pointed at a different space, and the rule cannot be edited by anyone holding
+the bundle.
+
+Scripts fail closed when it is absent, empty or not a DID: no authority means
+nobody is a member of anything. A missing `PROVISIONER_URL` or
+`PROVISIONER_TOKEN` answers `Upstream` rather than raising.
+
+### Bootstrapping the spaces
+
+Signed in as `HAPPYPROTO_DID`, call `at.happyproto.admin.createSpaces`, with
+the staff to add if there are any:
+
+```json
+{ "staff": ["did:plc:..."] }
+```
+
+It creates whichever of the two spaces is missing, member-only to read and to
+write, and adds each staff DID to the admin space with write access, skipping
+anyone already a member. It is idempotent: run it again and it creates
+nothing and adds no one. It answers each space's uri and whether this call
+created it, and the staff it added. Any caller other than `HAPPYPROTO_DID`
+is `Forbidden`.
+
+HappyView anchors a new space on the instance's own DID when the instance
+publishes a service identity, and on the creator's DID only when it does not.
+On an instance that publishes one, the space would not be at the uri the gates
+derive, so `createSpaces` removes it again and answers `Upstream` saying so.
 
 `admin.addCustomer` and `admin.removeCustomer` change the customers space's
 members as the calling staff member, and HappyView allows that only to the

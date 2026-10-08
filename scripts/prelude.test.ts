@@ -167,11 +167,11 @@ function run(snippet: string): Run {
 const it = skipLua ? test.skip : test;
 
 const TOKEN = "tok-7f3a9c";
-const CUSTOMERS = "at://did:plc:hp/space/at.happyproto.customers/main";
-const ADMINS = "at://did:plc:hp/space/at.happyproto.admin/main";
+const HAPPYPROTO = "did:plc:hp";
+const CUSTOMERS = `at://${HAPPYPROTO}/space/at.happyproto.customers/main`;
+const ADMINS = `at://${HAPPYPROTO}/space/at.happyproto.admin/main`;
 const ENV = `{
-  HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
-  HAPPYPROTO_ADMIN_SPACE = "${ADMINS}",
+  HAPPYPROTO_DID = "${HAPPYPROTO}",
   PROVISIONER_URL = "http://provisioner:8080/",
   PROVISIONER_TOKEN = "${TOKEN}",
   HAPPYPROTO_CLICKHOUSE_URL = "http://clickhouse:8123",
@@ -197,12 +197,33 @@ describe("gate", () => {
     }
   });
 
-  it("a missing or empty space variable is Forbidden, without asking the space", () => {
-    for (const env of ["{}", '{ HAPPYPROTO_CUSTOMERS_SPACE = "" }', "nil"]) {
-      const { r1, calls } = run(`return gate_customer({ caller_did = "did:plc:alice", env = ${env} })`);
-      expect(r1.error).toBe("Forbidden");
-      expect(calls).toEqual([]);
+  // Unset, empty, not a DID, and a DID with something after it that would
+  // aim the derived uri somewhere else.
+  const BAD_DIDS = [
+    "{}",
+    '{ HAPPYPROTO_DID = "" }',
+    '{ HAPPYPROTO_DID = "hp" }',
+    '{ HAPPYPROTO_DID = "did:plc:hp/space/x" }',
+    "{ HAPPYPROTO_DID = 7 }",
+    "nil",
+  ];
+
+  it("a missing, empty or malformed HAPPYPROTO_DID is Forbidden, without asking a space", () => {
+    for (const env of BAD_DIDS) {
+      for (const gate of ["gate_customer", "gate_admin"]) {
+        const { r1, calls } = run(`return ${gate}({ caller_did = "did:plc:alice", env = ${env} })`);
+        expect([env, gate, r1.error]).toEqual([env, gate, "Forbidden"]);
+        expect(calls).toEqual([]);
+      }
     }
+  });
+
+  it("the old space variables grant nothing on their own", () => {
+    const { r1, calls } = run(`return gate_admin({ caller_did = "did:plc:alice", env = {
+      HAPPYPROTO_ADMIN_SPACE = "${ADMINS}", HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
+    } })`);
+    expect(r1.error).toBe("Forbidden");
+    expect(calls).toEqual([]);
   });
 
   it("a space lookup that raises is Forbidden, not an error", () => {
@@ -250,6 +271,47 @@ describe("gate", () => {
       __access = function(uri) if uri == "${CUSTOMERS}" then return "read" end end
       return gate_admin(${CTX})`);
     expect(refused.r1).toEqual({ error: "Forbidden", message: "Admins only." });
+  });
+});
+
+describe("authority", () => {
+  it("derives both spaces from HAPPYPROTO_DID", () => {
+    const { r1, r2 } = run(`return happyproto_space(${CTX}, ADMIN_SPACE_TYPE),
+      happyproto_space(${CTX}, CUSTOMERS_SPACE_TYPE)`);
+    expect([r1, r2]).toEqual([ADMINS, CUSTOMERS]);
+  });
+
+  it("a missing, empty or malformed HAPPYPROTO_DID derives nothing", () => {
+    for (const env of ["{}", '{ HAPPYPROTO_DID = "" }', '{ HAPPYPROTO_DID = "did:plc:a/b" }', "nil"]) {
+      const { r1, r2 } = run(`local ctx = { env = ${env} }
+        return happyproto_did(ctx), happyproto_space(ctx, ADMIN_SPACE_TYPE)`);
+      expect([env, r1, r2]).toEqual([env, null, null]);
+    }
+  });
+});
+
+describe("gate_owner", () => {
+  it("admits exactly HAPPYPROTO_DID, without asking any space", () => {
+    const { r1, calls } = run(`return gate_owner({ caller_did = "${HAPPYPROTO}", env = ${ENV} })`);
+    expect(r1).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses anyone else and a signed-out caller as Forbidden", () => {
+    for (const caller of ['"did:plc:alice"', '"did:plc:hpx"', '""', "nil"]) {
+      const { r1, calls } = run(`return gate_owner({ caller_did = ${caller}, env = ${ENV} })`);
+      expect([caller, r1?.error]).toEqual([caller, "Forbidden"]);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("refuses everyone when HAPPYPROTO_DID is missing, empty or malformed", () => {
+    for (const env of ["{}", '{ HAPPYPROTO_DID = "" }', '{ HAPPYPROTO_DID = "hp" }', "nil"]) {
+      for (const caller of ['"did:plc:hp"', '"hp"', '""', "nil"]) {
+        const { r1 } = run(`return gate_owner({ caller_did = ${caller}, env = ${env} })`);
+        expect([env, caller, r1?.error]).toEqual([env, caller, "Forbidden"]);
+      }
+    }
   });
 });
 

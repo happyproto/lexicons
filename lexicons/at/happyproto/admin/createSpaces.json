@@ -1,0 +1,87 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.createSpaces",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create HappyProto's admin and customers spaces under HAPPYPROTO_DID, member-only, keeping either that already exists, and add each of staff to the admin space with write access, skipping existing members. Idempotent: a second call creates nothing and adds no one. Only HappyProto's own account may call it.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "staff": {
+              "type": "array",
+              "description": "DIDs to add to the admin space with write access. A DID listed twice is added once.",
+              "maxLength": 50,
+              "items": {
+                "type": "string",
+                "format": "did"
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "adminSpace",
+            "customersSpace",
+            "staffAdded"
+          ],
+          "properties": {
+            "adminSpace": {
+              "type": "ref",
+              "ref": "#space"
+            },
+            "customersSpace": {
+              "type": "ref",
+              "ref": "#space"
+            },
+            "staffAdded": {
+              "type": "array",
+              "description": "The DIDs this call added to the admin space; members already present are left out.",
+              "items": {
+                "type": "string",
+                "format": "did"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HAPPYPROTO_DID, is signed out, or HAPPYPROTO_DID is unset or not a DID."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "staff is not a list of at most 50 DIDs."
+        },
+        {
+          "name": "Upstream",
+          "description": "A space could not be read, created or changed, or the instance anchors new spaces under its own DID rather than HAPPYPROTO_DID. Retrying is safe."
+        }
+      ]
+    },
+    "space": {
+      "type": "object",
+      "required": [
+        "uri",
+        "created"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "created": {
+          "type": "boolean",
+          "description": "Whether this call created the space; false when it already existed."
+        }
+      }
+    }
+  }
+}
