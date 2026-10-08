@@ -1,29 +1,34 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { expand, parseDirective, parsePrelude, render } from "./gen";
 
 const PRELUDE = `
--- @block space
-local S = 0
+-- @block json
+local J = 0
 -- @endblock
 
 -- @block failure
 local A = 1
 -- @endblock
 
+-- @block validate
+local V = 2
+-- @endblock
+
 -- @block gate
-local G = 9
--- @endblock
-
--- @block config
-local B = 2
--- @endblock
-
--- @block urlencode
-local C = 3
+local G = 3
 -- @endblock
 
 -- @block clickhouse
-local D = 4
+local C = 4
+-- @endblock
+
+-- @block provisioner
+local P = 5
+-- @endblock
+
+-- @block instance
+local I = 6
 -- @endblock
 `;
 
@@ -31,9 +36,18 @@ describe("parsePrelude", () => {
   test("returns block bodies in file order", () => {
     const blocks = parsePrelude(PRELUDE);
     expect([...blocks.keys()]).toEqual([
-      "space", "failure", "gate", "config", "urlencode", "clickhouse",
+      "json", "failure", "validate", "gate", "clickhouse", "provisioner", "instance",
     ]);
     expect(blocks.get("failure")).toBe("local A = 1");
+  });
+
+  test("the real prelude declares the v3 blocks in emit order", async () => {
+    // File order IS emit order, so this pins it: a block closing over another
+    // must come after it.
+    const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
+    expect([...blocks.keys()]).toEqual([
+      "json", "failure", "validate", "gate", "clickhouse", "provisioner", "instance",
+    ]);
   });
 
   test("rejects an unterminated block", () => {
@@ -59,43 +73,53 @@ describe("parseDirective", () => {
 });
 
 describe("expand", () => {
-  const order = ["space", "failure", "gate", "config", "urlencode", "clickhouse"];
+  const order = ["json", "failure", "validate", "gate", "clickhouse", "provisioner", "instance"];
 
-  test("clickhouse implies config and urlencode", () => {
-    expect(expand(["clickhouse"], order)).toEqual([
-      "config",
-      "urlencode",
-      "clickhouse",
-    ]);
+  test("gate implies failure", () => {
+    expect(expand(["gate"], order)).toEqual(["failure", "gate"]);
+  });
+
+  test("clickhouse implies json and failure", () => {
+    expect(expand(["clickhouse"], order)).toEqual(["json", "failure", "clickhouse"]);
+  });
+
+  test("provisioner implies json and failure", () => {
+    expect(expand(["provisioner"], order)).toEqual(["json", "failure", "provisioner"]);
+  });
+
+  test("instance implies json", () => {
+    expect(expand(["instance"], order)).toEqual(["json", "instance"]);
   });
 
   test("emits in prelude order, not directive order", () => {
-    expect(expand(["clickhouse", "gate"], order)).toEqual([
-      "space",
+    expect(expand(["instance", "provisioner", "validate", "gate"], order)).toEqual([
+      "json",
       "failure",
+      "validate",
       "gate",
-      "config",
-      "urlencode",
-      "clickhouse",
+      "provisioner",
+      "instance",
     ]);
   });
 
-  test("gate implies space and failure", () => {
-    expect(expand(["gate"], order)).toEqual(["space", "failure", "gate"]);
-  });
-
-  test("space and failure do NOT pull in the gate", () => {
+  test("failure does NOT pull in the gate", () => {
     // actor.getProfile reports membership, so gating it on membership would be
-    // circular. It takes these two blocks and must not receive denied().
-    expect(expand(["space", "failure"], order)).toEqual(["space", "failure"]);
+    // circular. It takes failure and must not receive the gate.
+    expect(expand(["failure", "json"], order)).toEqual(["json", "failure"]);
   });
 
   test("an unknown block names the offender", () => {
     expect(() => expand(["nope"], order)).toThrow(/nope/);
   });
 
+  test("the v2 blocks are gone", () => {
+    for (const old of ["space", "config", "urlencode"]) {
+      expect(() => expand([old], order)).toThrow(new RegExp(old));
+    }
+  });
+
   test("deduplicates", () => {
-    expect(expand(["config", "config"], order)).toEqual(["config"]);
+    expect(expand(["json", "json"], order)).toEqual(["json"]);
   });
 
   test("failure alone pulls in nothing else", () => {
@@ -108,14 +132,14 @@ describe("render", () => {
     const out = render(
       "src/at/happyproto/fleet/getX.lua",
       ["local A = 1"],
-      "-- @prelude failure\n\nfunction handle() end\n",
+      "-- @prelude failure\n\nfunction handle(input, ctx) end\n",
     );
     expect(out).toStartWith(
       "-- Generated from src/at/happyproto/fleet/getX.lua — do not edit.",
     );
     expect(out).not.toContain("@prelude");
     expect(out).toContain("local A = 1");
-    expect(out).toContain("function handle() end");
+    expect(out).toContain("function handle(input, ctx) end");
   });
 
   test("blocks precede the body", () => {

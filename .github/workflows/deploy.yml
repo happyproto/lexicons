@@ -21,9 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      # luac -p syntax-checks every generated script. Without Lua installed the
-      # test FAILS rather than skipping, so a runner missing it is visible
-      # instead of quietly checking nothing.
+      # luac -p syntax-checks every generated script, and lua5.4 runs the
+      # prelude's unit tests. Without Lua installed those tests FAIL rather
+      # than skipping, so a runner missing it is visible instead of quietly
+      # checking nothing.
       - run: sudo apt-get update && sudo apt-get install -y lua5.4
       - run: bun install --frozen-lockfile
       # gen BEFORE test: lua/ is build output and is not in the repo, so on a
