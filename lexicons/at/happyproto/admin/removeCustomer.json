@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.removeCustomer",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Stop an account being a customer: remove it from the customers space. Removing a non-member succeeds. Staff only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "did"
+          ],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or may not change the customers space's members: only its creator or a HappyView super user may."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "did is not a DID."
+        },
+        {
+          "name": "Upstream",
+          "description": "The customers space is not configured, or could not be changed."
+        }
+      ]
+    }
+  }
+}

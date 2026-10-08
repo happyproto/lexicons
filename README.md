@@ -209,3 +209,10 @@ Scripts fail closed when it is absent: no space configured means nobody is a
 member. The same holds for `HAPPYPROTO_CUSTOMERS_SPACE`, and a missing
 `PROVISIONER_URL` or `PROVISIONER_TOKEN` answers `Upstream` rather than
 raising.
+
+`admin.addCustomer` and `admin.removeCustomer` change the customers space's
+members as the calling staff member, and HappyView allows that only to the
+space's creator or a HappyView super user. A staff member who is neither gets
+`Forbidden`. The admin endpoints that read the provisioner also need the
+caller's DID in the provisioner's `STAFF_DIDS`; without it they get the
+provisioner's `Forbidden`.

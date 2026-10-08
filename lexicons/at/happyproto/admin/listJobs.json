@@ -1,0 +1,127 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.listJobs",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Background jobs across every user, newest first. Staff only.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Comma-separated statuses to include. Defaults to pending,running,pausing,cancelling."
+          },
+          "jobType": {
+            "type": "string",
+            "description": "Only jobs of this type."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "jobs"
+          ],
+          "properties": {
+            "jobs": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#adminJob"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "status names an unknown status, or limit is not a whole number from 1 to 200."
+        },
+        {
+          "name": "Upstream",
+          "description": "The jobs could not be read."
+        }
+      ]
+    },
+    "adminJob": {
+      "type": "object",
+      "description": "A background job as staff see it. Never carries its input or session fields.",
+      "required": [
+        "id",
+        "status",
+        "jobType",
+        "createdBy",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "running",
+            "paused",
+            "pausing",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "progress": {
+          "type": "unknown",
+          "description": "The job's last progress report."
+        },
+        "result": {
+          "type": "unknown",
+          "description": "What the job returned, once completed."
+        },
+        "error": {
+          "type": "string",
+          "description": "Why the job failed, as the job reported it."
+        },
+        "jobType": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "did",
+          "description": "Who started it."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

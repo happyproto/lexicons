@@ -20,11 +20,12 @@ export type ProvisionerRequest = {
 
 export const provisioner = {
   reset: () => post(`${PROVISIONER_URL}/__reset`),
-  /** Seed tenants, operations, plans, staff DIDs and the instance limit. */
+  /** Seed tenants, operations, plans, hosts, staff DIDs and the instance limit. */
   state: (state: {
     tenants?: any[];
     operations?: any[];
     plans?: any[];
+    hosts?: any[];
     staff?: string[];
     instanceLimit?: number;
   }) => post(`${PROVISIONER_URL}/__state`, state),

@@ -13,7 +13,7 @@
  * stored, so a retry runs again.
  *
  * Control routes, all under /__:
- *   POST /__state    seed { tenants?, operations?, plans?, staff?, instanceLimit? }
+ *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit? }
  *   POST /__script   queue one canned reply { method, path, status, body }; the
  *                    next request matching method and path gets it, once
  *   POST /__progress queue the states the NEXT operation a mutating route
@@ -68,6 +68,7 @@ function fresh() {
     tenants: [] as Json[],
     operations: [] as Json[],
     plans: DEFAULT_PLANS as Json[],
+    hosts: [] as Json[],
     staff: [] as string[],
     instanceLimit: 3,
   };
@@ -102,6 +103,23 @@ function compactOperation(op: Json): Json {
   const last = Array.isArray(op.steps) ? op.steps.at(-1) : undefined;
   if (last?.name) out.step = last.name;
   return out;
+}
+
+/**
+ * A host as hosts::list serialises it: every column, plus what its tenants
+ * hold, by placement.rs's rules. Memory is held by tenants not deleted; disk
+ * until a tenant is purged.
+ */
+function hostUsage(h: Json): Json {
+  const plan = (t: Json) => state.plans.find((p) => p.id === t.plan_id) ?? {};
+  const here = state.tenants.filter((t) => t.host_id === h.id);
+  const live = here.filter((t) => !t.deleted_at);
+  return {
+    ...h,
+    tenant_count: live.length,
+    reserved_memory_mb: live.reduce((sum, t) => sum + (plan(t).memory_mb ?? 0), 0),
+    reserved_disk_gb: here.filter((t) => !t.purged_at).reduce((sum, t) => sum + (plan(t).disk_gb ?? 0), 0),
+  };
 }
 
 /** A new pending operation, as ops::enqueue writes it. */
@@ -258,7 +276,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
 
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {
     if (!staff) return error(403, "Forbidden", "staff only");
-    return reply(200, { hosts: [] });
+    return reply(200, { hosts: [...state.hosts].sort((a, b) => a.name.localeCompare(b.name)).map(hostUsage) });
   }
 
   if (req.method === "GET" && resource === "operations" && parts.length === 3) {
