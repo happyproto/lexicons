@@ -94,7 +94,7 @@ export function fileScopeOffences(text: string): string[] {
       stack.push(word);
     } else if (word === "end" || word === "until") {
       stack.pop();
-    } else if ((word === "ctx" || word === "env") && /^\s*[.[]/.test(code.slice(at + word.length))) {
+    } else if ((word === "ctx" || word === "env") && /^\s*[.[:]/.test(code.slice(at + word.length))) {
       if (!stack.includes("function")) {
         offences.push(`line ${lineOf(code, at)}: reads ${word} at file scope`);
       }
@@ -103,22 +103,55 @@ export function fileScopeOffences(text: string): string[] {
   return offences;
 }
 
-/** The gate a script under this path must open with, or null if none. */
-export function requiredGate(path: string): "gate_admin" | "gate_customer" | null {
-  if (/(^|\/)at\/happyproto\/(fleet|admin)\//.test(path)) return "gate_admin";
-  if (/(^|\/)at\/happyproto\/server\//.test(path)) return "gate_customer";
-  return null;
+/**
+ * Scripts that take no gate, each for a stated reason. Everything else under
+ * at/happyproto/ must be gated, so a new directory is refused until someone
+ * decides which gate it needs, rather than shipping open by default.
+ */
+const UNGATED: Record<string, string> = {
+  // Reports membership, so gating it on membership would be circular.
+  "at/happyproto/actor/getProfile": "reports membership",
+  // Any signed-in caller; it checks for itself whether they are a customer.
+  "at/happyproto/actor/getAccount": "signed-in only, its own check",
+};
+
+/** Directory under at/happyproto/ -> the gate its handlers must open with. */
+const GATE_FOR_DIR: Record<string, "gate_admin" | "gate_customer"> = {
+  fleet: "gate_admin",
+  admin: "gate_admin",
+  server: "gate_customer",
+};
+
+/**
+ * The gate a script under this path must open with; "none" for an allowlisted
+ * script; "unmapped" for a path nobody has decided about yet, which is itself
+ * an offence.
+ */
+export function requiredGate(path: string): "gate_admin" | "gate_customer" | "none" | "unmapped" {
+  const match = path.match(/(?:^|\/)(at\/happyproto\/([^/]+)\/[^/]+?)(?:\.lua)?$/);
+  if (!match) return "unmapped";
+  if (UNGATED[match[1]]) return "none";
+  return GATE_FOR_DIR[match[2]] ?? "unmapped";
 }
 
 /**
- * The first statement of handle() is the required gate, and the other gate is
- * never called. First, because anything ahead of it runs for a caller who may
- * be refused; and only one, because a staff endpoint that also admits
- * customers is a customer endpoint.
+ * handle() opens with the required gate, in exactly this idiom:
+ *
+ *   local refused = gate_admin(ctx)
+ *   if refused then return refused end
+ *
+ * and never calls the other gate. First, because anything ahead of it runs
+ * for a caller who may be refused. The exact idiom, because a bare
+ * `gate_admin(ctx)`, or a result that is stored and never returned, LOOKS
+ * gated and admits everyone. And only one gate, because a staff endpoint that
+ * also admits customers is a customer endpoint.
  */
 export function gateOffences(path: string, text: string): string[] {
   const want = requiredGate(path);
-  if (!want) return [];
+  if (want === "none") return [];
+  if (want === "unmapped") {
+    return ["is in a directory with no gate mapping; add it to GATE_FOR_DIR or UNGATED"];
+  }
   const other = want === "gate_admin" ? "gate_customer" : "gate_admin";
   const code = stripLua(text, true);
   const offences: string[] = [];
@@ -126,14 +159,34 @@ export function gateOffences(path: string, text: string): string[] {
   const handle = code.match(HANDLE);
   if (!handle) return ["has no handle(input, ctx) to gate"];
   const body = code.slice(handle.index! + handle[0].length).trimStart();
-  const first = new RegExp(`^(local\\s+\\w+\\s*=\\s*)?${want}\\s*\\(\\s*ctx\\s*\\)`);
+  const first = new RegExp(
+    `^local\\s+(\\w+)\\s*=\\s*${want}\\s*\\(\\s*ctx\\s*\\)\\s*;?\\s*` +
+      `if\\s+\\1\\s+then\\s+return\\s+\\1\\s*;?\\s*end\\b`,
+  );
   if (!first.test(body)) {
-    offences.push(`first statement of handle is not ${want}(ctx)`);
+    offences.push(
+      `handle does not open with "local refused = ${want}(ctx)" then "if refused then return refused end"`,
+    );
   }
-  if (new RegExp(`(^|[^\\w.])${other}\\s*\\(`).test(stripLua(text))) {
+  if (new RegExp(`(^|[^\\w.:])${other}\\s*\\(`).test(stripLua(text))) {
     offences.push(`calls ${other} as well as ${want}`);
   }
   return offences;
+}
+
+/**
+ * Customer endpoints never reach ClickHouse. It holds the whole fleet's
+ * telemetry, and query() answers with whatever SQL it is handed; the
+ * customer surface is the provisioner, scoped to the caller.
+ */
+export function clickhouseOffences(path: string, text: string): string[] {
+  const customerFacing =
+    /(^|\/)at\/happyproto\/server\//.test(path) ||
+    /(^|\/)at\/happyproto\/actor\/getAccount(\.lua)?$/.test(path);
+  if (!customerFacing) return [];
+  return /(^|[^\w.:])query\s*\(/.test(stripLua(text))
+    ? ["calls query(): customer endpoints must not read ClickHouse"]
+    : [];
 }
 
 /** Every `provisioner(...)` call, as its argument list. */
@@ -153,14 +206,20 @@ function isWrite(args: string[]): boolean {
 }
 
 /**
- * A procedure that writes through the provisioner takes an idempotencyKey and
- * forwards it. Without the key a double-click or a network retry creates a
- * second tenant, or answers SlugTaken for the caller's own first request.
+ * Provisioner writes come only from procedures, and a procedure that writes
+ * takes an idempotencyKey and forwards it. A query is a GET: browsers, caches
+ * and link previews fetch it freely, so it must never change anything. And
+ * without the key a double-click or a network retry creates a second tenant,
+ * or answers SlugTaken for the caller's own first request.
  */
 export function idempotencyOffences(lexicon: any, text: string): string[] {
-  if (lexicon?.defs?.main?.type !== "procedure") return [];
   const writes = provisionerCalls(text).filter(isWrite);
   if (writes.length === 0) return [];
+  if (lexicon?.defs?.main?.type !== "procedure") {
+    return writes.map(
+      (args) => `provisioner(${args.slice(0, 3).join(", ")}, ...) writes from a ${lexicon?.defs?.main?.type ?? "non-procedure"}`,
+    );
+  }
 
   const offences: string[] = [];
   const schema = lexicon?.defs?.main?.input?.schema ?? {};
@@ -236,6 +295,7 @@ describe("each rule flags a bad fixture", () => {
     expect(fileScopeOffences("local A = ctx.env.X\n")).not.toEqual([]);
     expect(fileScopeOffences("local A = env.X\n")).not.toEqual([]);
     expect(fileScopeOffences('local A = ctx["env"]\n')).not.toEqual([]);
+    expect(fileScopeOffences("local A = ctx:get_env()\n")).not.toEqual([]);
     // An `if` at file scope is still file scope.
     expect(fileScopeOffences("if true then\n  local A = ctx.env\nend\n")).not.toEqual([]);
     // After a function has closed, file scope resumes.
@@ -260,31 +320,74 @@ describe("each rule flags a bad fixture", () => {
     ).toEqual([]);
   });
 
-  test("the gate is the first statement of handle", () => {
+  test("the gate is the first statement of handle, in the exact idiom", () => {
     const fleet = "src/at/happyproto/fleet/getX.lua";
     const server = "src/at/happyproto/server/getX.lua";
-    const ok = "function handle(input, ctx)\n  local refused = gate_admin(ctx)\n  if refused then return refused end\nend\n";
+    const ok = "function handle(input, ctx)\n  local refused = gate_admin(ctx)\n  if refused then return refused end\n  return {}\nend\n";
+    const customer = ok.replace("gate_admin", "gate_customer");
 
     expect(gateOffences(fleet, ok)).toEqual([]);
     expect(gateOffences("src/at/happyproto/admin/x.lua", ok)).toEqual([]);
+    expect(gateOffences(server, customer)).toEqual([]);
+    // Any local name will do, as long as it is the one returned.
+    expect(gateOffences(fleet, ok.replaceAll("refused", "denied"))).toEqual([]);
+
     // No gate.
     expect(gateOffences(fleet, "function handle(input, ctx)\n  return {}\nend\n")).not.toEqual([]);
+    // A bare call: the result is thrown away, so everyone is admitted.
+    expect(
+      gateOffences(fleet, "function handle(input, ctx)\n  gate_admin(ctx)\n  return {}\nend\n"),
+    ).not.toEqual([]);
+    // Stored but never returned.
+    expect(
+      gateOffences(fleet, "function handle(input, ctx)\n  local refused = gate_admin(ctx)\n  return {}\nend\n"),
+    ).not.toEqual([]);
+    // Stored, but a different name is checked or returned.
+    expect(gateOffences(fleet, ok.replace("if refused then", "if r then"))).not.toEqual([]);
+    expect(gateOffences(fleet, ok.replace("return refused end", "return nil end"))).not.toEqual([]);
     // Gated, but not first.
     expect(
-      gateOffences(fleet, "function handle(input, ctx)\n  local x = 1\n  local r = gate_admin(ctx)\nend\n"),
+      gateOffences(fleet, ok.replace("  local refused", "  local x = 1\n  local refused")),
     ).not.toEqual([]);
     // The wrong gate for the directory.
     expect(gateOffences(server, ok)).not.toEqual([]);
+    expect(gateOffences(fleet, customer)).not.toEqual([]);
     // Both gates.
     expect(
-      gateOffences(fleet, ok.replace("end\nend", "end\n  gate_customer(ctx)\nend")),
+      gateOffences(fleet, ok.replace("  return {}", "  gate_customer(ctx)\n  return {}")),
     ).not.toEqual([]);
     // A gate in a comment is not a gate.
     expect(
-      gateOffences(fleet, "function handle(input, ctx)\n  -- gate_admin(ctx)\n  return {}\nend\n"),
+      gateOffences(fleet, "function handle(input, ctx)\n  -- local refused = gate_admin(ctx)\n  -- if refused then return refused end\n  return {}\nend\n"),
     ).not.toEqual([]);
-    // actor.* takes no gate here.
-    expect(gateOffences("src/at/happyproto/actor/getX.lua", "function handle(input, ctx) end")).toEqual([]);
+  });
+
+  test("every directory is gated unless the script is allowlisted", () => {
+    const open = "function handle(input, ctx)\n  return {}\nend\n";
+    expect(requiredGate("src/at/happyproto/fleet/getX.lua")).toBe("gate_admin");
+    expect(requiredGate("src/at/happyproto/admin/getX.lua")).toBe("gate_admin");
+    expect(requiredGate("src/at/happyproto/server/getX.lua")).toBe("gate_customer");
+    expect(gateOffences("src/at/happyproto/actor/getProfile.lua", open)).toEqual([]);
+    expect(gateOffences("src/at/happyproto/actor/getAccount.lua", open)).toEqual([]);
+    // Another actor.* script is not allowlisted just by living beside them.
+    expect(gateOffences("src/at/happyproto/actor/getSecrets.lua", open)).not.toEqual([]);
+    // A directory nobody has mapped is refused, not left open.
+    expect(gateOffences("src/at/happyproto/billing/getInvoice.lua", open)).not.toEqual([]);
+    expect(requiredGate("src/at/happyproto/billing/getInvoice.lua")).toBe("unmapped");
+  });
+
+  test("customer endpoints never query ClickHouse", () => {
+    const reads = 'function handle(input, ctx)\n  local rows = query(ctx, "SELECT 1")\nend\n';
+    expect(clickhouseOffences("src/at/happyproto/server/listX.lua", reads)).not.toEqual([]);
+    expect(clickhouseOffences("src/at/happyproto/actor/getAccount.lua", reads)).not.toEqual([]);
+    expect(clickhouseOffences("src/at/happyproto/fleet/getX.lua", reads)).toEqual([]);
+    // Neither a field nor a method named query, nor a comment, is ClickHouse.
+    expect(
+      clickhouseOffences(
+        "src/at/happyproto/server/listX.lua",
+        "-- query(ctx, sql)\nlocal x = db.query(1)\nlocal y = h:query(2)\n",
+      ),
+    ).toEqual([]);
   });
 
   test("procedures forward the idempotency key", () => {
@@ -314,11 +417,15 @@ describe("each rule flags a bad fixture", () => {
     expect(idempotencyOffences(keyless, good)).not.toEqual([]);
     // A method that is not a literal is treated as a write.
     expect(idempotencyOffences(lexicon, "provisioner(ctx, method, path)\n")).not.toEqual([]);
-    // Reads need no key, and neither do queries.
+    // Reads need no key, and a query may read.
+    const query = { defs: { main: { type: "query" } } };
     expect(idempotencyOffences(lexicon, 'provisioner(ctx, "GET", "/v1/plans")\n')).toEqual([]);
+    expect(idempotencyOffences(query, 'provisioner(ctx, "GET", "/v1/plans")\n')).toEqual([]);
+    // A query never writes, key or no key.
+    expect(idempotencyOffences(query, good)).not.toEqual([]);
     expect(
-      idempotencyOffences({ defs: { main: { type: "query" } } }, 'provisioner(ctx, "GET", "/v1/plans")\n'),
-    ).toEqual([]);
+      idempotencyOffences(query, 'provisioner(ctx, "DELETE", "/v1/tenants/" .. input.id)\n'),
+    ).not.toEqual([]);
     // provisioner_failure is not a provisioner call.
     expect(idempotencyOffences(lexicon, "return provisioner_failure(s, b)\n")).toEqual([]);
   });
@@ -392,13 +499,22 @@ describe("every script is deployable", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("every provisioner write forwards an idempotency key", async () => {
+  test("provisioner writes come only from procedures, with an idempotency key", async () => {
     const offenders: string[] = [];
     for (const script of await walk("src/at", ".lua")) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
       for (const o of idempotencyOffences(lexicon, text)) offenders.push(`${script}: ${o}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("no customer endpoint queries ClickHouse", async () => {
+    const offenders: string[] = [];
+    for (const script of await walk("src/at", ".lua")) {
+      const text = await readFile(script, "utf8");
+      for (const o of clickhouseOffences(script, text)) offenders.push(`${script}: ${o}`);
     }
     expect(offenders).toEqual([]);
   });

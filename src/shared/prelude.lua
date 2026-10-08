@@ -84,6 +84,10 @@ end
 -- @block gate
 local spaces = require("happyview.spaces")
 
+-- Access levels that admit. An allowlist, so a level the spaces library adds
+-- later, or a value it was never meant to return, refuses rather than admits.
+local MEMBER_ACCESS = { read = true, read_self = true, write = true }
+
 --- nil when the caller may proceed, else a failure table. Fails closed: a
 --- missing caller, a missing or empty space variable, a space that cannot be
 --- read, and no access all refuse.
@@ -110,7 +114,7 @@ local function gate_member(ctx, var, who)
   if not ok then
     return failure("Forbidden", "The " .. who .. " space is unavailable.")
   end
-  if not access or access == "none" then
+  if not MEMBER_ACCESS[access] then
     return failure("Forbidden", (who:gsub("^%l", string.upper)) .. "s only.")
   end
   return nil
@@ -294,6 +298,10 @@ local PASSTHROUGH = {
 
 --- A provisioner reply mapped to a failure table.
 ---
+--- IdempotencyKeyInFlight -- a retry arriving while the first request with
+--- that key is still running -- is OperationInProgress to the caller, with a
+--- fixed message: it is the same "wait and try again" answer.
+---
 --- A known code passes through with its message at any error status:
 --- NoCapacity arrives as a 503, and it means the same thing as the 4xx codes.
 --- Everything else -- an unknown code, a 500, a body that is not the
@@ -301,6 +309,10 @@ local PASSTHROUGH = {
 --- transport message) -- is Upstream with a fixed message. The raw body is
 --- logged and never returned: it can carry internal detail.
 local function provisioner_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and decoded.error == "IdempotencyKeyInFlight" then
+    return failure("OperationInProgress", "This request is already in progress. Try again shortly.")
+  end
   if type(status) == "number" and status >= 400 and type(decoded) == "table"
     and PASSTHROUGH[decoded.error] then
     local message = decoded.message

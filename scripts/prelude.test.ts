@@ -147,13 +147,14 @@ function run(snippet: string): Run {
 
 const it = skipLua ? test.skip : test;
 
+const TOKEN = "tok-7f3a9c";
 const CUSTOMERS = "at://did:plc:hp/space/at.happyproto.customers/main";
 const ADMINS = "at://did:plc:hp/space/at.happyproto.admin/main";
 const ENV = `{
   HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
   HAPPYPROTO_ADMIN_SPACE = "${ADMINS}",
   PROVISIONER_URL = "http://provisioner:8080/",
-  PROVISIONER_TOKEN = "tok",
+  PROVISIONER_TOKEN = "${TOKEN}",
   HAPPYPROTO_CLICKHOUSE_URL = "http://clickhouse:8123",
   HAPPYPROTO_CLICKHOUSE_USER = "readonly",
   HAPPYPROTO_CLICKHOUSE_PASSWORD = "pw",
@@ -193,12 +194,21 @@ describe("gate", () => {
     expect(r1.message).not.toContain("SPACES_DISABLED");
   });
 
-  it("no access is Forbidden", () => {
-    for (const access of ["nil", '"none"']) {
+  it("no access, or any level not on the allowlist, is Forbidden", () => {
+    for (const access of ["nil", '"none"', '""', '"bogus"', "true", "1"]) {
       const { r1 } = run(`
         __access = function() return ${access} end
         return gate_customer(${CTX})`);
       expect(r1).toEqual({ error: "Forbidden", message: "Customers only." });
+    }
+  });
+
+  it("every allowlisted access level passes", () => {
+    for (const access of ["read", "read_self", "write"]) {
+      const { r1 } = run(`
+        __access = function() return "${access}" end
+        return gate_customer(${CTX})`);
+      expect([access, r1]).toEqual([access, null]);
     }
   });
 
@@ -366,7 +376,7 @@ describe("provisioner", () => {
     expect(calls[0].fn).toBe("post");
     expect(calls[0].url).toBe("http://provisioner:8080/v1/tenants");
     expect(calls[0].opts.headers).toEqual({
-      Authorization: "Bearer tok",
+      Authorization: `Bearer ${TOKEN}`,
       "X-Actor-Did": "did:plc:alice",
       "Idempotency-Key": "key-1",
       "Content-Type": "application/json",
@@ -378,7 +388,7 @@ describe("provisioner", () => {
     const { calls } = run(`return provisioner(${CTX}, "GET", "/v1/plans")`);
     expect(calls[0].fn).toBe("get");
     expect(calls[0].opts.headers).toEqual({
-      Authorization: "Bearer tok",
+      Authorization: `Bearer ${TOKEN}`,
       "X-Actor-Did": "did:plc:alice",
     });
     expect(calls[0].opts.body).toBeUndefined();
@@ -402,6 +412,34 @@ describe("provisioner", () => {
     expect(r1).toBeNull();
     expect(r2).toBe("provisioner unreachable");
     expect(JSON.stringify(log)).toContain("10.0.0.5");
+  });
+
+  it("no caller is a transport failure, and nothing is sent", () => {
+    for (const caller of ["nil", '""']) {
+      const { r1, r2, calls } = run(
+        `return provisioner({ caller_did = ${caller}, env = ${ENV} }, "GET", "/v1/plans")`,
+      );
+      expect(r1).toBeNull();
+      expect(r2).toBe("no caller to act as");
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("the token never reaches the log", () => {
+    const unreachable = run(`
+      __reply = function() error("happyview-http.post: HTTP_ERROR: connection reset") end
+      return provisioner(${CTX}, "POST", "/v1/tenants", { slug = "alice" }, "key-1")`);
+    expect(unreachable.log).not.toEqual([]);
+    expect(JSON.stringify(unreachable.log)).not.toContain(TOKEN);
+
+    const refused = run(`
+      __decoded["BOOM"] = { error = "Internal", message = "boom" }
+      __reply = function() return { status = 500, body = "BOOM", headers = {} } end
+      local status, body = provisioner(${CTX}, "POST", "/v1/tenants", { slug = "alice" }, "key-1")
+      return provisioner_failure(status, body)`);
+    expect(refused.r1.error).toBe("Upstream");
+    expect(refused.log).not.toEqual([]);
+    expect(JSON.stringify(refused.log)).not.toContain(TOKEN);
   });
 
   it("a body that is not JSON comes back as text", () => {
@@ -438,6 +476,15 @@ describe("provisioner_failure", () => {
       const { r1 } = run(`return provisioner_failure(${status}, { error = "${code}", message = "m" })`);
       expect(r1).toEqual({ error: code, message: "m" });
     }
+  });
+
+  it("a key still in flight is OperationInProgress, with a fixed message", () => {
+    const { r1 } = run(
+      'return provisioner_failure(409, { error = "IdempotencyKeyInFlight", message = "SECRET" })',
+    );
+    expect(r1.error).toBe("OperationInProgress");
+    expect(r1.message).not.toContain("SECRET");
+    expect(r1.message.length).toBeGreaterThan(0);
   });
 
   it("anything else is Upstream", () => {
