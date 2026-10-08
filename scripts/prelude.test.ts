@@ -252,6 +252,26 @@ describe("instance_state", () => {
     expect(state(RUNNING, '{ kind = "create", status = "succeeded" }')).toBe("running");
   });
 
+  it("a start, stop, update or upgrade in progress follows desired_state", () => {
+    // The tenant is mid-change, so observed lags desired. Falling through to
+    // "failed" would flash an error for every routine change; the operation
+    // field already shows the progress.
+    const UPDATING = '{ desired_state = "running", observed_state = "stopped" }';
+    const STOPPING = '{ desired_state = "stopped", observed_state = "running" }';
+    expect(state(UPDATING, '{ kind = "update", status = "running" }')).toBe("running");
+    expect(state(STOPPING, '{ kind = "stop", status = "pending" }')).toBe("stopped");
+    for (const kind of ["start", "stop", "update", "upgrade"]) {
+      for (const status of ["pending", "running"]) {
+        const op = `{ kind = "${kind}", status = "${status}" }`;
+        expect([kind, status, state(UPDATING, op)]).toEqual([kind, status, "running"]);
+        expect([kind, status, state(BROKEN, op)]).toEqual([kind, status, "running"]);
+        expect([kind, status, state(STOPPING, op)]).toEqual([kind, status, "stopped"]);
+      }
+    }
+    // Once the operation has finished, the tenant's own states decide again.
+    expect(state(UPDATING, '{ kind = "update", status = "failed" }')).toBe("failed");
+  });
+
   it("desired stopped is stopped", () => {
     expect(state(STOPPED, "nil")).toBe("stopped");
     expect(state('{ desired_state = "stopped", observed_state = "running" }', "nil")).toBe("stopped");

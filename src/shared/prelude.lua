@@ -347,9 +347,15 @@ local function public_operation(op)
   }
 end
 
+-- Operations that change a live tenant. While one is in progress, observed
+-- lags desired by design, so the state follows desired rather than reading
+-- the gap as a failure; the operation field already shows the progress.
+local CHANGES = { start = true, stop = true, update = true, upgrade = true }
+
 --- The spec's state table, first match wins:
 ---   create pending/running  -> provisioning
 ---   destroy pending/running -> deleting
+---   start/stop/update/upgrade pending/running -> desired running or stopped
 ---   observed running and desired running -> running
 ---   desired stopped -> stopped
 ---   otherwise -> failed
@@ -357,6 +363,10 @@ local function instance_state(t, op)
   local live = type(op) == "table" and IN_PROGRESS[op.status]
   if live and op.kind == "create" then return "provisioning" end
   if live and op.kind == "destroy" then return "deleting" end
+  if live and CHANGES[op.kind] then
+    if t.desired_state == "running" then return "running" end
+    if t.desired_state == "stopped" then return "stopped" end
+  end
   if t.observed_state == "running" and t.desired_state == "running" then return "running" end
   if t.desired_state == "stopped" then return "stopped" end
   return "failed"
