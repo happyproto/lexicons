@@ -16,6 +16,8 @@
 local xrpc = require("happyview.xrpc")
 local spaces = require("happyview.spaces")
 
+local MEMBER_ACCESS = { read = true, read_self = true, write = true }
+
 --- Public basics for any actor. This is the DEFAULT projection: every caller
 --- gets exactly this, and the entitlement fields are added afterwards only
 --- when the actor is provably the caller. Written this way round so a later
@@ -99,9 +101,9 @@ function handle(input, ctx)
     profile.isMember = false
     return profile
   end
-  -- v3 reports a non-member as "none" where v2 reported nil; keep v2's shape.
-  if access == "none" then access = nil end
-  profile.access = access
-  profile.isMember = access ~= nil
+  -- Same allowlist as the gate, so this reports exactly what the gate would
+  -- decide. A non-member gets no `access` field at all.
+  profile.isMember = MEMBER_ACCESS[access] == true
+  if profile.isMember then profile.access = access end
   return profile
 end
