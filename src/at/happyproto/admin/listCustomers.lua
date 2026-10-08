@@ -12,8 +12,10 @@ function handle(input, ctx)
   local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local uri = (ctx.env or {}).HAPPYPROTO_CUSTOMERS_SPACE
-  if not uri or uri == "" then
+  -- The gate has already derived the admin space from HAPPYPROTO_DID, so
+  -- this is never nil in practice; checked anyway rather than concatenated.
+  local uri = happyproto_space(ctx, CUSTOMERS_SPACE_TYPE)
+  if not uri then
     return failure("Upstream", "customers space not configured")
   end
 

@@ -6,12 +6,12 @@
 -- a customer is adding or removing a space member. There is no separate
 -- customer list to drift out of sync with.
 --
--- The space uri is a script variable rather than a literal because it embeds
--- the authority DID, and the whole uri is what makes the check meaningful:
+-- The space uri is derived from the HAPPYPROTO_DID script variable rather than
+-- a literal because the authority DID is what makes the check meaningful:
 -- matching on the space TYPE alone would admit everyone, since any user can
 -- create a space of any type and is auto-added to their own as a write member.
 
--- @prelude failure, json, access
+-- @prelude failure, json, access, authority
 
 local xrpc = require("happyview.xrpc")
 local spaces = require("happyview.spaces")
@@ -81,11 +81,11 @@ function handle(input, ctx)
     return profile
   end
 
-  local space_uri = ctx.env.HAPPYPROTO_ADMIN_SPACE
-  if not space_uri or space_uri == "" then
-    -- Fail closed. With no space configured there is nothing to be a member
-    -- of, so nobody is one — treating unconfigured as "allow" would turn a
-    -- missing script variable into an open door.
+  local space_uri = happyproto_space(ctx, ADMIN_SPACE_TYPE)
+  if not space_uri then
+    -- Fail closed. With no valid HAPPYPROTO_DID there is nothing to be a
+    -- member of, so nobody is one — treating unconfigured as "allow" would
+    -- turn a missing script variable into an open door.
     profile.isMember = false
     return profile
   end

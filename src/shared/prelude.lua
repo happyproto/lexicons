@@ -3,8 +3,9 @@
 --
 -- Blocks are emitted in the order they appear HERE, not the order a script
 -- lists them, because Lua requires a local to be declared before any function
--- closing over it. `gate` implies `failure` and `access`; `clickhouse` implies `json`,
--- `failure` and `urlencode`; `provisioner` implies `json` and `failure`;
+-- closing over it. `authority` implies `validate`; `gate` implies `failure`,
+-- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
+-- and `urlencode`; `provisioner` implies `json` and `failure`;
 -- `instance` implies `json`; `jobs` implies `failure`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
@@ -90,24 +91,55 @@ end
 local MEMBER_ACCESS = { read = true, read_self = true, write = true }
 -- @endblock
 
+-- @block authority
+-- HappyProto's two spaces, derived from the one script variable that says who
+-- HappyProto is. Both are fixed: type at.happyproto.admin or
+-- at.happyproto.customers, skey `main`, under HappyProto's own DID.
+--
+-- The DID is a script variable, not a literal, because it is the part that
+-- makes a membership check mean anything: matching on the space TYPE would
+-- admit everyone, since any user can create a space of any type and is
+-- auto-added to their own as a member. Keeping it server-side means no client
+-- can point the gate at a different space.
+
+local ADMIN_SPACE_TYPE = "at.happyproto.admin"
+local CUSTOMERS_SPACE_TYPE = "at.happyproto.customers"
+
+--- HAPPYPROTO_DID, or nil when it is unset, empty or not a DID. Callers fail
+--- closed on nil: with no authority, nobody is a member of anything.
+---
+--- It must be HappyProto's own ACCOUNT, never the instance's own service DID.
+--- On an instance that publishes a service identity, HappyView anchors every
+--- new space under that DID whoever creates it, so with HAPPYPROTO_DID set to
+--- it, any signed-in user could create at.happyproto.admin/main first, be
+--- its creator, and so be staff.
+local function happyproto_did(ctx)
+  local did = (ctx.env or {}).HAPPYPROTO_DID
+  if is_did(did) then return did end
+  return nil
+end
+
+--- `at://<HAPPYPROTO_DID>/space/<space_type>/main`, or nil with no valid DID.
+local function happyproto_space(ctx, space_type)
+  local did = happyproto_did(ctx)
+  if not did then return nil end
+  return "at://" .. did .. "/space/" .. space_type .. "/main"
+end
+-- @endblock
+
 -- @block gate
 local spaces = require("happyview.spaces")
 
 --- nil when the caller may proceed, else a failure table. Fails closed: a
---- missing caller, a missing or empty space variable, a space that cannot be
---- read, and no access all refuse.
----
---- The space uri is a script variable, not a literal, because it embeds the
---- authority DID, and the whole uri is what makes the check mean anything:
---- matching on the space TYPE would admit everyone, since any user can create
---- a space of any type and is auto-added to their own as a member.
-local function gate_member(ctx, var, who)
+--- missing caller, a missing or malformed HAPPYPROTO_DID, a space that cannot
+--- be read, and no access all refuse.
+local function gate_member(ctx, space_type, who)
   if not ctx.caller_did or ctx.caller_did == "" then
     return failure("AuthRequired", "This endpoint requires an authenticated caller.")
   end
-  local uri = (ctx.env or {})[var]
-  if not uri or uri == "" then
-    -- Fail closed: with no space configured, nobody is a member.
+  local uri = happyproto_space(ctx, space_type)
+  if not uri then
+    -- Fail closed: with no authority configured, nobody is a member.
     return failure("Forbidden", "No " .. who .. " space is configured.")
   end
   -- pcall: a spaces call RAISES when the spaces feature is off or the uri is
@@ -125,14 +157,26 @@ local function gate_member(ctx, var, who)
   return nil
 end
 
---- Staff: membership of HAPPYPROTO_ADMIN_SPACE.
+--- Staff: membership of HappyProto's admin space.
 local function gate_admin(ctx)
-  return gate_member(ctx, "HAPPYPROTO_ADMIN_SPACE", "admin")
+  return gate_member(ctx, ADMIN_SPACE_TYPE, "admin")
 end
 
---- Customers: membership of HAPPYPROTO_CUSTOMERS_SPACE.
+--- Customers: membership of HappyProto's customers space.
 local function gate_customer(ctx)
-  return gate_member(ctx, "HAPPYPROTO_CUSTOMERS_SPACE", "customer")
+  return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer")
+end
+
+--- HappyProto itself: the caller is exactly HAPPYPROTO_DID. For the one
+--- endpoint that must work before the admin space exists, so it cannot ask
+--- the admin space. Everyone else, a signed-out caller, and an unset or
+--- malformed HAPPYPROTO_DID are all Forbidden.
+local function gate_owner(ctx)
+  local did = happyproto_did(ctx)
+  if not did or ctx.caller_did ~= did then
+    return failure("Forbidden", "Only HappyProto's own account can do this.")
+  end
+  return nil
 end
 -- @endblock
 

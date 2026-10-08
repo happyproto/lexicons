@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { parsePrelude } from "./gen";
+import { HARNESS } from "./harness";
 import { findLua } from "./lua";
 
 // Same policy as luac in structure.test.ts: a deliberate opt-out is fine, an
@@ -17,109 +18,6 @@ import { findLua } from "./lua";
 const lua = findLua();
 const skipLua = !lua && Boolean(process.env.ALLOW_SKIP_LUA);
 
-/**
- * Stub modules, a JSON-ish encoder to report results with, and recorders for
- * what the prelude asked HappyView to do. Tests steer the stubs through the
- * `__` globals before calling a helper.
- */
-const HARNESS = String.raw`
-local function __encode(v)
-  local t = type(v)
-  if v == nil then return "null" end
-  if t == "boolean" then return tostring(v) end
-  if t == "number" then
-    if math.type(v) == "integer" then return tostring(v) end
-    return string.format("%.17g", v)
-  end
-  if t == "string" then
-    return '"' .. (v:gsub('[%c"\\]', function(c)
-      return string.format("\\u%04x", c:byte())
-    end)) .. '"'
-  end
-  if t == "table" then
-    local count = 0
-    for _ in pairs(v) do count = count + 1 end
-    if count > 0 and count == #v then
-      local items = {}
-      for i = 1, #v do items[i] = __encode(v[i]) end
-      return "[" .. table.concat(items, ",") .. "]"
-    end
-    local keys = {}
-    for k in pairs(v) do keys[#keys + 1] = tostring(k) end
-    table.sort(keys)
-    local items = {}
-    for _, k in ipairs(keys) do
-      local value = v[k]
-      if value == nil then value = v[tonumber(k)] end
-      items[#items + 1] = __encode(k) .. ":" .. __encode(value)
-    end
-    return "{" .. table.concat(items, ",") .. "}"
-  end
-  return '"<' .. t .. '>"'
-end
-
-__log = {}
-__calls = {}
-__access = function(uri, did) return nil end
-__reply = function(method, url, opts) return { status = 200, body = "", headers = {} } end
-__decoded = {}
-
-package.preload["internal.json"] = function()
-  return {
-    encode = __encode,
-    decode = function(s)
-      local v = __decoded[s]
-      if v == nil then error("invalid json: " .. tostring(s)) end
-      return v
-    end,
-    to_array = function(t) return t end,
-  }
-end
-
-package.preload["internal.logging"] = function()
-  local function at(level)
-    return function(message, fields)
-      __log[#__log + 1] = { level = level, message = message, fields = fields }
-    end
-  end
-  return { debug = at("debug"), info = at("info"), warn = at("warn"), error = at("error") }
-end
-
-package.preload["happyview.spaces"] = function()
-  return {
-    get = function(uri)
-      return {
-        access = function(_, did)
-          __calls[#__calls + 1] = { fn = "access", uri = uri, did = did }
-          return __access(uri, did)
-        end,
-      }
-    end,
-  }
-end
-
-__job = function(job_type, input) return "job-0001" end
-
-package.preload["happyview.jobs"] = function()
-  return {
-    create = function(job_type, input, opts)
-      __calls[#__calls + 1] = { fn = "create", job_type = job_type, input = input, opts = opts }
-      return __job(job_type, input)
-    end,
-  }
-end
-
-package.preload["happyview.http"] = function()
-  local m = {}
-  for _, name in ipairs({ "get", "post", "put", "patch", "delete", "head" }) do
-    m[name] = function(url, opts)
-      __calls[#__calls + 1] = { fn = name, url = url, opts = opts }
-      return __reply(name, url, opts)
-    end
-  end
-  return m
-end
-`;
 
 const prelude = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
 // Every block, in file order: the emit order a script taking all of them gets.
@@ -167,11 +65,11 @@ function run(snippet: string): Run {
 const it = skipLua ? test.skip : test;
 
 const TOKEN = "tok-7f3a9c";
-const CUSTOMERS = "at://did:plc:hp/space/at.happyproto.customers/main";
-const ADMINS = "at://did:plc:hp/space/at.happyproto.admin/main";
+const HAPPYPROTO = "did:plc:hp";
+const CUSTOMERS = `at://${HAPPYPROTO}/space/at.happyproto.customers/main`;
+const ADMINS = `at://${HAPPYPROTO}/space/at.happyproto.admin/main`;
 const ENV = `{
-  HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
-  HAPPYPROTO_ADMIN_SPACE = "${ADMINS}",
+  HAPPYPROTO_DID = "${HAPPYPROTO}",
   PROVISIONER_URL = "http://provisioner:8080/",
   PROVISIONER_TOKEN = "${TOKEN}",
   HAPPYPROTO_CLICKHOUSE_URL = "http://clickhouse:8123",
@@ -197,12 +95,33 @@ describe("gate", () => {
     }
   });
 
-  it("a missing or empty space variable is Forbidden, without asking the space", () => {
-    for (const env of ["{}", '{ HAPPYPROTO_CUSTOMERS_SPACE = "" }', "nil"]) {
-      const { r1, calls } = run(`return gate_customer({ caller_did = "did:plc:alice", env = ${env} })`);
-      expect(r1.error).toBe("Forbidden");
-      expect(calls).toEqual([]);
+  // Unset, empty, not a DID, and a DID with something after it that would
+  // aim the derived uri somewhere else.
+  const BAD_DIDS = [
+    "{}",
+    '{ HAPPYPROTO_DID = "" }',
+    '{ HAPPYPROTO_DID = "hp" }',
+    '{ HAPPYPROTO_DID = "did:plc:hp/space/x" }',
+    "{ HAPPYPROTO_DID = 7 }",
+    "nil",
+  ];
+
+  it("a missing, empty or malformed HAPPYPROTO_DID is Forbidden, without asking a space", () => {
+    for (const env of BAD_DIDS) {
+      for (const gate of ["gate_customer", "gate_admin"]) {
+        const { r1, calls } = run(`return ${gate}({ caller_did = "did:plc:alice", env = ${env} })`);
+        expect([env, gate, r1.error]).toEqual([env, gate, "Forbidden"]);
+        expect(calls).toEqual([]);
+      }
     }
+  });
+
+  it("the old space variables grant nothing on their own", () => {
+    const { r1, calls } = run(`return gate_admin({ caller_did = "did:plc:alice", env = {
+      HAPPYPROTO_ADMIN_SPACE = "${ADMINS}", HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
+    } })`);
+    expect(r1.error).toBe("Forbidden");
+    expect(calls).toEqual([]);
   });
 
   it("a space lookup that raises is Forbidden, not an error", () => {
@@ -250,6 +169,47 @@ describe("gate", () => {
       __access = function(uri) if uri == "${CUSTOMERS}" then return "read" end end
       return gate_admin(${CTX})`);
     expect(refused.r1).toEqual({ error: "Forbidden", message: "Admins only." });
+  });
+});
+
+describe("authority", () => {
+  it("derives both spaces from HAPPYPROTO_DID", () => {
+    const { r1, r2 } = run(`return happyproto_space(${CTX}, ADMIN_SPACE_TYPE),
+      happyproto_space(${CTX}, CUSTOMERS_SPACE_TYPE)`);
+    expect([r1, r2]).toEqual([ADMINS, CUSTOMERS]);
+  });
+
+  it("a missing, empty or malformed HAPPYPROTO_DID derives nothing", () => {
+    for (const env of ["{}", '{ HAPPYPROTO_DID = "" }', '{ HAPPYPROTO_DID = "did:plc:a/b" }', "nil"]) {
+      const { r1, r2 } = run(`local ctx = { env = ${env} }
+        return happyproto_did(ctx), happyproto_space(ctx, ADMIN_SPACE_TYPE)`);
+      expect([env, r1, r2]).toEqual([env, null, null]);
+    }
+  });
+});
+
+describe("gate_owner", () => {
+  it("admits exactly HAPPYPROTO_DID, without asking any space", () => {
+    const { r1, calls } = run(`return gate_owner({ caller_did = "${HAPPYPROTO}", env = ${ENV} })`);
+    expect(r1).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses anyone else and a signed-out caller as Forbidden", () => {
+    for (const caller of ['"did:plc:alice"', '"did:plc:hpx"', '""', "nil"]) {
+      const { r1, calls } = run(`return gate_owner({ caller_did = ${caller}, env = ${ENV} })`);
+      expect([caller, r1?.error]).toEqual([caller, "Forbidden"]);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("refuses everyone when HAPPYPROTO_DID is missing, empty or malformed", () => {
+    for (const env of ["{}", '{ HAPPYPROTO_DID = "" }', '{ HAPPYPROTO_DID = "hp" }', "nil"]) {
+      for (const caller of ['"did:plc:hp"', '"hp"', '""', "nil"]) {
+        const { r1 } = run(`return gate_owner({ caller_did = ${caller}, env = ${env} })`);
+        expect([env, caller, r1?.error]).toEqual([env, caller, "Forbidden"]);
+      }
+    }
   });
 });
 

@@ -1,7 +1,8 @@
 /**
  * Brings the running stack (compose.yml) to the state every integration test
- * assumes: real accounts, the two spaces with their members, the script
- * variables, and this repo's lexicons and scripts deployed.
+ * assumes: real accounts, the script variables, this repo's lexicons and
+ * scripts deployed, and the two spaces with their members -- bootstrapped by
+ * `happyproto` calling admin.createSpaces, as production's are.
  *
  * Every step is idempotent, so a rerun against a stack that is already set up
  * converges rather than failing, and any number of test files can await
@@ -107,36 +108,33 @@ async function assertInPlc(account: Account): Promise<void> {
 }
 
 /**
- * The space, as `authority`, the way the admin app's createAdminSpace makes
- * the admin space: listSpaces to adopt an existing one, else createSpace.
+ * HappyProto's two spaces, created by `owner` calling admin.createSpaces with
+ * `staff`, as production bootstraps them. Idempotent, so a rerun against a
+ * stack already set up adopts the existing spaces. Called directly rather
+ * than through xrpc.ts, which needs the stack this is building.
  */
-async function space(
-  authority: Account,
-  clientKey: string,
-  type: string,
-  displayName: string,
-): Promise<string> {
-  const headers = {
-    cookie: sessionCookie(authority.did),
-    "x-client-key": clientKey,
-    "content-type": "application/json",
-  };
-  const expected = `at://${authority.did}/space/${type}/main`;
-  const listed = await expectOk(
-    await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.space.listSpaces?limit=100`, { headers }),
-    "listSpaces",
-  );
-  if ((listed.spaces ?? []).some((s: { uri: string }) => s.uri === expected)) return expected;
-
-  const created = await expectOk(
-    await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.simplespace.createSpace`, {
+async function createSpaces(
+  owner: Account,
+  client: { key: string; secret: string },
+  staff: string[],
+): Promise<{ admin: string; customers: string }> {
+  const reply = await expectOk(
+    await fetch(`${HAPPYVIEW_URL}/xrpc/at.happyproto.admin.createSpaces`, {
       method: "POST",
-      headers,
-      body: JSON.stringify({ type, skey: "main", displayName, mintPolicy: "member-list" }),
+      headers: {
+        cookie: sessionCookie(owner.did),
+        "x-client-key": client.key,
+        "x-client-secret": client.secret,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ staff }),
     }),
-    `createSpace ${type}`,
+    "admin.createSpaces",
   );
-  return created.uri;
+  if (reply?.error) {
+    throw new Error(`admin.createSpaces answered ${reply.error}: ${reply.message}`);
+  }
+  return { admin: reply.adminSpace.uri, customers: reply.customersSpace.uri };
 }
 
 /** Add `member` to the space with read access, as its authority. */
@@ -368,19 +366,8 @@ async function setup(): Promise<Stack> {
   );
   const client = { key: registered.client_key as string, secret: registered.client_secret as string };
 
-  const admin = await space(accounts.happyproto, client.key, "at.happyproto.admin", "HappyProto admins");
-  const customers = await space(
-    accounts.happyproto,
-    client.key,
-    "at.happyproto.customers",
-    "HappyProto customers",
-  );
-  await putMember(accounts.happyproto, client.key, admin, accounts.staff.did);
-  await putMember(accounts.happyproto, client.key, customers, accounts.customer.did);
-
   const variables: Record<string, string> = {
-    HAPPYPROTO_ADMIN_SPACE: admin,
-    HAPPYPROTO_CUSTOMERS_SPACE: customers,
+    HAPPYPROTO_DID: accounts.happyproto.did,
     HAPPYPROTO_CLICKHOUSE_URL: "http://fake-clickhouse:8123",
     HAPPYPROTO_CLICKHOUSE_USER: CLICKHOUSE_USER,
     HAPPYPROTO_CLICKHOUSE_PASSWORD: CLICKHOUSE_PASSWORD,
@@ -391,6 +378,9 @@ async function setup(): Promise<Stack> {
   for (const [key, value] of Object.entries(variables)) await setVariable(apiKey, key, value);
 
   await deploy(apiKey);
+
+  const { admin, customers } = await createSpaces(accounts.happyproto, client, [accounts.staff.did]);
+  await putMember(accounts.happyproto, client.key, customers, accounts.customer.did);
 
   return { accounts, spaces: { admin, customers }, apiKey, client, variables };
 }

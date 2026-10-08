@@ -46,8 +46,8 @@ describe("parsePrelude", () => {
     // must come after it.
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
-      "json", "failure", "validate", "access", "gate", "urlencode", "clickhouse", "provisioner",
-      "instance", "jobs",
+      "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
+      "provisioner", "instance", "jobs",
     ]);
   });
 
@@ -75,12 +75,17 @@ describe("parseDirective", () => {
 
 describe("expand", () => {
   const order = [
-    "json", "failure", "validate", "access", "gate", "urlencode", "clickhouse", "provisioner",
-    "instance", "jobs",
+    "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
+    "provisioner", "instance", "jobs",
   ];
 
-  test("gate implies failure", () => {
-    expect(expand(["gate"], order)).toEqual(["failure", "access", "gate"]);
+  test("gate implies failure, access, validate and authority", () => {
+    expect(expand(["gate"], order)).toEqual(["failure", "validate", "access", "authority", "gate"]);
+  });
+
+  test("authority implies validate, and stands without the gate", () => {
+    // getProfile derives the admin space without taking the gate.
+    expect(expand(["authority"], order)).toEqual(["validate", "authority"]);
   });
 
   test("clickhouse implies json, failure and urlencode", () => {
@@ -105,6 +110,7 @@ describe("expand", () => {
       "failure",
       "validate",
       "access",
+      "authority",
       "gate",
       "provisioner",
       "instance",

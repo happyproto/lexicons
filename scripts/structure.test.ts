@@ -123,8 +123,22 @@ const UNGATED: Record<string, string> = {
   "at/happyproto/actor/getAccount": "signed-in only, its own check",
 };
 
+type Gate = "gate_admin" | "gate_customer" | "gate_owner";
+const GATES: Gate[] = ["gate_admin", "gate_customer", "gate_owner"];
+
+/**
+ * Scripts that open with a gate other than their directory's, each for a
+ * stated reason. Still gated, in the same exact idiom: this swaps the gate,
+ * it never skips it.
+ */
+const GATE_EXCEPTIONS: Record<string, Gate> = {
+  // Bootstraps the admin space, so it cannot be gated on membership of it:
+  // the caller must be exactly HAPPYPROTO_DID instead.
+  "at/happyproto/admin/createSpaces": "gate_owner",
+};
+
 /** Directory under at/happyproto/ -> the gate its handlers must open with. */
-const GATE_FOR_DIR: Record<string, "gate_admin" | "gate_customer"> = {
+const GATE_FOR_DIR: Record<string, Gate> = {
   fleet: "gate_admin",
   admin: "gate_admin",
   server: "gate_customer",
@@ -135,11 +149,11 @@ const GATE_FOR_DIR: Record<string, "gate_admin" | "gate_customer"> = {
  * script; "unmapped" for a path nobody has decided about yet, which is itself
  * an offence.
  */
-export function requiredGate(path: string): "gate_admin" | "gate_customer" | "none" | "unmapped" {
+export function requiredGate(path: string): Gate | "none" | "unmapped" {
   const match = path.match(/(?:^|\/)(at\/happyproto\/([^/]+)\/[^/]+?)(?:\.lua)?$/);
   if (!match) return "unmapped";
   if (UNGATED[match[1]]) return "none";
-  return GATE_FOR_DIR[match[2]] ?? "unmapped";
+  return GATE_EXCEPTIONS[match[1]] ?? GATE_FOR_DIR[match[2]] ?? "unmapped";
 }
 
 /**
@@ -148,7 +162,7 @@ export function requiredGate(path: string): "gate_admin" | "gate_customer" | "no
  *   local refused = gate_admin(ctx)
  *   if refused then return refused end
  *
- * and never calls the other gate. First, because anything ahead of it runs
+ * and never calls another gate. First, because anything ahead of it runs
  * for a caller who may be refused. The exact idiom, because a bare
  * `gate_admin(ctx)`, or a result that is stored and never returned, LOOKS
  * gated and admits everyone. And only one gate, because a staff endpoint that
@@ -160,7 +174,7 @@ export function gateOffences(path: string, text: string): string[] {
   if (want === "unmapped") {
     return ["is in a directory with no gate mapping; add it to GATE_FOR_DIR or UNGATED"];
   }
-  const other = want === "gate_admin" ? "gate_customer" : "gate_admin";
+  const others = GATES.filter((gate) => gate !== want);
   const code = stripLua(text, true);
   const offences: string[] = [];
 
@@ -176,8 +190,10 @@ export function gateOffences(path: string, text: string): string[] {
       `handle does not open with "local refused = ${want}(ctx)" then "if refused then return refused end"`,
     );
   }
-  if (new RegExp(`(^|[^\\w.:])${other}\\s*\\(`).test(stripLua(text))) {
-    offences.push(`calls ${other} as well as ${want}`);
+  for (const other of others) {
+    if (new RegExp(`(^|[^\\w.:])${other}\\s*\\(`).test(stripLua(text))) {
+      offences.push(`calls ${other} as well as ${want}`);
+    }
   }
   return offences;
 }
@@ -282,6 +298,9 @@ export function errorsReturned(text: string, passthrough: string[]): Set<string>
     names.add("AuthRequired");
     names.add("Forbidden");
   }
+  // gate_owner refuses everyone it refuses, signed-out callers included, as
+  // Forbidden.
+  if (/(^|[^\w.])gate_owner\s*\(/.test(bare)) names.add("Forbidden");
   if (/(^|[^\w.])(provisioner_failure|owned_tenant)\s*\(/.test(bare)) {
     for (const name of passthrough) names.add(name);
     names.add("Upstream");
@@ -395,6 +414,22 @@ describe("each rule flags a bad fixture", () => {
     expect(gateOffences("src/at/happyproto/actor/getAccount.lua", open)).toEqual([]);
     // Another actor.* script is not allowlisted just by living beside them.
     expect(gateOffences("src/at/happyproto/actor/getSecrets.lua", open)).not.toEqual([]);
+    // createSpaces is an exception that swaps the gate, never skips it: it
+    // must open with gate_owner, in the same idiom, and take no other gate.
+    const owner = "function handle(input, ctx)\n  local refused = gate_owner(ctx)\n  if refused then return refused end\n  return {}\nend\n";
+    const createSpaces = "src/at/happyproto/admin/createSpaces.lua";
+    expect(requiredGate(createSpaces)).toBe("gate_owner");
+    expect(gateOffences(createSpaces, owner)).toEqual([]);
+    expect(gateOffences(createSpaces, open)).not.toEqual([]);
+    expect(gateOffences(createSpaces, owner.replace("gate_owner", "gate_admin"))).not.toEqual([]);
+    expect(
+      gateOffences(createSpaces, "function handle(input, ctx)\n  gate_owner(ctx)\n  return {}\nend\n"),
+    ).not.toEqual([]);
+    expect(
+      gateOffences(createSpaces, owner.replace("  return {}", "  gate_admin(ctx)\n  return {}")),
+    ).not.toEqual([]);
+    // Only that script: another admin.* script may not open with gate_owner.
+    expect(gateOffences("src/at/happyproto/admin/getX.lua", owner)).not.toEqual([]);
     // A directory nobody has mapped is refused, not left open.
     expect(gateOffences("src/at/happyproto/billing/getInvoice.lua", open)).not.toEqual([]);
     expect(requiredGate("src/at/happyproto/billing/getInvoice.lua")).toBe("unmapped");
@@ -459,6 +494,9 @@ describe("each rule flags a bad fixture", () => {
     expect(undeclaredErrorOffences(lexicon, 'return failure("Upstream", e)\n', [])).toEqual([]);
     expect(undeclaredErrorOffences(lexicon, 'return failure("NotFound", e)\n', [])).not.toEqual([]);
     expect(undeclaredErrorOffences(lexicon, "local r = gate_admin(ctx)\n", [])).not.toEqual([]);
+    expect(undeclaredErrorOffences(lexicon, "local r = gate_owner(ctx)\n", [])).toEqual([
+      "can return Forbidden, which the lexicon does not declare",
+    ]);
     expect(
       undeclaredErrorOffences(lexicon, "return provisioner_failure(s, b)\n", ["SlugTaken"]),
     ).toEqual(["can return SlugTaken, which the lexicon does not declare"]);
