@@ -1,0 +1,91 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.stopInstance",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Stop one of the caller's instances, and start a job that follows the stop. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "id",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The instance's UUID."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "jobId"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "description": "The background job following the change. Poll it with at.happyproto.server.getJob."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id or idempotencyKey is missing or not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner: it reserves slugs by configuration as well."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    }
+  }
+}

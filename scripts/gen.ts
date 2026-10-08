@@ -3,15 +3,17 @@
  * Inlines src/shared/prelude.lua blocks into each script under src/at/,
  * writing complete, runnable Lua to lua/.
  *
- * The HappyView sandbox exposes db, http, json, xrpc, env and caller_did --
- * no `require`, no `package`. Sharing code at runtime is therefore impossible
- * and the duplication has to be resolved at build time.
+ * HappyView v3's `require` reaches only its own `internal.*` modules and
+ * installed `happyview.*` library plugins, never a sibling file, so sharing
+ * script code at runtime is still impossible and the duplication has to be
+ * resolved at build time.
  *
  * An off-the-shelf bundler was rejected (audited 2026-09-04): luabundle and
  * darklua both emit a module-table loader preamble, which costs instructions
  * on every invocation against a hard budget and makes the generated admin gate
- * harder to audit; amalg needs package.preload and the real require, which the
- * sandbox does not have at all. See the spec's "Rejected" table.
+ * harder to audit; amalg needs a require that reads package.preload, and the
+ * sandbox's require loads only the two module kinds above. See the spec's
+ * "Rejected" table.
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
@@ -24,16 +26,19 @@ const DIRECTIVE = /^--\s*@prelude\s+(.+)$/m;
 
 /**
  * Blocks that pull in others. Ordering is handled by prelude file order, not
- * here: query() closes over both missing_config() and url_encode(), and a Lua
- * local must be declared before any function closing over it.
+ * here: a Lua local must be declared before any function closing over it, so
+ * `json` and `failure` come first in the file.
  *
- * `gate` is separate from `space`/`failure` so actor.getProfile can take the
- * space uri and the failure helper WITHOUT the admin gate -- it is the
- * endpoint that reports membership, so gating it on membership is circular.
+ * `gate` is separate from `failure` so actor.getProfile can take the failure
+ * helper WITHOUT the admin gate -- it is the endpoint that reports
+ * membership, so gating it on membership is circular.
  */
 const IMPLIES: Record<string, string[]> = {
-  gate: ["space", "failure"],
-  clickhouse: ["config", "urlencode"],
+  gate: ["failure", "access"],
+  clickhouse: ["json", "failure", "urlencode"],
+  provisioner: ["json", "failure"],
+  instance: ["json"],
+  jobs: ["failure"],
 };
 
 export function parsePrelude(text: string): Map<string, string> {

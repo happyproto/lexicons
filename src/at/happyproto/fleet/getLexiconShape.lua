@@ -14,11 +14,11 @@
 
 -- @prelude gate, clickhouse
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local rows, err = query([[
+  local rows, err = query(ctx, [[
     SELECT
       count()                                              AS total,
       countIf(length(shares) > 0)                          AS with_shares,

@@ -27,12 +27,13 @@ Scripts are **authored in `src/`** and generated into `lua/` by `bun run gen`.
 Discovery still works on directory layout — `src/at/happyproto/fleet/getSignals.lua`
 becomes `lua/at/happyproto/fleet/getSignals.lua` becomes
 `at.happyproto.fleet.getSignals` — but the deployed file is generated, and the
-shared admin gate lives once in `src/shared/prelude.lua` instead of being
+shared gates and helpers live once in `src/shared/prelude.lua` instead of being
 copied by hand into every script.
 
-The sandbox has no `require`, so sharing code at runtime is impossible; the
-duplication has to be resolved at build time. Each source declares which
-prelude blocks it needs:
+The sandbox's `require` loads only HappyView's own `internal.*` modules and
+installed `happyview.*` library plugins, never a sibling file, so sharing code
+at runtime is impossible; the duplication has to be resolved at build time.
+Each source declares which prelude blocks it needs:
 
 ```lua
 -- @prelude gate, clickhouse
@@ -40,25 +41,65 @@ prelude blocks it needs:
 
 | Block | Provides | Implies |
 | --- | --- | --- |
-| `space` | `SPACE_URI` | — |
+| `json` | `json`, from `internal.json` | — |
 | `failure` | `failure(name, message)` | — |
-| `gate` | `denied()` — the admin gate | `space`, `failure` |
-| `config` | `CH_*` locals, `missing_config()` | — |
-| `urlencode` | `url_encode(s)` | — |
-| `clickhouse` | `query(sql, params)` | `config`, `urlencode` |
+| `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
+| `access` | `MEMBER_ACCESS`, the space access levels that admit | — |
+| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure`, `access` |
+| `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
+| `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
+| `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
+| `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
+| `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 
 Blocks are emitted in **prelude file order**, never directive order, because a
 Lua local must be declared before any function closing over it.
 
-`gate` is deliberately separable from `space`/`failure`: `actor.getProfile`
-needs the space uri and the failure helper but must **not** be admin-gated. It
-is the endpoint that tells a caller whether they are a member, so gating it on
-membership would be circular.
+Each gate returns nil when the caller may proceed and a failure table
+otherwise, and fails closed: no caller, an unset space variable, or a space
+that cannot be read all refuse. A gated handler opens with it:
 
-`bun test` checks that every generated gate is byte-identical, that every fleet
-script actually has one, that every script has a paired lexicon, that no source
-re-declares a prelude helper or interpolates a caller value into SQL, and that
-all generated output parses under `luac -p`.
+```lua
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
+  if refused then return refused end
+  -- ...
+end
+```
+
+`gate` is deliberately separable from `failure`: `actor.getProfile` needs the
+failure helper but must **not** be admin-gated. It is the endpoint that tells a
+caller whether they are a member, so gating it on membership would be circular.
+
+`bun test` checks that every script has a paired lexicon and defines
+`handle(input, ctx)`; that nothing reads `ctx` or `env` at file scope; that
+every `fleet.*` and `admin.*` handler opens with `gate_admin(ctx)` and every
+`server.*` handler with `gate_customer(ctx)`; that every procedure writing
+through the provisioner forwards `input.idempotencyKey`; that every lexicon
+declares each error its script can return; that no source re-declares a
+prelude helper or interpolates a caller value into SQL; and that all generated
+output parses under `luac -p`. `scripts/prelude.test.ts` runs the prelude
+itself under Lua 5.4 against stub modules, so it needs `lua` as well as `luac`.
+
+### Integration tests
+
+`integration/` runs the generated scripts on a real HappyView, at the release
+in `integration/.env`, with the plugins in `integration/plugins.txt` (the list
+infrastructure copies for `api.happyproto.at`):
+
+```sh
+docker compose -f integration/compose.yml up -d --wait
+bun run gen && bun run test:integration
+docker compose -f integration/compose.yml down -v
+```
+
+The stack has a PLC directory and a PDS holding four real accounts
+(`happyproto`, `staff`, `customer`, `outsider`), the admin and customers
+spaces with their members, and fakes for the provisioner and ClickHouse that
+record what they were sent. Tests sign HappyView sessions for those accounts
+with the stack's known `SESSION_SECRET` (`integration/session.ts`), and every
+successful reply is validated against its lexicon's output schema. CI runs it
+on every pull request, and `deploy` waits for it.
 
 A script's path becomes its NSID — `lua/com/happyproto/getMe.lua` binds to
 `com.happyproto.getMe` — and the **trigger type comes from the paired
@@ -91,16 +132,21 @@ reason to automate them.
 
 ## Writing a query script
 
-Scripts run in a sandboxed Lua VM with an instruction limit. `handle()` is
-called per request and its return value is serialised as the JSON response.
+Scripts run in a sandboxed Lua VM with an instruction limit, under the
+HappyView v3 script contract. `handle(input, ctx)` is called per request and
+its return value is serialised as the JSON response. `input` is the query
+parameters (or a procedure's body); `ctx` carries **`ctx.caller_did`** — the
+authenticated user, and therefore the hook for every authorization decision —
+and `ctx.env`, the script variables. Read both only inside functions: the file
+body runs once at load, before there is any caller.
 
-Available: `db` (HappyView's own record store), `http` (an HTTP client),
-`json`, `xrpc`, and context globals including **`caller_did`** — the
-authenticated user, and therefore the hook for every authorization decision.
+Libraries come from `require`: `internal.json` and `internal.logging` are
+built in, and `happyview.http`, `happyview.spaces`, `happyview.xrpc` and
+`happyview.jobs` are library plugins the instance must have installed.
 
-ClickHouse is reached over `http`, not `db`: `db` reads HappyView's records,
-not arbitrary SQL. Credentials belong in encrypted **script variables**
-(`env`), never inline.
+ClickHouse is reached over `happyview.http`, not `happyview.db`: `db` reads
+HappyView's records, not arbitrary SQL. Credentials belong in encrypted
+**script variables** (`ctx.env`), never inline.
 
 Two rules that matter more than they look:
 
@@ -115,7 +161,7 @@ Two rules that matter more than they look:
 
 ## Script variables
 
-Secrets and configuration the scripts read from the `env` global. Set them on
+Secrets and configuration the scripts read from `ctx.env`. Set them on
 the instance with the admin API — they are encrypted at rest using
 `TOKEN_ENCRYPTION_KEY`, so that key must be configured before any of this
 works.
@@ -127,6 +173,9 @@ works.
 | `HAPPYPROTO_CLICKHOUSE_USER` | `readonly` |
 | `HAPPYPROTO_CLICKHOUSE_PASSWORD` | from the infrastructure vault (`vault_clickhouse_readonly_password`) |
 | `HAPPYPROTO_CLICKHOUSE_DB` | `happyproto_telemetry` |
+| `HAPPYPROTO_CUSTOMERS_SPACE` | the customers space uri; its members may manage instances |
+| `PROVISIONER_URL` | the provisioner's base URL |
+| `PROVISIONER_TOKEN` | the provisioner's bearer token |
 
 ClickHouse is reached over the shared Docker network by container name, which
 is why the URL is `http://clickhouse:8123` and not a public address —
@@ -158,4 +207,13 @@ cannot be pointed at a different space, and the rule cannot be edited by
 anyone holding the bundle.
 
 Scripts fail closed when it is absent: no space configured means nobody is a
-member.
+member. The same holds for `HAPPYPROTO_CUSTOMERS_SPACE`, and a missing
+`PROVISIONER_URL` or `PROVISIONER_TOKEN` answers `Upstream` rather than
+raising.
+
+`admin.addCustomer` and `admin.removeCustomer` change the customers space's
+members as the calling staff member, and HappyView allows that only to the
+space's creator or a HappyView super user. A staff member who is neither gets
+`Forbidden`. The admin endpoints that read the provisioner also need the
+caller's DID in the provisioner's `STAFF_DIDS`; without it they get the
+provisioner's `Forbidden`.

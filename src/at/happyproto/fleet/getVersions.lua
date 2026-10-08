@@ -10,11 +10,11 @@
 
 -- @prelude gate, clickhouse
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local rows, err = query([[
+  local rows, err = query(ctx, [[
     WITH
     current AS (
       SELECT instance_id, argMax(happyview_version, ts) AS version
@@ -70,7 +70,7 @@ function handle()
   -- slowly. The version list itself is still returned and still true.
   if #versions < 2 then
     return { status = "accruing", have = #versions, need = 2, unit = "days",
-             versions = toarray(versions) }
+             versions = json.to_array(versions) }
   end
-  return { status = "ok", versions = toarray(versions) }
+  return { status = "ok", versions = json.to_array(versions) }
 end

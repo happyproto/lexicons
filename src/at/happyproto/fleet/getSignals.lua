@@ -30,8 +30,8 @@ local SIGNALS = {
   { key = "events.jetstream.disconnected",label = "saw Jetstream disconnect",  severity = "info" },
 }
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
   -- Build the countIf list from SIGNALS. The keys are literals from this file,
@@ -51,7 +51,7 @@ function handle()
     )
   ]]
 
-  local rows, err = query(sql)
+  local rows, err = query(ctx, sql)
   if not rows then return failure("Upstream", err) end
   local row = rows[1] or {}
 
@@ -69,7 +69,7 @@ function handle()
     end
   end
 
-  local quiet_rows = query(string.format([[
+  local quiet_rows = query(ctx, string.format([[
     SELECT instance_id, max(ts) AS last_seen
     FROM instance_snapshots
     GROUP BY instance_id
@@ -90,7 +90,7 @@ function handle()
   -- calm state claimed nothing was failing across a fleet largely not there.
   --
   -- The two integer constants below are file-locals, never caller input.
-  local counts_rows, counts_err = query(string.format([[
+  local counts_rows, counts_err = query(ctx, string.format([[
     SELECT
       countIf(age <= %d)                                   AS active,
       countIf(age > %d AND (age <= %d OR mode = 'manual')) AS quiet,
@@ -115,7 +115,7 @@ function handle()
       dormant = tonumber(c.dormant) or 0,
       total = tonumber(c.total) or 0,
     },
-    signals = toarray(signals),
-    quiet = toarray(quiet),
+    signals = json.to_array(signals),
+    quiet = json.to_array(quiet),
   }
 end

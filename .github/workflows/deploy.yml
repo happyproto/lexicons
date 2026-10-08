@@ -5,12 +5,6 @@ on:
     branches: [main]
   pull_request:
 
-# One deploy at a time. Two concurrent runs would race each other's uploads
-# against the same instance, and the loser would win.
-concurrency:
-  group: happyview-deploy
-  cancel-in-progress: false
-
 jobs:
   # Generate ONCE and pass the output downstream. Generating separately in each
   # job would have lint verifying one set of bytes and deploy uploading another
@@ -21,9 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      # luac -p syntax-checks every generated script. Without Lua installed the
-      # test FAILS rather than skipping, so a runner missing it is visible
-      # instead of quietly checking nothing.
+      # luac -p syntax-checks every generated script, and lua5.4 runs the
+      # prelude's unit tests. Without Lua installed those tests FAIL rather
+      # than skipping, so a runner missing it is visible instead of quietly
+      # checking nothing.
       - run: sudo apt-get update && sudo apt-get install -y lua5.4
       - run: bun install --frozen-lockfile
       # gen BEFORE test: lua/ is build output and is not in the repo, so on a
@@ -54,6 +49,29 @@ jobs:
           path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/lint@v1
 
+  # The scripts on a real HappyView, at the release production runs, with
+  # real accounts and spaces and fakes for the provisioner and ClickHouse.
+  # See integration/compose.yml. Generates its own lua/ rather than taking
+  # the build artifact, because the stack has to be up first anyway and gen
+  # takes a second.
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: docker compose -f integration/compose.yml up -d --wait
+      - run: bun run gen
+      - run: bun run test:integration
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f integration/compose.yml logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose -f integration/compose.yml down -v
+
   plan:
     name: Plan (dry run)
     # On a pull request, show what WOULD change without writing anything.
@@ -77,9 +95,16 @@ jobs:
   deploy:
     name: Deploy
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [build, lint]
+    needs: [build, lint, integration]
     runs-on: ubuntu-latest
     environment: production
+    # One deploy at a time. Two concurrent runs would race each other's
+    # uploads against the same instance, and the loser would win. Scoped to
+    # this job, so pull-request runs never queue in it: a PR can neither hold
+    # up nor displace a pending deploy from main.
+    concurrency:
+      group: happyview-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4

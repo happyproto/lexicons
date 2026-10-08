@@ -13,21 +13,21 @@
 
 -- @prelude gate, clickhouse
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local total_rows, total_err = query([[
+  local total_rows, total_err = query(ctx, [[
     SELECT count(DISTINCT instance_id) AS instances FROM instance_snapshots
   ]])
   if not total_rows then return failure("Upstream", total_err) end
   local instances = tonumber((total_rows[1] or {}).instances) or 0
   if instances == 0 then
     return { status = "accruing", have = 0, need = 1, unit = "snapshots",
-             instances = 0, features = toarray({}) }
+             instances = 0, features = json.to_array({}) }
   end
 
-  local rows, err = query([[
+  local rows, err = query(ctx, [[
     WITH latest AS (
       SELECT
         instance_id,
@@ -58,5 +58,5 @@ function handle()
     }
   end
 
-  return { status = "ok", instances = instances, features = toarray(features) }
+  return { status = "ok", instances = instances, features = json.to_array(features) }
 end

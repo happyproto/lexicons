@@ -12,11 +12,11 @@
 
 local WINDOW_DAYS = 14
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local lag_rows, lag_err = query(string.format([[
+  local lag_rows, lag_err = query(ctx, string.format([[
     SELECT
       count()                                                 AS snapshots,
       quantileExact(0.5)(dateDiff('second', ts, received_at))  AS p50,
@@ -32,7 +32,7 @@ function handle()
     return { status = "accruing", have = 0, need = 1, unit = "snapshots" }
   end
 
-  local skew_rows, skew_err = query(string.format([[
+  local skew_rows, skew_err = query(ctx, string.format([[
     SELECT instance_id, max(dateDiff('second', received_at, ts)) AS ahead
     FROM instance_snapshots
     WHERE ts > now() - INTERVAL %d DAY AND ts > received_at
@@ -41,7 +41,7 @@ function handle()
   ]], WINDOW_DAYS))
   if not skew_rows then return failure("Upstream", skew_err) end
 
-  local schema_rows, schema_err = query([[
+  local schema_rows, schema_err = query(ctx, [[
     SELECT schema_version, count() AS instances
     FROM (
       SELECT instance_id, argMax(schema_version, ts) AS schema_version
@@ -77,7 +77,7 @@ function handle()
       p90 = tonumber(lag.p90) or 0,
       max = tonumber(lag.worst) or 0,
     },
-    skewed = toarray(skewed),
-    schemaVersions = toarray(schema_versions),
+    skewed = json.to_array(skewed),
+    schemaVersions = json.to_array(schema_versions),
   }
 end

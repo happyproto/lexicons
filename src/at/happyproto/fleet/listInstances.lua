@@ -13,13 +13,13 @@ local function int(v)
   return tonumber(v) or 0
 end
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
   -- argMax(..., ts) takes each field from the newest snapshot per instance,
   -- so a row is always internally consistent rather than mixing snapshots.
-  local rows, err = query([[
+  local rows, err = query(ctx, [[
     SELECT
       instance_id,
       max(ts)                                          AS last_seen,
@@ -51,7 +51,7 @@ function handle()
     }
   end
 
-  local consent_rows = query([[
+  local consent_rows = query(ctx, [[
     SELECT
       count()                                    AS total,
       countIf(contact IS NOT NULL)               AS with_contact,
@@ -69,7 +69,7 @@ function handle()
   local c = consent_rows[1] or {}
 
   return {
-    instances = toarray(instances),
+    instances = json.to_array(instances),
     consent = {
       total = int(c.total),
       withContact = int(c.with_contact),

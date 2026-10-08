@@ -1,0 +1,133 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.listHosts",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every host, with what its tenants hold. Staff only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "hosts"
+          ],
+          "properties": {
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#host"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The provisioner refused the request as malformed. Not expected from this read; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "host": {
+      "type": "object",
+      "description": "A host. Never carries its addresses or agent certificate.",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "memoryMb",
+        "cpuMillis",
+        "diskGb",
+        "tenantCount",
+        "reservedMemoryMb",
+        "reservedDiskGb"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "knownValues": [
+            "active",
+            "draining",
+            "degraded",
+            "retired"
+          ]
+        },
+        "memoryMb": {
+          "type": "integer"
+        },
+        "cpuMillis": {
+          "type": "integer"
+        },
+        "diskGb": {
+          "type": "integer"
+        },
+        "tenantCount": {
+          "type": "integer",
+          "description": "Instances placed here and not deleted."
+        },
+        "reservedMemoryMb": {
+          "type": "integer",
+          "description": "Memory those instances' plans hold."
+        },
+        "reservedDiskGb": {
+          "type": "integer",
+          "description": "Disk held by the plans of instances placed here and not yet purged."
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When its agent last answered. Absent if it never has."
+        }
+      }
+    }
+  }
+}

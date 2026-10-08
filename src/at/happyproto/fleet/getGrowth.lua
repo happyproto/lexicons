@@ -15,23 +15,23 @@ local WINDOW_DAYS = 14
 
 local METRICS = "'records', 'users', 'spaces', 'event_logs'"
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
   -- Deltas need two consecutive days per instance. With fewer there is nothing
   -- to report, and saying so beats rendering zeroes -- a zero is a claim.
-  local span_rows, span_err = query([[
+  local span_rows, span_err = query(ctx, [[
     SELECT count(DISTINCT toDate(ts)) AS days FROM instance_snapshots
   ]])
   if not span_rows then return failure("Upstream", span_err) end
   local days = tonumber((span_rows[1] or {}).days) or 0
   if days < 2 then
     return { status = "accruing", have = days, need = 2, unit = "days",
-             fleet = toarray({}), byInstance = toarray({}) }
+             fleet = json.to_array({}), byInstance = json.to_array({}) }
   end
 
-  local fleet_rows, fleet_err = query(string.format([[
+  local fleet_rows, fleet_err = query(ctx, string.format([[
     SELECT
       metric,
       sum(delta) / greatest(count(DISTINCT day), 1) AS per_day
@@ -42,7 +42,7 @@ function handle()
   ]], METRICS, WINDOW_DAYS))
   if not fleet_rows then return failure("Upstream", fleet_err) end
 
-  local instance_rows, instance_err = query(string.format([[
+  local instance_rows, instance_err = query(ctx, string.format([[
     SELECT instance_id, metric, avg(delta) AS rate
     FROM instance_daily_deltas
     WHERE metric IN (%s) AND day > today() - %d
@@ -68,7 +68,7 @@ function handle()
   return {
     status = "ok",
     windowDays = WINDOW_DAYS,
-    fleet = toarray(fleet),
-    byInstance = toarray(by_instance),
+    fleet = json.to_array(fleet),
+    byInstance = json.to_array(by_instance),
   }
 end

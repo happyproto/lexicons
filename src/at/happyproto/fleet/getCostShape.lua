@@ -23,13 +23,13 @@
 
 local WINDOW_DAYS = 14
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
   -- toFloat64OrZero, not toFloat64: `host` is Map(String, String) and a
   -- missing key yields '', which toFloat64 rejects outright.
-  local rows, err = query(string.format([[
+  local rows, err = query(ctx, string.format([[
     WITH latest AS (
       SELECT
         instance_id,

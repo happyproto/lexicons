@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.listCustomers",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The members of the customers space: everyone the customer endpoints admit. Staff only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "customers"
+          ],
+          "properties": {
+            "customers": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#customer"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff."
+        },
+        {
+          "name": "Upstream",
+          "description": "The customers space is not configured or cannot be read."
+        }
+      ]
+    },
+    "customer": {
+      "type": "object",
+      "required": [
+        "did"
+      ],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "handle": {
+          "type": "string",
+          "format": "handle",
+          "description": "Present when the membership record carries one."
+        }
+      }
+    }
+  }
+}
