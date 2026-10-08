@@ -16,22 +16,22 @@
 local WINDOW_DAYS = 90
 local LIMIT = 200
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
   -- A reset needs a predecessor. With one day of history "no resets" would be
   -- a claim we cannot support, which is a different statement from "none".
-  local span_rows, span_err = query([[
+  local span_rows, span_err = query(ctx, [[
     SELECT count(DISTINCT toDate(ts)) AS days FROM instance_snapshots
   ]])
   if not span_rows then return failure("Upstream", span_err) end
   local days = tonumber((span_rows[1] or {}).days) or 0
   if days < 2 then
-    return { status = "accruing", have = days, need = 2, unit = "days", resets = toarray({}) }
+    return { status = "accruing", have = days, need = 2, unit = "days", resets = json.to_array({}) }
   end
 
-  local rows, err = query(string.format([[
+  local rows, err = query(ctx, string.format([[
     SELECT instance_id, toString(day) AS day_text, metric, from_value, to_value
     FROM instance_daily_resets
     -- day_text, not `day`: aliasing toString(day) back to `day` shadows the
@@ -55,5 +55,5 @@ function handle()
     }
   end
 
-  return { status = "ok", windowDays = WINDOW_DAYS, resets = toarray(resets) }
+  return { status = "ok", windowDays = WINDOW_DAYS, resets = json.to_array(resets) }
 end

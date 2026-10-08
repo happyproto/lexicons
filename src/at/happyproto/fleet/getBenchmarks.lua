@@ -20,11 +20,11 @@
 
 local MIN_COHORT = 10
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local instance = params.instance
+  local instance = input.instance
   if not instance or instance == "" then
     return failure("InvalidRequest", "instance is required.")
   end
@@ -33,7 +33,7 @@ function handle()
   -- concat('1e', floor(log10(greatest(records, 1)))). If this expression and
   -- the rollup's ever disagree, nothing joins and every metric silently
   -- vanishes rather than erroring -- so they are kept character-for-character.
-  local mine_rows, mine_err = query([[
+  local mine_rows, mine_err = query(ctx, [[
     SELECT
       concat('1e', toString(toUInt8(floor(log10(greatest(t['records'], 1)))))) AS cohort,
       toFloat64(t['records'])        AS records,
@@ -55,7 +55,7 @@ function handle()
 
   local cohort = mine.cohort
 
-  local cohort_rows, cohort_err = query([[
+  local cohort_rows, cohort_err = query(ctx, [[
     SELECT
       metric,
       cohort_size,
@@ -70,7 +70,7 @@ function handle()
 
   if #cohort_rows == 0 then
     return { status = "withheld", reason = "cohort", cohort = cohort,
-             cohortSize = 0, minimum = MIN_COHORT, metrics = toarray({}) }
+             cohortSize = 0, minimum = MIN_COHORT, metrics = json.to_array({}) }
   end
 
   local cohort_size = tonumber(cohort_rows[1].cohort_size) or 0
@@ -78,7 +78,7 @@ function handle()
     -- The correct answer, not a failure. Name the size so a reader knows how
     -- far off it is rather than being told only that something is missing.
     return { status = "withheld", reason = "cohort", cohort = cohort,
-             cohortSize = cohort_size, minimum = MIN_COHORT, metrics = toarray({}) }
+             cohortSize = cohort_size, minimum = MIN_COHORT, metrics = json.to_array({}) }
   end
 
   local values = {
@@ -121,6 +121,6 @@ function handle()
     -- The rollup is REFRESH EVERY 1 DAY, so this can be 24 hours old. Say so
     -- rather than implying live numbers.
     computedAt = computed_at,
-    metrics = toarray(metrics),
+    metrics = json.to_array(metrics),
   }
 end

@@ -13,11 +13,11 @@
 
 -- @prelude gate, clickhouse
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local rows, err = query([[
+  local rows, err = query(ctx, [[
     WITH lifespans AS (
       SELECT
         instance_id,
@@ -63,7 +63,7 @@ function handle()
   -- Nothing is eligible until some instance has been reporting for 30 days.
   -- Publishing a 0% survival curve before then would be false, not empty.
   if not any_eligible then
-    return { status = "accruing", have = 0, need = 30, unit = "days", cohorts = toarray(cohorts) }
+    return { status = "accruing", have = 0, need = 30, unit = "days", cohorts = json.to_array(cohorts) }
   end
-  return { status = "ok", cohorts = toarray(cohorts) }
+  return { status = "ok", cohorts = json.to_array(cohorts) }
 end

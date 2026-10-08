@@ -40,11 +40,11 @@ local MAX_DISTINCT = 8
 -- Longer than this is a document, not a value.
 local MAX_VALUE_LEN = 48
 
-function handle()
-  local refused = denied()
+function handle(input, ctx)
+  local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local coverage_rows, coverage_err = query([[
+  local coverage_rows, coverage_err = query(ctx, [[
     SELECT
       count()                 AS total,
       countIf(length(h) > 0)  AS sharing
@@ -65,8 +65,8 @@ function handle()
     return {
       status = "ok",
       coverage = { sharing = 0, of = total },
-      facts = toarray({}),
-      varying = toarray({}),
+      facts = json.to_array({}),
+      varying = json.to_array({}),
     }
   end
 
@@ -109,7 +109,7 @@ function handle()
     )
   ]], MIN_INSTANCES_PER_VALUE, MAX_DISTINCT, MAX_VALUE_LEN)
 
-  local fact_rows, fact_err = query(classified .. [[
+  local fact_rows, fact_err = query(ctx, classified .. [[
     SELECT p.key AS key, p.value AS value, count() AS instances
     FROM pairs AS p
     INNER JOIN classified AS c ON p.key = c.key
@@ -119,7 +119,7 @@ function handle()
   ]])
   if not fact_rows then return failure("Upstream", fact_err) end
 
-  local varying_rows, varying_err = query(classified .. [[
+  local varying_rows, varying_err = query(ctx, classified .. [[
     SELECT key, distinct_values
     FROM classified
     WHERE NOT categorical
@@ -147,7 +147,7 @@ function handle()
   return {
     status = "ok",
     coverage = { sharing = sharing, of = total },
-    facts = toarray(facts),
-    varying = toarray(varying),
+    facts = json.to_array(facts),
+    varying = json.to_array(varying),
   }
 end
