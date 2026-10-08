@@ -302,33 +302,69 @@ local PASSTHROUGH = {
   OperationInProgress = true,
 }
 
+-- Provisioner codes that mean something to a caller under another name:
+-- code -> { our code, fixed message? }. With no fixed message the
+-- provisioner's own passes through; each of those is a literal in the
+-- provisioner, never built from internal state.
+--
+-- IdempotencyKeyInFlight is a retry arriving while the first request with
+-- that key still runs: the same "wait and try again" as OperationInProgress.
+-- TenantDeleted reads exactly like a missing instance, as getInstance answers
+-- one. NotLive is an instance whose creation has not finished.
+local REMAP = {
+  IdempotencyKeyInFlight = { "OperationInProgress", "This request is already in progress. Try again shortly." },
+  UnknownPlan = { "InvalidRequest" },
+  InvalidVersion = { "InvalidRequest" },
+  NoChange = { "InvalidRequest" },
+  EmptyUpdate = { "InvalidRequest" },
+  IdempotencyKeyReused = { "InvalidRequest" },
+  TenantDeleted = { "NotFound", "instance not found" },
+  NotLive = { "OperationInProgress", "This instance has not finished setting up yet." },
+}
+
 --- A provisioner reply mapped to a failure table.
----
---- IdempotencyKeyInFlight -- a retry arriving while the first request with
---- that key is still running -- is OperationInProgress to the caller, with a
---- fixed message: it is the same "wait and try again" answer.
 ---
 --- A known code passes through with its message at any error status:
 --- NoCapacity arrives as a 503, and it means the same thing as the 4xx codes.
---- Everything else -- an unknown code, a 500, a body that is not the
---- provisioner's error shape, no reply at all (status nil, `decoded` the
---- transport message) -- is Upstream with a fixed message. The raw body is
---- logged and never returned: it can carry internal detail.
+--- A REMAP code becomes its counterpart. Everything else -- an unknown code,
+--- a 500, a body that is not the provisioner's error shape, no reply at all
+--- (status nil, `decoded` the transport message) -- is Upstream with a fixed
+--- message. The raw body is logged and never returned: it can carry internal
+--- detail.
 local function provisioner_failure(status, decoded)
-  if type(status) == "number" and status >= 400 and type(decoded) == "table"
-    and decoded.error == "IdempotencyKeyInFlight" then
-    return failure("OperationInProgress", "This request is already in progress. Try again shortly.")
-  end
-  if type(status) == "number" and status >= 400 and type(decoded) == "table"
-    and PASSTHROUGH[decoded.error] then
-    local message = decoded.message
-    if type(message) ~= "string" or message == "" then
-      message = "The provisioner refused the request."
-    end
+  local refusal = type(status) == "number" and status >= 400 and type(decoded) == "table"
+  local message = refusal and type(decoded.message) == "string" and decoded.message ~= ""
+    and decoded.message or "The provisioner refused the request."
+  if refusal and PASSTHROUGH[decoded.error] then
     return failure(decoded.error, message)
+  end
+  local remap = refusal and REMAP[decoded.error]
+  if remap then
+    return failure(remap[1], remap[2] or message)
   end
   log.warn("provisioner request failed", { status = status, body = decoded })
   return failure("Upstream", "The provisioner could not complete the request.")
+end
+
+--- The caller's own live tenant, as GET /v1/tenants/:id answers it --
+--- `{tenant, current_operation}` -- or nil and a failure table. `id` must
+--- already be a UUID: it goes into the path.
+---
+--- The provisioner hands staff ANY tenant, so ownership is checked here, not
+--- trusted to it: a staff member who is also a customer must reach only their
+--- own instances through the customer endpoints. Another owner's tenant and a
+--- deleted one are both NotFound, in the provisioner's own words, so neither
+--- can be told apart from an id that does not exist.
+local function owned_tenant(ctx, id)
+  local status, body = provisioner(ctx, "GET", "/v1/tenants/" .. id)
+  if status ~= 200 or type(body) ~= "table" or type(body.tenant) ~= "table" then
+    return nil, provisioner_failure(status, body)
+  end
+  -- deleted_at is a timestamp string, or JSON null for a live instance.
+  if body.tenant.owner_did ~= ctx.caller_did or type(body.tenant.deleted_at) == "string" then
+    return nil, failure("NotFound", "instance not found")
+  end
+  return body
 end
 -- @endblock
 
@@ -433,6 +469,10 @@ local log = require("internal.logging")
 --- Upstream and retries with the same idempotencyKey: the provisioner replays
 --- its original reply, the same operation comes back, and the retry starts
 --- the job this call could not.
+---
+--- A replayed call always starts a job, so a retry of a call that DID start
+--- one gives a second job following the same operation. That is harmless:
+--- both read the same operation and end the same way.
 local function follow_operation(op)
   if type(op) ~= "table" or type(op.id) ~= "string" then
     log.warn("provisioner reply carried no operation", { operation = op })

@@ -506,10 +506,34 @@ describe("provisioner_failure", () => {
     expect(r1.message.length).toBeGreaterThan(0);
   });
 
+  it("a refusal of the request itself is InvalidRequest, with the provisioner's fixed text", () => {
+    for (const [status, code] of [
+      [400, "UnknownPlan"], [400, "InvalidVersion"], [400, "NoChange"], [400, "EmptyUpdate"],
+      [422, "IdempotencyKeyReused"],
+    ] as const) {
+      const { r1 } = run(`return provisioner_failure(${status}, { error = "${code}", message = "said ${code}" })`);
+      expect(r1).toEqual({ error: "InvalidRequest", message: `said ${code}` });
+    }
+  });
+
+  it("a deleted instance is NotFound, in the same words as a missing one", () => {
+    const { r1 } = run('return provisioner_failure(409, { error = "TenantDeleted", message = "SECRET" })');
+    expect(r1).toEqual({ error: "NotFound", message: "instance not found" });
+  });
+
+  it("an instance not yet live is OperationInProgress, with a fixed message", () => {
+    const { r1 } = run('return provisioner_failure(409, { error = "NotLive", message = "SECRET" })');
+    expect(r1).toEqual({
+      error: "OperationInProgress",
+      message: "This instance has not finished setting up yet.",
+    });
+  });
+
   it("anything else is Upstream", () => {
     for (const [status, body] of [
       ["401", '{ error = "Unauthorized", message = "SECRET" }'],
-      ["400", '{ error = "UnknownPlan", message = "SECRET" }'],
+      ["400", '{ error = "Weird", message = "SECRET" }'],
+      ["200", '{ error = "UnknownPlan", message = "SECRET" }'],
       ["500", '{ error = "Internal", message = "SECRET" }'],
       ["502", '"SECRET gateway"'],
       ["nil", '"provisioner unreachable"'],
@@ -635,6 +659,46 @@ describe("validate", () => {
     for (const bad of ["", "plc:abc", "did:PLC:abc", "did:plc:", "did:plc:abc:", "did:plc:abc%", "did:plc:a b", `did:plc:${"a".repeat(2048)}`]) {
       expect([bad.slice(0, 20), run(`return is_did(${lit(bad)})`).r1]).toEqual([bad.slice(0, 20), false]);
     }
+  });
+});
+
+describe("owned_tenant", () => {
+  const ID = "7c6c1a1e-0000-4000-8000-000000000001";
+  const reply = (owner: string, deleted = "nil") => `
+    __decoded["T"] = { tenant = { id = "${ID}", owner_did = "${owner}", deleted_at = ${deleted} }, current_operation = { id = "op" } }
+    __reply = function() return { status = 200, body = "T", headers = {} } end`;
+
+  it("the caller's own live tenant comes back with its operation", () => {
+    const { r1, r2, calls } = run(`${reply("did:plc:alice")}
+      return owned_tenant(${CTX}, "${ID}")`);
+    expect(r1.tenant.id).toBe(ID);
+    expect(r1.current_operation).toEqual({ id: "op" });
+    expect(r2).toBeNull();
+    expect(calls.map((c) => `${c.fn} ${c.url}`)).toEqual([`get http://provisioner:8080/v1/tenants/${ID}`]);
+  });
+
+  it("another owner's tenant is NotFound, though the provisioner returned it", () => {
+    const { r1, r2 } = run(`${reply("did:plc:mallory")}
+      return owned_tenant(${CTX}, "${ID}")`);
+    expect(r1).toBeNull();
+    expect(r2).toEqual({ error: "NotFound", message: "instance not found" });
+  });
+
+  it("a deleted tenant is NotFound, in the same words", () => {
+    const { r1, r2 } = run(`${reply("did:plc:alice", '"2026-10-02T09:00:00Z"')}
+      return owned_tenant(${CTX}, "${ID}")`);
+    expect(r1).toBeNull();
+    expect(r2).toEqual({ error: "NotFound", message: "instance not found" });
+  });
+
+  it("a provisioner failure is mapped as any other", () => {
+    const { r1, r2 } = run(`
+      __decoded["E"] = { error = "Internal", message = "SECRET" }
+      __reply = function() return { status = 500, body = "E", headers = {} } end
+      return owned_tenant(${CTX}, "${ID}")`);
+    expect(r1).toBeNull();
+    expect(r2.error).toBe("Upstream");
+    expect(JSON.stringify(r2)).not.toContain("SECRET");
   });
 });
 

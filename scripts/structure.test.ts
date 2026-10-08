@@ -256,7 +256,21 @@ export function passthroughCodes(prelude: string): string[] {
   return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*true/g)].map((m) => m[1]);
 }
 
-/** Every error name a source can return. */
+/**
+ * The codes provisioner_failure remaps provisioner codes to, read from the
+ * prelude's REMAP table: `Code = { "Ours", ... }`.
+ */
+export function remapCodes(prelude: string): string[] {
+  const table = prelude.match(/local REMAP\s*=\s*\{([\s\S]*?)\n\}/);
+  if (!table) throw new Error("prelude: no REMAP table in the provisioner block");
+  return [...new Set([...table[1].matchAll(/\b[A-Z]\w*\s*=\s*\{\s*"([A-Z]\w*)"/g)].map((m) => m[1]))];
+}
+
+/**
+ * Every error name a source can return. `passthrough` is everything
+ * provisioner_failure can answer besides Upstream: the PASSTHROUGH codes and
+ * the REMAP targets.
+ */
 export function errorsReturned(text: string, passthrough: string[]): Set<string> {
   const code = stripLua(text, true);
   const bare = stripLua(text);
@@ -268,10 +282,12 @@ export function errorsReturned(text: string, passthrough: string[]): Set<string>
     names.add("AuthRequired");
     names.add("Forbidden");
   }
-  if (/(^|[^\w.])provisioner_failure\s*\(/.test(bare)) {
+  if (/(^|[^\w.])(provisioner_failure|owned_tenant)\s*\(/.test(bare)) {
     for (const name of passthrough) names.add(name);
     names.add("Upstream");
   }
+  // owned_tenant also refuses another owner's tenant itself.
+  if (/(^|[^\w.])owned_tenant\s*\(/.test(bare)) names.add("NotFound");
   return names;
 }
 
@@ -450,6 +466,21 @@ describe("each rule flags a bad fixture", () => {
     expect(undeclaredErrorOffences(lexicon, '-- failure("NotFound", e)\n', [])).toEqual([]);
   });
 
+  test("owned_tenant can return NotFound and whatever provisioner_failure can", () => {
+    const lexicon = { defs: { main: { errors: [{ name: "Upstream" }, { name: "SlugTaken" }] } } };
+    expect(
+      undeclaredErrorOffences(lexicon, "local found, refused = owned_tenant(ctx, id)\n", ["SlugTaken"]),
+    ).toEqual(["can return NotFound, which the lexicon does not declare"]);
+  });
+
+  test("the remap targets are read from the prelude", () => {
+    expect(
+      remapCodes(
+        'local REMAP = {\n  UnknownPlan = { "InvalidRequest" },\n  NotLive = { "OperationInProgress", "m" },\n}\n',
+      ),
+    ).toEqual(["InvalidRequest", "OperationInProgress"]);
+  });
+
   test("the passthrough codes are read from the prelude", () => {
     expect(
       passthroughCodes("local PASSTHROUGH = {\n  SlugTaken = true,\n  NotFound = true,\n}\n"),
@@ -528,7 +559,8 @@ describe("every script is deployable", () => {
   });
 
   test("every lexicon declares each error its script can return", async () => {
-    const passthrough = passthroughCodes(await readFile(PRELUDE_PATH, "utf8"));
+    const prelude = await readFile(PRELUDE_PATH, "utf8");
+    const passthrough = [...passthroughCodes(prelude), ...remapCodes(prelude)];
     const offenders: string[] = [];
     for (const script of await walk("src/at", ".lua")) {
       const lexicon = await lexiconFor(script);

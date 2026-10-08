@@ -9,8 +9,11 @@
 -- asked as that customer and scopes the operation to them.
 --
 -- The job completes when the operation succeeds and fails, with the
--- operation's error code and message, when it fails or times out. A poll
--- that gets no reply, or a 5xx, is tried again at the next poll. The
+-- operation's error code, when it fails or times out. The job's error is
+-- what getJob shows the customer, so the operation's message goes with the
+-- code only when that code's message is fixed text in the provisioner;
+-- anything else (an agent's or Docker's own words) is logged and replaced.
+-- A poll that gets no reply, or a 5xx, is tried again at the next poll. The
 -- provisioner gives an operation 10 minutes; after 15 the job gives up.
 --
 -- Not generated: jobs/ deploys as it is, so this file takes nothing from the
@@ -22,6 +25,11 @@ local log = require("internal.logging")
 
 local POLL_SECONDS = 2
 local DEADLINE_SECONDS = 15 * 60
+
+-- Operation error codes whose messages the provisioner writes as fixed text,
+-- safe to show a customer as they are.
+local SAFE_MESSAGES = { Timeout = true, UpgradeRolledBack = true, NoCapacity = true, StepFailed = true }
+local FALLBACK_MESSAGE = "The change could not be completed."
 
 --- status, decoded body -- or nil and a message when no reply came back.
 local function get_operation(ctx, id)
@@ -72,13 +80,17 @@ function handle(input, ctx)
       end
       if op.status == "failed" or op.status == "timeout" then
         local code = type(op.error_code) == "string" and op.error_code or "Upstream"
-        local message = type(op.error_message) == "string" and op.error_message
-          or (op.status == "timeout" and "the operation timed out" or "the operation failed")
+        local message = op.error_message
+        if not SAFE_MESSAGES[code] or type(message) ~= "string" or message == "" then
+          log.warn("operation failed", { operation = id, code = code, message = message })
+          message = FALLBACK_MESSAGE
+        end
         error(code .. ": " .. message, 0)
       end
     elseif type(status) == "number" and status >= 400 and status < 500 then
       -- The operation is gone or was never the creator's. Asking again will
-      -- not change the answer, and a job that loops here holds the worker.
+      -- not change the answer, and a job that loops here holds one of the
+      -- worker's few slots (JOB_WORKER_CONCURRENCY) for 15 minutes.
       local code = type(body) == "table" and type(body.error) == "string" and body.error or "Upstream"
       error(code .. ": the provisioner refused to report the operation", 0)
     else

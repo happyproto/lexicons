@@ -290,6 +290,10 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       if (tenant.desired_state === "deleted") {
         return error(409, "TenantDeleted", "this instance has been deleted");
       }
+      // tenants::require_live, ahead of ops::enqueue's in-progress check.
+      if (req.method !== "DELETE" && !tenant.routed) {
+        return error(409, "NotLive", "this instance has not gone live yet; retry its creation");
+      }
       if (activeOperation(tenant.id)) {
         return error(409, "OperationInProgress", "an operation is already in progress for this instance");
       }

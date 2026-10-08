@@ -3,10 +3,11 @@
  * the instance.operation job that follows each one, and getJob, on a real
  * HappyView v3 against the fake provisioner.
  *
- * HappyView's job worker polls every few seconds and runs one job at a time,
- * so every job this file starts must finish on its own: an operation nobody
- * scripted succeeds at its first read, and one that vanished in a reset is a
- * NotFound that fails its job at once.
+ * HappyView's job worker polls every few seconds and runs at most
+ * JOB_WORKER_CONCURRENCY jobs at once (4 in compose.yml), so every job this
+ * file starts must finish on its own: an operation nobody scripted succeeds
+ * at its first read, and one the provisioner will not report fails its job
+ * at once.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { provisioner, type ProvisionerRequest } from "./fakes";
@@ -19,6 +20,8 @@ const RUNNING_ID = "11111111-1111-4111-8111-111111111111";
 const SOMEONE_ELSES_ID = "44444444-4444-4444-8444-444444444444";
 const BUSY_ID = "88888888-8888-4888-8888-888888888888";
 const BUSY_OP_ID = "99999999-9999-4999-8999-999999999990";
+const NOT_LIVE_ID = "22222222-2222-4222-8222-222222222222";
+const NOT_LIVE_OP_ID = "55555555-5555-4555-8555-555555555555";
 
 const JOB_TIMEOUT = 90_000;
 const TERMINAL = new Set(["completed", "failed", "cancelled", "paused"]);
@@ -83,11 +86,16 @@ beforeEach(async () => {
   await provisioner.reset();
   const { customer } = s.accounts;
   await provisioner.state({
-    instanceLimit: 3,
+    instanceLimit: 10,
     tenants: [
       tenant(RUNNING_ID, "alpha", customer.did),
       tenant(SOMEONE_ELSES_ID, "gamma", "did:plc:someoneelseentirely"),
       tenant(BUSY_ID, "busy", customer.did),
+      tenant(NOT_LIVE_ID, "settling", customer.did, {
+        routed: false,
+        observed_state: "pending",
+        owner_confirmed_at: null,
+      }),
     ],
     operations: [
       {
@@ -104,9 +112,28 @@ beforeEach(async () => {
         started_at: "2026-10-01T12:00:01Z",
         finished_at: null,
       },
+      {
+        id: NOT_LIVE_OP_ID,
+        tenant_id: NOT_LIVE_ID,
+        kind: "create",
+        status: "running",
+        params: {},
+        steps: [{ name: "pull_image", at: "2026-10-01T12:00:02Z" }],
+        error_code: null,
+        error_message: null,
+        requested_by: customer.did,
+        created_at: "2026-10-01T12:00:00Z",
+        started_at: "2026-10-01T12:00:01Z",
+        finished_at: null,
+      },
     ],
   });
 });
+
+/** Requests that could have changed something: anything but a GET. */
+async function writes(): Promise<ProvisionerRequest[]> {
+  return (await sent()).filter((r) => r.method !== "GET");
+}
 
 afterAll(async () => {
   // Leave the worker idle for whatever runs next.
@@ -263,6 +290,21 @@ describe("the instance.operation job", () => {
     expect(last.error).toContain("no host has room");
   }, JOB_TIMEOUT);
 
+  test("an operation's raw message is replaced unless its code's text is fixed", async () => {
+    await provisioner.progress([
+      { status: "failed", step: "apply", error_code: "AgentError", error_message: "SENTINEL-agent /var/lib/x refused" },
+    ]);
+    const { jobId } = await ok(server("createInstance"), "customer", {
+      input: { slug: "leaky", plan: "small", idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", jobId]);
+
+    const last = (await untilDone(jobId)).at(-1);
+    expect(last.status).toBe("failed");
+    expect(last.error).toContain("AgentError: The change could not be completed.");
+    expect(JSON.stringify(last)).not.toContain("SENTINEL");
+  }, JOB_TIMEOUT);
+
   test("fails on a timed-out operation too", async () => {
     await provisioner.progress([
       { status: "timeout", step: "wait_healthy", error_code: "Timeout", error_message: "never became healthy" },
@@ -292,7 +334,7 @@ describe("the instance.operation job", () => {
 
   test("an operation the provisioner will not report fails the job at once", async () => {
     // Gone, or never the creator's: asking again will not change the answer,
-    // and the job must not hold the worker for 15 minutes asking.
+    // and the job must not hold a worker for 15 minutes asking.
     await provisioner.progress([{ http: 404, error: "NotFound" }]);
     const { jobId } = await ok(server("createInstance"), "customer", {
       input: { slug: "vanished", plan: "small", idempotencyKey: crypto.randomUUID() },
@@ -363,8 +405,10 @@ describe("changes to an existing instance", () => {
       expect(Object.keys(out)).toEqual(["jobId"]);
       expect(typeof out.jobId).toBe("string");
 
-      const [request, ...rest] = await sent();
+      // Ownership first, then the change itself.
+      const [check, request, ...rest] = await sent();
       expect(rest).toEqual([]);
+      expect({ method: check.method, path: check.path }).toEqual({ method: "GET", path: `/v1/tenants/${RUNNING_ID}` });
       expect({ method: request.method, path: request.path }).toEqual({ method, path });
       if (body !== null) expect(request.body).toEqual(body);
       expect(request.headers["idempotency-key"]).toBe(key);
@@ -395,17 +439,87 @@ describe("changes to an existing instance", () => {
   });
 
   test("someone else's instance is NotFound", async () => {
-    for (const name of ["startInstance", "stopInstance", "deleteInstance"]) {
+    for (const name of ["updateInstance", "startInstance", "stopInstance", "deleteInstance"]) {
       await fails(server(name), "customer", "NotFound", {
-        input: { id: SOMEONE_ELSES_ID, idempotencyKey: crypto.randomUUID() },
+        input: { id: SOMEONE_ELSES_ID, idempotencyKey: crypto.randomUUID(), plan: "medium" },
       });
     }
+    expect(await writes()).toEqual([]);
   });
 
   test("an instance with an operation in progress is OperationInProgress", async () => {
     await fails(server("startInstance"), "customer", "OperationInProgress", {
       input: { id: BUSY_ID, idempotencyKey: crypto.randomUUID() },
     });
+  });
+
+  test("an instance not yet live is OperationInProgress, with the fixed text", async () => {
+    // The provisioner answers NotLive before OperationInProgress here, though
+    // the create is still running.
+    const reply = await fails(server("startInstance"), "customer", "OperationInProgress", {
+      input: { id: NOT_LIVE_ID, idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe("This instance has not finished setting up yet.");
+  });
+
+  test("the fake's own NoChange and UnknownPlan are InvalidRequest, with their text", async () => {
+    const same = await fails(server("updateInstance"), "customer", "InvalidRequest", {
+      input: { id: RUNNING_ID, plan: "small", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(same.body.message).toBe("the instance already has that plan and version");
+    const unknown = await fails(server("updateInstance"), "customer", "InvalidRequest", {
+      input: { id: RUNNING_ID, plan: "huge", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(unknown.body.message).toBe("no such plan");
+  });
+
+  test("provisioner codes with no customer meaning are remapped", async () => {
+    const path = `/v1/tenants/${RUNNING_ID}`;
+    const cases: [number, string, string, string][] = [
+      [400, "UnknownPlan", "InvalidRequest", "said UnknownPlan"],
+      [400, "InvalidVersion", "InvalidRequest", "said InvalidVersion"],
+      [400, "NoChange", "InvalidRequest", "said NoChange"],
+      [400, "EmptyUpdate", "InvalidRequest", "said EmptyUpdate"],
+      [422, "IdempotencyKeyReused", "InvalidRequest", "said IdempotencyKeyReused"],
+      [409, "TenantDeleted", "NotFound", "instance not found"],
+      [409, "NotLive", "OperationInProgress", "This instance has not finished setting up yet."],
+    ];
+    for (const [status, code, mapped, message] of cases) {
+      await provisioner.script("PATCH", path, status, { error: code, message: `said ${code}` });
+      const reply = await fails(server("updateInstance"), "customer", mapped, {
+        input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+      });
+      expect([code, reply.body.message]).toEqual([code, message]);
+    }
+  });
+});
+
+describe("Fix round 1: a customer the provisioner treats as staff", () => {
+  // The provisioner lets staff act on ANY tenant. A staff member who is also
+  // a customer must still reach only their own through these endpoints.
+  beforeEach(async () => {
+    await provisioner.state({ staff: [s.accounts.customer.did] });
+  });
+
+  for (const name of ["updateInstance", "startInstance", "stopInstance", "deleteInstance"]) {
+    test(`${name} on another owner's instance is NotFound, and nothing is changed`, async () => {
+      const reply = await fails(server(name), "customer", "NotFound", {
+        input: { id: SOMEONE_ELSES_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+      });
+      expect(reply.body.message).toBe("instance not found");
+      expect(await writes()).toEqual([]);
+      // The provisioner did hand the tenant over: only the script refused.
+      expect((await sent()).map((r) => `${r.method} ${r.path}`)).toEqual([
+        `GET /v1/tenants/${SOMEONE_ELSES_ID}`,
+      ]);
+    });
+  }
+
+  test("their own instance still works", async () => {
+    const { jobId } = await ok(server("stopInstance"), "customer", {
+      input: { id: RUNNING_ID, idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", jobId]);
   });
 });
 

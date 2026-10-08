@@ -47,7 +47,7 @@ Each source declares which prelude blocks it needs:
 | `gate` | `gate_admin(ctx)`, `gate_customer(ctx)` | `failure` |
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
-| `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)` | `json`, `failure` |
+| `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 

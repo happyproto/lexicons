@@ -33,6 +33,10 @@
           "description": "The caller is not a HappyProto customer, or the provisioner refused them."
         },
         {
+          "name": "InvalidRequest",
+          "description": "The provisioner refused the request as malformed. Not expected from this read; declared because every provisioner refusal is mapped the same way."
+        },
+        {
           "name": "NotFound",
           "description": "Passed through from the provisioner."
         },

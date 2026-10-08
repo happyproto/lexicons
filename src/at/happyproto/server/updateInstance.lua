@@ -3,8 +3,11 @@
 -- Move one of the caller's instances to another plan or HappyView release,
 -- and start the job that follows the change. Customers only.
 --
--- The provisioner checks ownership: another owner's instance is NotFound
--- there, indistinguishable from one that does not exist.
+-- Ownership is checked here first, with owned_tenant, and not left to the
+-- provisioner: it lets staff change ANY tenant, and a staff member who is
+-- also a customer must reach only their own instances through this
+-- endpoint. Another owner's instance, a deleted one and one that does not
+-- exist are the same NotFound, and nothing is changed.
 
 -- @prelude gate, validate, provisioner, jobs
 
@@ -31,6 +34,9 @@ function handle(input, ctx)
   end
 
   -- Safe in the path: is_uuid admits only hex digits and hyphens.
+  local found, missing = owned_tenant(ctx, id)
+  if not found then return missing end
+
   local status, body = provisioner(ctx, "PATCH", "/v1/tenants/" .. id, {
     plan = plan,
     version = version,
