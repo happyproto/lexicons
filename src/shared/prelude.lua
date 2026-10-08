@@ -107,6 +107,12 @@ local CUSTOMERS_SPACE_TYPE = "at.happyproto.customers"
 
 --- HAPPYPROTO_DID, or nil when it is unset, empty or not a DID. Callers fail
 --- closed on nil: with no authority, nobody is a member of anything.
+---
+--- It must be HappyProto's own ACCOUNT, never the instance's own service DID.
+--- On an instance that publishes a service identity, HappyView anchors every
+--- new space under that DID whoever creates it, so with HAPPYPROTO_DID set to
+--- it, any signed-in user could create at.happyproto.admin/main first, be
+--- its creator, and so be staff.
 local function happyproto_did(ctx)
   local did = (ctx.env or {}).HAPPYPROTO_DID
   if is_did(did) then return did end

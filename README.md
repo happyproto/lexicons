@@ -176,7 +176,7 @@ works.
 
 | Key | Value |
 | --- | --- |
-| `HAPPYPROTO_DID` | HappyProto's own DID: the authority of both spaces |
+| `HAPPYPROTO_DID` | HappyProto's own account DID: the authority of both spaces. Never the instance's service DID (see below) |
 | `HAPPYPROTO_CLICKHOUSE_URL` | `http://clickhouse:8123` |
 | `HAPPYPROTO_CLICKHOUSE_USER` | `readonly` |
 | `HAPPYPROTO_CLICKHOUSE_PASSWORD` | from the infrastructure vault (`vault_clickhouse_readonly_password`) |
@@ -219,6 +219,13 @@ everyone, because any user can create a space of any type and is auto-added to
 their own as a write member. Keeping it server-side means a browser cannot be
 pointed at a different space, and the rule cannot be edited by anyone holding
 the bundle.
+
+`HAPPYPROTO_DID` must be HappyProto's own **account**, and must never be the
+instance's own service DID. On an instance that publishes a service identity,
+HappyView anchors every new space under that DID, whoever creates it. With
+`HAPPYPROTO_DID` set to it, any signed-in user could create
+`at.happyproto.admin/main` before HappyProto does, become its creator, and so
+pass the staff gate.
 
 Scripts fail closed when it is absent, empty or not a DID: no authority means
 nobody is a member of anything. A missing `PROVISIONER_URL` or

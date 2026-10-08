@@ -86,6 +86,18 @@ local function staff_list(staff)
   return out
 end
 
+--- The library's error code from a raised spaces error, or nil.
+---
+--- Text, because text is all there is: the Lua bridge raises a library's
+--- error as a plain string, `<label>: Plugin returned error: <CODE> -
+--- <message>` (plugins repo, plugins/happyview/lua/src/require.rs
+--- `plugin_error`), with no structured code beside it. Matching that exact
+--- shape, rather than finding the word anywhere, keeps a message that merely
+--- mentions CONFLICT from reading as one.
+local function error_code(err)
+  return tostring(err):match("Plugin returned error: ([%u_]+) %- ")
+end
+
 --- true when the space at `uri` exists, false when it does not, or nil and a
 --- failure table when it cannot be read.
 local function exists(uri)
@@ -117,9 +129,10 @@ local function ensure(ctx, spec)
   })
   if not ok then
     -- CONFLICT is a concurrent call that created it first: the space exists,
-    -- which is all this call wanted.
-    local again = exists(uri)
-    if again then return { uri = uri, created = false } end
+    -- which is all this call wanted. info says whether it is really there.
+    if error_code(made) == "CONFLICT" and exists(uri) then
+      return { uri = uri, created = false }
+    end
     log.warn("could not create a HappyProto space", { uri = uri, error = tostring(made) })
     return nil, failure("Upstream", "HappyProto's spaces could not be created.")
   end
@@ -160,13 +173,24 @@ function handle(input, ctx)
 
   local admin = spaces.get(out.adminSpace.uri)
   local added = {}
+
+  -- A failure part-way still answers Upstream, but names who was already
+  -- added, so the operator can see what changed. Every entry passed is_did,
+  -- so the list is safe to echo.
+  local function stopped(message)
+    if #added == 0 then
+      return failure("Upstream", message .. " No staff were added.")
+    end
+    return failure("Upstream", message .. " Already added: " .. table.concat(added, ", ") .. ".")
+  end
+
   for _, did in ipairs(staff) do
     -- pcall: is_member and add_member RAISE on a host failure; add_member
     -- also raises CONFLICT for an existing member.
     local ok, member = pcall(function() return admin:is_member(did) end)
     if not ok then
       log.warn("could not read the admin space's members", { did = did, error = tostring(member) })
-      return failure("Upstream", "The admin space's members could not be read.")
+      return stopped("The admin space's members could not be read.")
     end
     if not member then
       local wrote, err = pcall(function()
@@ -175,11 +199,10 @@ function handle(input, ctx)
       if wrote then
         added[#added + 1] = did
       else
-        err = tostring(err)
         -- CONFLICT: a concurrent call added them first.
-        if not err:find("CONFLICT", 1, true) then
-          log.warn("could not add a staff member", { did = did, error = err })
-          return failure("Upstream", "The admin space's members could not be changed.")
+        if error_code(err) ~= "CONFLICT" then
+          log.warn("could not add a staff member", { did = did, error = tostring(err) })
+          return stopped("The admin space's members could not be changed.")
         end
       end
     end
