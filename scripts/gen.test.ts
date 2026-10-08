@@ -47,6 +47,7 @@ describe("parsePrelude", () => {
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
       "json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance",
+      "jobs",
     ]);
   });
 
@@ -73,7 +74,9 @@ describe("parseDirective", () => {
 });
 
 describe("expand", () => {
-  const order = ["json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance"];
+  const order = [
+    "json", "failure", "validate", "gate", "urlencode", "clickhouse", "provisioner", "instance", "jobs",
+  ];
 
   test("gate implies failure", () => {
     expect(expand(["gate"], order)).toEqual(["failure", "gate"]);
@@ -89,6 +92,10 @@ describe("expand", () => {
 
   test("instance implies json", () => {
     expect(expand(["instance"], order)).toEqual(["json", "instance"]);
+  });
+
+  test("jobs implies failure", () => {
+    expect(expand(["jobs"], order)).toEqual(["failure", "jobs"]);
   });
 
   test("emits in prelude order, not directive order", () => {

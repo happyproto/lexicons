@@ -5,7 +5,7 @@
 -- lists them, because Lua requires a local to be declared before any function
 -- closing over it. `gate` implies `failure`; `clickhouse` implies `json`,
 -- `failure` and `urlencode`; `provisioner` implies `json` and `failure`;
--- `instance` implies `json`.
+-- `instance` implies `json`; `jobs` implies `failure`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
 -- failure helper but must NOT be admin-gated. It is the endpoint that tells a
@@ -416,5 +416,34 @@ local function admin_instance(t, op, host_name)
   out.observedState = t.observed_state
   out.routed = t.routed == true
   return out
+end
+-- @endblock
+
+-- @block jobs
+local jobs = require("happyview.jobs")
+local log = require("internal.logging")
+
+--- The id of a new `instance.operation` job following the provisioner
+--- operation `op`, or nil and a failure table. The job is created as the
+--- caller, so only they can read it back with getJob, and it polls the
+--- provisioner as them. No `auth`: it never touches their PDS.
+---
+--- By the time this runs the provisioner has accepted the change, so a
+--- failure here leaves an operation nobody is following. The caller gets
+--- Upstream and retries with the same idempotencyKey: the provisioner replays
+--- its original reply, the same operation comes back, and the retry starts
+--- the job this call could not.
+local function follow_operation(op)
+  if type(op) ~= "table" or type(op.id) ~= "string" then
+    log.warn("provisioner reply carried no operation", { operation = op })
+    return nil, failure("Upstream", "The provisioner could not complete the request.")
+  end
+  -- pcall: jobs.create RAISES on a host or database failure.
+  local ok, id = pcall(jobs.create, "instance.operation", { operationId = op.id })
+  if not ok or type(id) ~= "string" then
+    log.warn("could not start the operation job", { operation = op.id, error = tostring(id) })
+    return nil, failure("Upstream", "The change was accepted, but its progress cannot be followed. Retry with the same idempotencyKey.")
+  end
+  return id
 end
 -- @endblock

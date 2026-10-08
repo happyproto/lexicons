@@ -39,6 +39,14 @@ async function generated(dir = "lua"): Promise<string[]> {
   }
 }
 
+/**
+ * Everything that deploys as a script: the generated lua/, and jobs/, which
+ * deploys as it is written (job.run:<path>), with no prelude to generate.
+ */
+async function deployed(): Promise<string[]> {
+  return [...(await generated()), ...(await walk("jobs", ".lua"))];
+}
+
 const PRELUDE_PATH = "src/shared/prelude.lua";
 
 /** `at/happyproto/fleet/getX` for `src/at/happyproto/fleet/getX.lua`. */
@@ -607,7 +615,7 @@ describe("generated output", () => {
   const skipLuac = Boolean(process.env.ALLOW_SKIP_LUAC);
 
   test("every script defines handle(input, ctx)", async () => {
-    const files = await generated();
+    const files = await deployed();
     expect(files.length).toBeGreaterThan(0);
 
     const offenders: string[] = [];
@@ -620,7 +628,7 @@ describe("generated output", () => {
   test("no script reads ctx or env at file scope", async () => {
     // Checked on the generated output, so the prelude blocks are covered too.
     const offenders: string[] = [];
-    for (const file of await generated()) {
+    for (const file of await deployed()) {
       for (const o of fileScopeOffences(await readFile(file, "utf8"))) {
         offenders.push(`${file}: ${o}`);
       }
@@ -649,7 +657,7 @@ describe("generated output", () => {
       );
     }
 
-    for (const file of await generated()) {
+    for (const file of await deployed()) {
       const result = Bun.spawnSync([luac, "-p", file]);
       if (result.exitCode !== 0) {
         throw new Error(

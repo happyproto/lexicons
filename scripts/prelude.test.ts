@@ -98,6 +98,17 @@ package.preload["happyview.spaces"] = function()
   }
 end
 
+__job = function(job_type, input) return "job-0001" end
+
+package.preload["happyview.jobs"] = function()
+  return {
+    create = function(job_type, input, opts)
+      __calls[#__calls + 1] = { fn = "create", job_type = job_type, input = input, opts = opts }
+      return __job(job_type, input)
+    end,
+  }
+end
+
 package.preload["happyview.http"] = function()
   local m = {}
   for _, name in ipairs({ "get", "post", "put", "patch", "delete", "head" }) do
@@ -114,7 +125,15 @@ const prelude = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
 // Every block, in file order: the emit order a script taking all of them gets.
 const PRELUDE = [...prelude.values()].join("\n\n");
 
-type Call = { fn: string; uri?: string; did?: string; url?: string; opts?: any };
+type Call = {
+  fn: string;
+  uri?: string;
+  did?: string;
+  url?: string;
+  opts?: any;
+  job_type?: string;
+  input?: any;
+};
 type Run = { r1: any; r2: any; log: any[]; calls: Call[] };
 
 const list = (x: unknown) => (Array.isArray(x) ? x : []);
@@ -615,6 +634,43 @@ describe("validate", () => {
     }
     for (const bad of ["", "plc:abc", "did:PLC:abc", "did:plc:", "did:plc:abc:", "did:plc:abc%", "did:plc:a b", `did:plc:${"a".repeat(2048)}`]) {
       expect([bad.slice(0, 20), run(`return is_did(${lit(bad)})`).r1]).toEqual([bad.slice(0, 20), false]);
+    }
+  });
+});
+
+describe("follow_operation", () => {
+  it("starts an instance.operation job for the operation, as the caller", () => {
+    const { r1, r2, calls } = run('return follow_operation({ id = "op-1", kind = "create" })');
+    expect(r1).toBe("job-0001");
+    expect(r2).toBeNull();
+    // No opts: the job polls the provisioner, so it needs no PDS session.
+    expect(calls).toEqual([{ fn: "create", job_type: "instance.operation", input: { operationId: "op-1" } }]);
+  });
+
+  it("a create that raises is Upstream, logged, and never echoed", () => {
+    const { r1, r2, log } = run(`
+      __job = function() error("happyview-jobs.create: HOST_ERROR SENTINEL-db") end
+      return follow_operation({ id = "op-1" })`);
+    expect(r1).toBeNull();
+    expect(r2.error).toBe("Upstream");
+    expect(r2.message).not.toContain("SENTINEL");
+    expect(log.map((l) => l.level)).toEqual(["warn"]);
+  });
+
+  it("a create that answers no id is Upstream", () => {
+    const { r1, r2 } = run(`
+      __job = function() return nil end
+      return follow_operation({ id = "op-1" })`);
+    expect(r1).toBeNull();
+    expect(r2.error).toBe("Upstream");
+  });
+
+  it("no operation to follow is Upstream, and no job is made", () => {
+    for (const op of ["nil", "{}", "{ id = 7 }"]) {
+      const { r1, r2, calls } = run(`return follow_operation(${op})`);
+      expect(r1).toBeNull();
+      expect(r2.error).toBe("Upstream");
+      expect(calls).toEqual([]);
     }
   });
 });

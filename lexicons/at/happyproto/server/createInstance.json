@@ -1,0 +1,195 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.createInstance",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create an instance for the caller, and start a job that follows its provisioning. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "slug",
+            "plan",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "description": "The instance's subdomain: 3 to 32 of a-z, 0-9 and -, starting with a letter."
+            },
+            "plan": {
+              "type": "string",
+              "description": "The plan's id, from at.happyproto.server.listPlans."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "instance",
+            "jobId"
+          ],
+          "properties": {
+            "instance": {
+              "type": "ref",
+              "ref": "#instance"
+            },
+            "jobId": {
+              "type": "string",
+              "description": "The background job following the change. Poll it with at.happyproto.server.getJob."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "slug, plan or idempotencyKey is missing or malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner: it reserves slugs by configuration as well."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    },
+    "instance": {
+      "type": "object",
+      "description": "A customer's HappyView instance. Never carries the provisioner's placement or internal fields.",
+      "required": [
+        "id",
+        "slug",
+        "url",
+        "plan",
+        "version",
+        "state",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "slug": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "plan": {
+          "type": "string",
+          "description": "The plan's id."
+        },
+        "version": {
+          "type": "string",
+          "description": "The HappyView release it runs."
+        },
+        "state": {
+          "type": "string",
+          "knownValues": [
+            "provisioning",
+            "running",
+            "stopped",
+            "failed",
+            "deleting"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "operation": {
+          "type": "ref",
+          "ref": "#operation",
+          "description": "The change in progress, if any."
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "create",
+            "update",
+            "upgrade",
+            "stop",
+            "start",
+            "destroy"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "running",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "step": {
+          "type": "string",
+          "description": "The step it last reached."
+        },
+        "error": {
+          "type": "string",
+          "description": "The provisioner's error code, when it failed."
+        }
+      }
+    }
+  }
+}

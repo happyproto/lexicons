@@ -1,0 +1,94 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getJob",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One of the caller's own background jobs, such as the one a change to an instance started. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job's UUID."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "job"
+          ],
+          "properties": {
+            "job": {
+              "type": "ref",
+              "ref": "#job"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id is not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such job, or the caller did not create it. The two are indistinguishable."
+        }
+      ]
+    },
+    "job": {
+      "type": "object",
+      "description": "A background job. Never carries its session fields.",
+      "required": [
+        "id",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "running",
+            "paused",
+            "pausing",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "progress": {
+          "type": "unknown",
+          "description": "The job's last progress report. For an instance change: {status, step?}, the operation's."
+        },
+        "result": {
+          "type": "unknown",
+          "description": "What the job returned, once completed."
+        },
+        "error": {
+          "type": "string",
+          "description": "Why the job failed. For an instance change, the operation's error code, then its message."
+        }
+      }
+    }
+  }
+}

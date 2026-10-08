@@ -49,6 +49,7 @@ Each source declares which prelude blocks it needs:
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
+| `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 
 Blocks are emitted in **prelude file order**, never directive order, because a
 Lua local must be declared before any function closing over it.

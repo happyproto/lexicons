@@ -31,6 +31,17 @@ export const provisioner = {
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>
     post(`${PROVISIONER_URL}/__script`, { method, path, status, body }),
+  /**
+   * The states the next operation a mutating route creates moves through,
+   * one per read of it, holding at the last. `{ http, error? }` fails that
+   * read with that status and code instead. Unscripted, it succeeds at once.
+   */
+  progress: (
+    states: (
+      | { status: string; step?: string; error_code?: string; error_message?: string }
+      | { http: number; error?: string }
+    )[],
+  ) => post(`${PROVISIONER_URL}/__progress`, states),
   async requests(): Promise<ProvisionerRequest[]> {
     return (await fetch(`${PROVISIONER_URL}/__requests`)).json() as Promise<ProvisionerRequest[]>;
   },

@@ -182,17 +182,6 @@ export async function removeMember(
 }
 
 /**
- * Plugins in plugins.txt that may be absent. Each needs a reason, and leaves
- * this list when the reason does.
- */
-const PLUGINS_NOT_YET_LOADABLE: Record<string, string> = {
-  // v1.1.0 declares jobs:read and jobs:read_any, which HappyView only learns
-  // in 3.0.0-alpha.4; alpha.3 refuses the manifest. Remove this entry when
-  // HAPPYVIEW_VERSION moves to alpha.4.
-  "happyview-jobs": "needs HappyView 3.0.0-alpha.4",
-};
-
-/**
  * Every plugin in plugins.txt is installed and enabled, with the digest the
  * file pins. HappyView logs a plugin that fails to load and boots anyway, so
  * without this a bad entry surfaces as unrelated-looking script failures.
@@ -218,7 +207,7 @@ async function assertPlugins(apiKey: string): Promise<void> {
       (p) => p.id === id,
     );
     if (!found) {
-      if (!PLUGINS_NOT_YET_LOADABLE[id]) problems.push(`${id} is not installed`);
+      problems.push(`${id} is not installed`);
     } else if (!found.enabled) {
       problems.push(`${id} is installed but disabled`);
     } else if (found.sha256 !== sha256) {

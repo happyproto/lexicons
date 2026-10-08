@@ -38,6 +38,7 @@ const IMPLIES: Record<string, string[]> = {
   clickhouse: ["json", "failure", "urlencode"],
   provisioner: ["json", "failure"],
   instance: ["json"],
+  jobs: ["failure"],
 };
 
 export function parsePrelude(text: string): Map<string, string> {
