@@ -279,10 +279,18 @@ async function deploy(apiKey: string): Promise<void> {
   for (const file of scripts) {
     const nsid = relative("lua", file).replace(/\.lua$/, "").split("/").join(".");
     const type = types.get(nsid);
-    if (type !== "query" && type !== "procedure") {
-      throw new Error(`${file}: no query or procedure lexicon ${nsid} to pair it with`);
+    // The trigger comes from the paired lexicon's type, exactly as the deploy
+    // action derives it: a query or procedure is an XRPC handler, a record is
+    // an indexer that fires on any event in its collection.
+    if (type === "query" || type === "procedure") {
+      triggers.push([`xrpc.${type}:${nsid}`, file]);
+    } else if (type === "record") {
+      triggers.push([`record.index:${nsid}`, file]);
+    } else {
+      throw new Error(
+        `${file}: no query, procedure or record lexicon ${nsid} to pair it with`,
+      );
     }
-    triggers.push([`xrpc.${type}:${nsid}`, file]);
   }
   for (const file of await walk("jobs", ".lua")) {
     const type = relative("jobs", file).replace(/\.lua$/, "").split("/").join(".");
