@@ -10,3 +10,4 @@ happyview-xrpc|https://github.com/happyproto/plugins/releases/download/happyview
 happyview-atproto|https://github.com/happyproto/plugins/releases/download/happyview-atproto-v1.0.0/manifest.json|sha256:307efd0f9290b7c7f5120b7ab5cae8d9307f76bf5f3efbb0d854ad99d5c2fdf2
 happyview-jobs|https://github.com/happyproto/plugins/releases/download/happyview-jobs-v1.1.0/manifest.json|sha256:472f3ac84a91e76459ceef9208a05f0141c9052bcc454e797594244e33485403
 happyview-linked-repos|https://github.com/happyproto/plugins/releases/download/happyview-linked-repos-v1.0.0/manifest.json|sha256:467e4557b28b1cf2f4a588305198f71fc6b191371566440bc395485db86d58a0
+happyview-blobs|https://github.com/happyproto/plugins/releases/download/happyview-blobs-v1.0.0/manifest.json|sha256:a6c5060de482856e030e25020d23d8e94cd3ff1163d1affd3b4ffd0036e231a3
