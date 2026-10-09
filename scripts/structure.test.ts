@@ -752,3 +752,31 @@ describe("generated output", () => {
     }
   });
 });
+
+describe("every generated script defines the helpers it calls", () => {
+  // A @prelude directive that misses a block is not a build error: the helper
+  // is simply absent, and the script fails at RUNTIME with "attempt to call a
+  // nil value". That is how `registry` came to imply `plugin` and `validate`
+  // but not `authority`, and five deployed handlers answered 500 on their
+  // first call. This compares what each generated file calls against what it
+  // defines, so the next missing block fails here instead.
+  test("no generated script calls a prelude helper it does not define", async () => {
+    const prelude = await readFile(PRELUDE_PATH, "utf8");
+    const helpers = [...prelude.matchAll(/^\s*local function (\w+)\(/gm)].map((m) => m[1]);
+    expect(helpers.length).toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const file of await walk("lua", ".lua")) {
+      const text = await readFile(file, "utf8");
+      const code = stripLua(text);
+      for (const helper of helpers) {
+        const calls = new RegExp(`(^|[^\\w.:])${helper}\\s*\\(`).test(code);
+        const defines = code.includes(`local function ${helper}(`);
+        if (calls && !defines) {
+          offenders.push(`${file}: calls ${helper}, which no inlined block defines`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
