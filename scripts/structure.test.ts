@@ -123,6 +123,18 @@ const UNGATED: Record<string, string> = {
   "at/happyproto/actor/getAccount": "signed-in only, its own check",
 };
 
+/**
+ * Directories whose scripts take no gate because they have no caller to gate.
+ * A record-index handler runs on a firehose event, where `ctx.caller_did` is
+ * the DID of the stranger whose repo the record came from -- gating on it
+ * would mean nothing. Kept as a directory rule rather than a file allowlist so
+ * a second indexer in the same collection family needs no entry, while a new
+ * *endpoint* directory is still refused until someone picks its gate.
+ */
+const UNGATED_DIRS: Record<string, string> = {
+  plugin: "record-index handlers; a firehose event has no caller to gate",
+};
+
 type Gate = "gate_admin" | "gate_customer" | "gate_owner";
 const GATES: Gate[] = ["gate_admin", "gate_customer", "gate_owner"];
 
@@ -153,6 +165,7 @@ export function requiredGate(path: string): Gate | "none" | "unmapped" {
   const match = path.match(/(?:^|\/)(at\/happyproto\/([^/]+)\/[^/]+?)(?:\.lua)?$/);
   if (!match) return "unmapped";
   if (UNGATED[match[1]]) return "none";
+  if (UNGATED_DIRS[match[2]]) return "none";
   return GATE_EXCEPTIONS[match[1]] ?? GATE_FOR_DIR[match[2]] ?? "unmapped";
 }
 

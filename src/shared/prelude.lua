@@ -538,3 +538,151 @@ local function follow_operation(op)
   return id
 end
 -- @endblock
+
+-- @block plugin
+-- Checks for the `at.happyproto.plugin.*` records the registry indexes.
+--
+-- Three constraints the lexicons cannot express live here, because a lexicon
+-- cannot require one of two fields and cannot type an arbitrary-key map: an
+-- artifact must carry `blob` or `url`, `extensions` must actually carry our
+-- manifest, and `requires` keys and ranges have to be read. Unenforced here
+-- they are enforced nowhere.
+
+--- Where registry state lives. Deliberately NOT registered as a lexicon:
+--- registering a record type makes Jetstream subscribe to it network-wide,
+--- and anyone could then publish rows the registry would read as its own.
+--- These are written locally under HAPPYPROTO_DID and never leave.
+local RELEASE_STATE = "at.happyproto.registry.releaseState"
+local PACKAGE_STATE = "at.happyproto.registry.packageState"
+
+--- A package slug. It is the profile's record key and the first half of a
+--- release's, so it must survive a record key, a URL path segment, and a
+--- split on `:` -- which is why a colon is not allowed in it.
+local function is_plugin_slug(s)
+  return type(s) == "string"
+    and #s >= 1
+    and #s <= 128
+    and s:match("^%a[%w%-%.]*$") ~= nil
+end
+
+--- Semver 2.0 without build metadata. `+` cannot appear in an atproto record
+--- key, so a version carrying it could never equal its own rkey half.
+--- Prerelease identifiers are allowed; a leading `v` is not.
+local function is_plugin_version(s)
+  if type(s) ~= "string" or #s > 256 or s:find("+", 1, true) then return false end
+  local core, pre = s:match("^(%d+%.%d+%.%d+)%-?([%w%.%-]*)$")
+  if not core then return false end
+  if pre ~= "" and pre:match("^[%w%.%-]+$") == nil then return false end
+  return true
+end
+
+--- A release's record key is `<slug>:<version>`. Answers both halves, or nil
+--- for anything that is not exactly that shape.
+local function split_release_rkey(rkey)
+  if type(rkey) ~= "string" then return nil end
+  local slug, version = rkey:match("^([^:]+):(.+)$")
+  if not slug or not is_plugin_slug(slug) or not is_plugin_version(version) then
+    return nil
+  end
+  return slug, version
+end
+
+--- Whether a version-requirement string is the dialect we parse, answering a
+--- reason when it is not.
+---
+--- Ranges are Cargo's `VersionReq`, which `plugin::graph` already parses
+--- `dependencies` with, so a registry requirement and the dependency graph
+--- agree. Comparators are comma-separated and ANDed. `||` is node-semver,
+--- which FAIR and EmDash tooling would produce, so it is refused **by name**
+--- rather than left to a parser that reports an unexpected `'|'` and tells a
+--- publisher nothing. This is a shape check; Cargo's own parser is the
+--- authority at install time.
+local function semver_range_problem(s)
+  if type(s) ~= "string" or s == "" then return "is not a string" end
+  if s:find("||", 1, true) then
+    return "uses `||`, which Cargo's semver does not support; "
+      .. "give one range with comma-separated bounds, or publish one release per major"
+  end
+  if s == "*" then return nil end
+  for part in (s .. ","):gmatch("([^,]*),") do
+    local comparator = part:gsub("^%s+", ""):gsub("%s+$", "")
+    if comparator == "" then return "has an empty comparator" end
+    local version = comparator:match("^[%^~<>=]*%s*(.+)$")
+    if not version or version:match("^%d+[%w%.%-%*]*$") == nil then
+      return "has a comparator that is not a version: " .. comparator
+    end
+  end
+  return nil
+end
+
+--- `requires` is an `unknown` field, so the lexicon guarantees only that it
+--- is an object. Every key must be `env:happyview` or a profile AT URI, and
+--- every value a range. Keyed by AT URI rather than DID because identity is
+--- (publisher, slug) and one publisher may hold many packages.
+local function requires_problem(t)
+  if t == nil then return nil end
+  if type(t) ~= "table" then return "requires must be an object" end
+  for key, value in pairs(t) do
+    if type(key) ~= "string" then return "requires has a non-string key" end
+    local is_env = key:match("^env:[%w%-%.]+$") ~= nil
+    local did, slug = key:match("^at://([^/]+)/at%.happyproto%.plugin%.profile/(.+)$")
+    local is_package = did ~= nil and is_did(did) and is_plugin_slug(slug)
+    if not is_env and not is_package then
+      return "requires key is neither env:* nor a profile AT URI: " .. key
+    end
+    local problem = semver_range_problem(value)
+    if problem then return "requires[" .. key .. "] " .. problem end
+  end
+  return nil
+end
+
+--- An artifact must name its bytes somehow. The lexicon requires `checksum`
+--- and can require neither `blob` nor `url`, since it cannot express "one of
+--- these two".
+local function artifact_problem(a)
+  if type(a) ~= "table" then return "artifact is missing" end
+  if type(a.checksum) ~= "string" or a.checksum == "" then
+    return "artifact has no checksum"
+  end
+  if a.blob == nil and (type(a.url) ~= "string" or a.url == "") then
+    return "artifact carries neither a blob nor a url"
+  end
+  return nil
+end
+
+local PLUGIN_TYPES = { auth = true, library = true, interpreter = true }
+
+--- The manifest, which `extensions` carries under our NSID. `extensions` is
+--- `unknown` too, so its presence and shape are ours to check.
+local function release_extension_problem(extensions)
+  if type(extensions) ~= "table" then return "extensions is missing" end
+  local ext = extensions["at.happyproto.plugin.releaseExtension"]
+  if type(ext) ~= "table" then
+    return "extensions carries no at.happyproto.plugin.releaseExtension"
+  end
+  if not PLUGIN_TYPES[ext.pluginType] then
+    return "pluginType is not auth, library or interpreter"
+  end
+  -- Every plugin type requires api_version 2 or later; there is no fallback.
+  local major = tonumber(tostring(ext.apiVersion or ""):match("^(%d+)"))
+  if not major or major < 2 then
+    return "apiVersion must be \"2\" or later"
+  end
+  if type(ext.capabilities) ~= "table" then
+    return "capabilities must be declared, even when empty"
+  end
+  if ext.pluginType == "library" and type(ext.namespace) ~= "string" then
+    return "a library must declare its namespace"
+  end
+  if ext.pluginType == "interpreter" and type(ext.languageId) ~= "string" then
+    return "an interpreter must declare its languageId"
+  end
+  return nil
+end
+
+--- The state row's key. One row per (publisher, package, version), under our
+--- own DID, so a publisher cannot collide with it.
+local function release_state_rkey(did, slug, version)
+  return did .. ":" .. slug .. ":" .. version
+end
+-- @endblock

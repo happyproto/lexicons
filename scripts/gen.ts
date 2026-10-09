@@ -41,6 +41,7 @@ const IMPLIES: Record<string, string[]> = {
   provisioner: ["json", "failure"],
   instance: ["json"],
   jobs: ["failure"],
+  plugin: ["validate"],
 };
 
 export function parsePrelude(text: string): Map<string, string> {
