@@ -292,12 +292,35 @@ describe("actor.getProfile", () => {
     expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: true, access: "write" });
   });
 
+  test("staff who are not customers are told so", async () => {
+    expect(await ok(nsid, "staff")).toMatchObject({ isMember: true, isCustomer: false });
+  });
+
+  test("a customer is a customer, not a member, and gets no access field", async () => {
+    const { accounts } = await stack();
+    const out = await ok(nsid, "customer");
+    expect(out).toMatchObject({ did: accounts.customer.did, isSelf: true, isMember: false, isCustomer: true });
+    expect(out).not.toHaveProperty("access");
+  });
+
+  test("isCustomer agrees with the customer gate, for the space owner too", async () => {
+    // The owner created the customers space, so HappyView makes them a
+    // member of it; whatever it answers, the gate must answer the same.
+    for (const who of ["customer", "outsider", "staff", "happyproto"] as const) {
+      const { isCustomer } = await ok(nsid, who);
+      const gated = await call("at.happyproto.server.listPlans", who);
+      // HappyView answers a script's failure with a 200 and an error body.
+      expect([who, gated.body?.error !== "Forbidden"]).toEqual([who, isCustomer]);
+    }
+    expect((await ok(nsid, "happyproto")).isCustomer).toBe(true);
+  });
+
   test("with no HAPPYPROTO_DID, staff are not members", async () => {
     const { accounts, apiKey, variables } = await stack();
     try {
       await setVariable(apiKey, "HAPPYPROTO_DID", "");
       const out = await ok(nsid, "staff");
-      expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: false });
+      expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: false, isCustomer: false });
       expect(out).not.toHaveProperty("access");
     } finally {
       await setVariable(apiKey, "HAPPYPROTO_DID", variables.HAPPYPROTO_DID);
@@ -307,7 +330,7 @@ describe("actor.getProfile", () => {
   test("an outsider is told they are not a member, and gets no access field", async () => {
     const { accounts } = await stack();
     const out = await ok(nsid, "outsider");
-    expect(out).toMatchObject({ did: accounts.outsider.did, isSelf: true, isMember: false });
+    expect(out).toMatchObject({ did: accounts.outsider.did, isSelf: true, isMember: false, isCustomer: false });
     expect(out).not.toHaveProperty("access");
   });
 
@@ -324,5 +347,6 @@ describe("actor.getProfile", () => {
       params: { actor: accounts.staff.did },
     });
     expect(reply.body).not.toHaveProperty("isMember");
+    expect(reply.body).not.toHaveProperty("isCustomer");
   });
 });

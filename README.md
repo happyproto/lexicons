@@ -71,6 +71,10 @@ end
 `gate` is deliberately separable from `failure`: `actor.getProfile` needs the
 failure helper but must **not** be admin-gated. It is the endpoint that tells a
 caller whether they are a member, so gating it on membership would be circular.
+For the caller only, its output reports `isMember` and `access` (admin-space
+membership) and `isCustomer` (customers-space membership). `isCustomer` is
+`gate_customer(ctx) == nil`, the verdict the customer endpoints apply, so the
+two cannot disagree; it never touches the provisioner and fails closed.
 
 `gate_owner` admits exactly `HAPPYPROTO_DID` and nobody else. Only
 `admin.createSpaces` takes it, because that endpoint creates the admin space
