@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.plugin.releaseExtension",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "The HappyView-specific half of a release, carried at extensions['at.happyproto.plugin.releaseExtension']. It is the plugin manifest, moved into the signed record so a consent screen renders without downloading the module. It is not trusted: the loader checks it against the module's plugin_info export and its import section, so a release that misstates what its WASM does is refused exactly as a checksum mismatch is.",
+      "required": ["pluginType", "apiVersion", "capabilities"],
+      "properties": {
+        "pluginType": {
+          "type": "string",
+          "knownValues": ["auth", "library", "interpreter"],
+          "description": "Every type requires an api_version of '2' or later and must declare its capabilities; there is no lower-version fallback for any of them."
+        },
+        "apiVersion": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "'2' or later, as validate_manifest already requires."
+        },
+        "namespace": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Libraries only: the require() name, which is unique across installed plugins."
+        },
+        "languageId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Interpreters only: what scripts.script_type holds. Lowercase alphanumerics plus '-' and '_', starting with a letter, because the value has to survive a column, a URL and an editor mode name."
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "The trust contract. The loader cross-checks it against the module's actual imports, so a plugin cannot import what this does not cover.",
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "allowedHosts": {
+          "type": "array",
+          "description": "Hosts an outbound request may reach, as in today's manifest. The one constraint the capability model already has.",
+          "items": { "type": "string", "maxLength": 256 }
+        }
+      }
+    }
+  }
+}
