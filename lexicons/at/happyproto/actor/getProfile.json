@@ -33,6 +33,10 @@
               "type": "boolean",
               "description": "Caller only. Whether the actor may use the dashboard."
             },
+            "isCustomer": {
+              "type": "boolean",
+              "description": "Caller only. Whether the actor is a member of the customers space, the same rule the customer endpoints apply."
+            },
             "access": {
               "type": "string",
               "knownValues": ["read", "write"],
@@ -43,6 +47,7 @@
       },
       "errors": [
         { "name": "AuthRequired", "description": "This endpoint requires an authenticated caller." },
+        { "name": "Forbidden", "description": "Declared for the customer gate the script consults; getProfile never returns it, since a refused gate reports isCustomer false." },
         { "name": "ActorNotFound", "description": "The requested actor could not be resolved." }
       ]
     }

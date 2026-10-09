@@ -1,17 +1,21 @@
 -- at.happyproto.actor.getProfile
 --
--- Who is this, and — for the caller only — may they use the dashboard?
+-- Who is this, and — for the caller only — what are they entitled to?
 --
--- Access is membership of the HappyProto admin space, so granting or revoking
--- a customer is adding or removing a space member. There is no separate
--- customer list to drift out of sync with.
+-- Two entitlements, each a space membership, so granting or revoking one is
+-- adding or removing a space member. There is no separate list to drift out of
+-- sync with. `isMember` and `access` are membership of the HappyProto admin
+-- space (staff); `isCustomer` is membership of the customers space, decided by
+-- the customer gate itself so it cannot disagree with the customer endpoints.
+-- Neither touches the provisioner, so a provisioner outage cannot lock anyone
+-- out of finding out what they may do.
 --
 -- The space uri is derived from the HAPPYPROTO_DID script variable rather than
 -- a literal because the authority DID is what makes the check meaningful:
 -- matching on the space TYPE alone would admit everyone, since any user can
 -- create a space of any type and is auto-added to their own as a write member.
 
--- @prelude failure, json, access, authority
+-- @prelude failure, json, access, authority, gate
 
 local xrpc = require("happyview.xrpc")
 local spaces = require("happyview.spaces")
@@ -80,6 +84,11 @@ function handle(input, ctx)
     -- list without that list becoming a way to enumerate who has access.
     return profile
   end
+
+  -- The customer gate's own verdict, as getAccount reports it. It fails
+  -- closed: no valid HAPPYPROTO_DID, a space that cannot be read, or no
+  -- space at all is "not a customer".
+  profile.isCustomer = gate_customer(ctx) == nil
 
   local space_uri = happyproto_space(ctx, ADMIN_SPACE_TYPE)
   if not space_uri then
