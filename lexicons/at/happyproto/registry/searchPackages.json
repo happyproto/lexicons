@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.searchPackages",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Find packages. Deleted packages are never returned. With `q` the result is ranked by match and capped rather than paged, because the index's substring search takes no cursor; without it the result is paged.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "q": { "type": "string", "description": "Substring of the package name. Omit to list." },
+          "pluginType": {
+            "type": "string",
+            "knownValues": ["auth", "library", "interpreter"],
+            "description": "Only packages whose latest active release is this type."
+          },
+          "cursor": { "type": "string", "description": "Ignored when `q` is given." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["packages"],
+          "properties": {
+            "packages": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "at.happyproto.registry.defs#packageView" }
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Absent when `q` was given, or when the last page was reached."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "NotConfigured",
+          "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

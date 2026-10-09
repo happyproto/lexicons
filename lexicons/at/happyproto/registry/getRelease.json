@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.getRelease",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One release by exact version. Served whatever its status, including `deleted`: that is the left-pad protection the registry exists for.",
+      "parameters": {
+        "type": "params",
+        "required": ["did", "slug", "version"],
+        "properties": {
+          "did": { "type": "string", "format": "did" },
+          "slug": { "type": "string" },
+          "version": {
+            "type": "string",
+            "description": "Semver without build metadata, exactly as the record key carries it."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "at.happyproto.registry.defs#releaseView" }
+      },
+      "errors": [
+        { "name": "ReleaseNotFound", "description": "No release is indexed at that version." },
+        {
+          "name": "NotConfigured",
+          "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

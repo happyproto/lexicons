@@ -686,3 +686,73 @@ local function release_state_rkey(did, slug, version)
   return did .. ":" .. slug .. ":" .. version
 end
 -- @endblock
+
+-- @block registry
+-- Shaping the registry's two views, and ordering versions.
+--
+-- The views keep the publisher's record and the registry's own state apart:
+-- `record` is what was published, verbatim, and `status` is ours. Mixing them
+-- would make it impossible to hand a client back what the publisher signed.
+
+local PROFILE_COLLECTION = "at.happyproto.plugin.profile"
+local RELEASE_COLLECTION = "at.happyproto.plugin.release"
+
+--- Semver precedence, enough to pick a latest. Numeric on the core triple,
+--- and a prerelease sorts BELOW the same core without one, which is the rule
+--- that keeps `3.0.0-alpha.1` from being "latest" over `3.0.0`.
+local function plugin_version_lt(a, b)
+  local function parts(v)
+    local major, minor, patch, pre = v:match("^(%d+)%.(%d+)%.(%d+)%-?(.*)$")
+    return tonumber(major), tonumber(minor), tonumber(patch), pre
+  end
+  local amaj, amin, apat, apre = parts(a)
+  local bmaj, bmin, bpat, bpre = parts(b)
+  if not amaj or not bmaj then return a < b end
+  if amaj ~= bmaj then return amaj < bmaj end
+  if amin ~= bmin then return amin < bmin end
+  if apat ~= bpat then return apat < bpat end
+  if apre == bpre then return false end
+  if apre == "" then return false end
+  if bpre == "" then return true end
+  return apre < bpre
+end
+
+--- A release as the contract describes it. `status` comes from our state row;
+--- a release with no row has not been seen by the indexer, which is reported
+--- as `unknown` rather than guessed at.
+local function release_view(envelope, state)
+  return {
+    uri = envelope.uri,
+    cid = envelope.cid,
+    record = envelope.record,
+    status = (state and state.status) or "unknown",
+    indexedAt = envelope.indexed_at,
+  }
+end
+
+--- A package, with the highest `active` version if it has one. `handle` is
+--- deliberately absent: no library available to a script resolves a DID to a
+--- handle, so populating it would mean inventing one. It is optional in the
+--- lexicon for that reason, and arrives when `happyview.atproto` grows a
+--- resolver.
+local function package_view(envelope, state, latest_version)
+  return {
+    uri = envelope.uri,
+    cid = envelope.cid,
+    did = envelope.did,
+    record = envelope.record,
+    status = (state and state.status) or "unknown",
+    latestVersion = latest_version,
+    indexedAt = envelope.indexed_at,
+  }
+end
+
+--- The paging arguments a registry query accepts, clamped. A caller-supplied
+--- limit is never trusted as a page size.
+local function registry_page(input)
+  local limit = tonumber(input.limit) or 50
+  if limit < 1 then limit = 1 end
+  if limit > 100 then limit = 100 end
+  return limit, input.cursor
+end
+-- @endblock

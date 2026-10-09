@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.getArtifact",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "An artifact's bytes, from the registry's own copy \u2014 never redirected to the publisher. A deleted release still serves them. The output encoding is `*/*`, as com.atproto.sync.getBlob's is, and the media type is the one the bytes were stored under.",
+      "parameters": {
+        "type": "params",
+        "required": ["did", "slug", "version"],
+        "properties": {
+          "did": { "type": "string", "format": "did" },
+          "slug": { "type": "string" },
+          "version": { "type": "string" },
+          "type": {
+            "type": "string",
+            "default": "package",
+            "description": "Which artifact: `package` is the module, `icon`, `banner` and `screenshots` are presentation assets, and a custom type carries an `x-` prefix."
+          }
+        }
+      },
+      "output": { "encoding": "*/*" },
+      "errors": [
+        { "name": "ReleaseNotFound", "description": "No release is indexed at that version." },
+        {
+          "name": "ArtifactNotHeld",
+          "description": "The release is indexed but its bytes have not been copied yet, or that artifact type was never published."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

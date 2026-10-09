@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.getPackage",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One package by publisher and slug. A withdrawn package is still returned, flagged `deleted`, because its releases stay resolvable.",
+      "parameters": {
+        "type": "params",
+        "required": ["actor", "slug"],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The publisher. A DID today: no library available to a registry script resolves a handle, so a handle is refused with UnsupportedActor rather than guessed at."
+          },
+          "slug": {
+            "type": "string",
+            "description": "The package slug, which is its profile's record key."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "at.happyproto.registry.defs#packageView" }
+      },
+      "errors": [
+        {
+          "name": "PackageNotFound",
+          "description": "No profile is indexed for that publisher and slug."
+        },
+        { "name": "UnsupportedActor", "description": "`actor` was a handle; give a DID." },
+        {
+          "name": "NotConfigured",
+          "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

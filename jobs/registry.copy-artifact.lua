@@ -73,6 +73,46 @@ local function state_fields(our_did, rkey)
   return existing and existing.record or nil
 end
 
+--- Fetches one artifact, checks it against its declared checksum, and stores
+--- it. Answers `{cid, mimeType}`. Raises with a reason, so a caller can
+--- decide whether that reason is fatal.
+local function copy_one(publisher, artifact)
+  local declared = sha256_digest_hex(artifact.checksum)
+  if not declared then
+    error("checksum is not a multibase sha2-256 multihash: " .. tostring(artifact.checksum))
+  end
+
+  -- A blob is preferred over a url: it sits in the publisher's own repo, which
+  -- is the copy their record signed over.
+  local bytes, mime
+  local blob_cid = ((artifact.blob or {}).ref or {})["$link"]
+  if blob_cid then
+    local downloaded = atproto.blob_download(publisher, blob_cid)
+    bytes, mime = downloaded.bytes, downloaded.mime_type
+  elseif type(artifact.url) == "string" and artifact.url ~= "" then
+    local response = http.get(artifact.url)
+    if response.status < 200 or response.status >= 300 then
+      error("url answered " .. tostring(response.status))
+    end
+    bytes = response.body
+    mime = artifact.contentType
+  else
+    error("carries neither a blob nor a url")
+  end
+
+  mime = mime or artifact.contentType or "application/octet-stream"
+  local cid = blobs.put(bytes, mime)
+  local stored = sha256_digest_hex(cid)
+  if stored ~= declared then
+    -- The bytes stay: they are addressed by their own content, so wrong bytes
+    -- cannot occupy the right CID. The release simply never becomes servable,
+    -- which is the whole point of checking.
+    error("bytes do not match the declared checksum (declared " .. declared
+      .. ", got " .. tostring(stored) .. ")")
+  end
+  return { cid = cid, mimeType = mime, size = #bytes }
+end
+
 local function fail(message)
   -- A job's error is what an operator reads, so it says what to do about it.
   error(message)
@@ -95,55 +135,52 @@ function handle(input, ctx)
   end
   if fields.status == "active" then
     -- A retried job, or a replayed enqueue. The bytes are already held.
-    return { skipped = "already copied", cid = fields.artifactCid }
+    return { skipped = "already copied", held = fields.held }
   end
 
   local release = db.get(input.uri)
   if not release then
     fail("the release record at " .. tostring(input.uri) .. " is no longer indexed")
   end
-  local artifact = ((release.record.artifacts or {}).package) or {}
-  local declared = sha256_digest_hex(artifact.checksum)
-  if not declared then
-    fail("the artifact's checksum is not a multibase sha2-256 multihash: "
-      .. tostring(artifact.checksum))
-  end
+  local artifacts = (release.record or {}).artifacts or {}
 
-  -- A blob is preferred over a url: it is in the publisher's own repo, which
-  -- is the copy their record signed over.
-  local bytes, mime
-  local blob_cid = ((artifact.blob or {}).ref or {})["$link"]
-  if blob_cid then
-    local downloaded = atproto.blob_download(input.did, blob_cid)
-    bytes, mime = downloaded.bytes, downloaded.mime_type
-  elseif type(artifact.url) == "string" then
-    local response = http.get(artifact.url)
-    if response.status < 200 or response.status >= 300 then
-      fail("the artifact url answered " .. tostring(response.status))
+  -- Every key whose value is an artifact object. That is `package`, `icon`,
+  -- `banner` and any `x-` custom type, and it naturally skips `screenshots`,
+  -- whose value is an array rather than an artifact -- those are not copied
+  -- yet, and getArtifact answers ArtifactNotHeld for them.
+  local held = fields.held or {}
+  local problems = {}
+  for kind, artifact in pairs(artifacts) do
+    if type(artifact) == "table" and artifact.checksum ~= nil and not held[kind] then
+      local ok, result = pcall(copy_one, input.did, artifact)
+      if ok then
+        held[kind] = result
+      elseif kind == "package" then
+        -- The module is the release. Without it there is nothing to serve, so
+        -- the job fails and can be retried.
+        fail("could not copy the package artifact: " .. tostring(result))
+      else
+        -- A presentation asset must never keep a working module out of the
+        -- index, so its failure is recorded and the job carries on.
+        problems[#problems + 1] = kind .. ": " .. tostring(result)
+      end
     end
-    bytes = response.body
-    mime = artifact.contentType or "application/wasm"
-  else
-    fail("the artifact carries neither a blob nor a url")
   end
 
-  local cid = blobs.put(bytes, mime or "application/wasm")
-  local stored = sha256_digest_hex(cid)
-  if stored ~= declared then
-    -- The bytes are kept: they are addressed by their own content, so a wrong
-    -- artifact cannot occupy the right CID. The release simply never becomes
-    -- servable, which is the whole point of the check.
-    fail("the artifact's bytes do not match its declared checksum"
-      .. " (declared " .. declared .. ", got " .. tostring(stored) .. ")")
+  if not held.package then
+    fail("the release declares no package artifact")
   end
 
   fields.status = "active"
-  fields.artifactCid = cid
-  fields.mimeType = mime
+  fields.held = held
   record.save_local(RELEASE_STATE, rkey, fields, our_did)
 
-  log.info("registry: artifact copied", {
-    did = input.did, slug = input.slug, version = input.version, cid = cid,
+  log.info("registry: artifacts copied", {
+    did = input.did, slug = input.slug, version = input.version,
+    package_cid = held.package.cid, skipped = #problems,
   })
-  return { cid = cid, bytes = #bytes }
+  if #problems > 0 then
+    log.warn("registry: some presentation assets were not copied", { problems = problems })
+  end
+  return { package = held.package, skipped = problems }
 end

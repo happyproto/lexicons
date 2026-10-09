@@ -133,6 +133,7 @@ const UNGATED: Record<string, string> = {
  */
 const UNGATED_DIRS: Record<string, string> = {
   plugin: "record-index handlers; a firehose event has no caller to gate",
+  registry: "public reads; any instance resolves a plugin without an account here",
 };
 
 type Gate = "gate_admin" | "gate_customer" | "gate_owner";

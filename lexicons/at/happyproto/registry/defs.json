@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.defs",
+  "defs": {
+    "packageView": {
+      "type": "object",
+      "description": "An indexed package. `record` is the publisher's profile verbatim; `status` and `latestVersion` are the registry's.",
+      "required": ["uri", "did", "record", "status"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "did": { "type": "string", "format": "did" },
+        "handle": {
+          "type": "string",
+          "format": "handle",
+          "description": "The publisher's handle, when the registry can resolve one. Absent otherwise; a client should not treat its absence as the package being unowned."
+        },
+        "record": {
+          "type": "unknown",
+          "description": "The at.happyproto.plugin.profile record as published."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["active", "deleted", "unknown"],
+          "description": "`deleted` means the publisher withdrew the profile. The package stays readable and its releases stay resolvable by exact version; it is left out of search."
+        },
+        "latestVersion": {
+          "type": "string",
+          "description": "The highest `active` version, by semver precedence, where a prerelease ranks below the same core version. Absent when no version is active yet."
+        },
+        "indexedAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "releaseView": {
+      "type": "object",
+      "description": "An indexed release. `record` is the publisher's release verbatim; `status` is the registry's.",
+      "required": ["uri", "record", "status"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "record": {
+          "type": "unknown",
+          "description": "The at.happyproto.plugin.release record as published."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["active", "pending", "deleted", "unknown"],
+          "description": "`active` means the registry holds the artifact bytes and will serve them. `pending` means it has indexed the release but not yet copied them, so getArtifact will not answer. `deleted` means the publisher withdrew it: left out of search, out of `latestVersion` and out of dependency resolution, but still served by exact version."
+        },
+        "indexedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}
