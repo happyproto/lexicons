@@ -111,6 +111,7 @@ describe("the registry indexes a published package", () => {
         $type: RELEASE,
         package: SLUG,
         version: "1.0.0",
+        notes: "## 1.0.0\n\n- the first release",
         artifacts: {
           // A `url` rather than the `blob`, which the copy job would otherwise
           // prefer. The bytes and the checksum are the same either way -- this
@@ -192,6 +193,9 @@ describe("the registry indexes a published package", () => {
     expect(status).toBe(200);
     expect(one.uri).toBe(`at://${publisher.did}/${RELEASE}/${SLUG}:1.0.0`);
     expect(one.record).toMatchObject({ version: "1.0.0", package: SLUG });
+    // Markdown, which a client renders to say what an upgrade brings. Verbatim
+    // through the index, newlines included.
+    expect(one.record).toMatchObject({ notes: "## 1.0.0\n\n- the first release" });
   }, 90_000);
 
   test("searchPackages finds it by name", async () => {
