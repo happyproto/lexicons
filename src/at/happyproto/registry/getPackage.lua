@@ -6,11 +6,11 @@
 -- answered, flagged `deleted`, because its releases stay resolvable by exact
 -- version.
 --
--- `actor` is a DID. No library a registry script can reach resolves a handle
--- to a DID -- happyview.atproto resolves service endpoints, not identities --
--- so a handle is refused by name rather than guessed at. The refusal, and the
--- absent `handle` on the view, both go away when that library grows a
--- resolver.
+-- `actor` is a DID or a handle. A handle is resolved through
+-- happyview.atproto, which confirms it in both directions, so a handle
+-- pointed at someone else's DID cannot show their packages under it. The
+-- resolved handle is echoed on the view; a DID answers with it resolved too,
+-- so the response does not depend on how the package was asked for.
 
 local db = require("happyview.db")
 
@@ -43,18 +43,29 @@ function handle(input, ctx)
   if not our_did then return failure("NotConfigured", "the registry has no identity configured") end
 
   local actor, slug = input.actor, input.slug
-  if type(actor) == "string" and not is_did(actor) then
-    return failure("UnsupportedActor", "give a DID; this registry cannot resolve a handle yet")
+  local did, handle = resolve_actor(actor)
+  if not did then
+    return failure("ActorNotFound", "that publisher could not be resolved")
   end
-  if not is_did(actor) or not is_plugin_slug(slug) then
+  if not is_plugin_slug(slug) then
     return failure("PackageNotFound", "no package is indexed for that publisher and slug")
   end
 
-  local profile = db.get("at://" .. actor .. "/" .. PROFILE_COLLECTION .. "/" .. slug)
+  local profile = db.get("at://" .. did .. "/" .. PROFILE_COLLECTION .. "/" .. slug)
   if not profile then
     return failure("PackageNotFound", "no package is indexed for that publisher and slug")
   end
 
-  local state = db.get("at://" .. our_did .. "/" .. PACKAGE_STATE .. "/" .. actor .. ":" .. slug)
-  return package_view(profile, state and state.record or nil, latest_active(our_did, actor, slug))
+  -- Asked for by DID, the handle still belongs on the view, so it is resolved
+  -- for display. Best-effort: a publisher whose handle no longer resolves
+  -- still has a readable package.
+  handle = handle or handle_for(did)
+
+  local state = db.get("at://" .. our_did .. "/" .. PACKAGE_STATE .. "/" .. did .. ":" .. slug)
+  return package_view(
+    profile,
+    state and state.record or nil,
+    latest_active(our_did, did, slug),
+    handle
+  )
 end

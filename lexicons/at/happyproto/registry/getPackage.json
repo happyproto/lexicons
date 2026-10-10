@@ -12,7 +12,7 @@
           "actor": {
             "type": "string",
             "format": "at-identifier",
-            "description": "The publisher. A DID today: no library available to a registry script resolves a handle, so a handle is refused with UnsupportedActor rather than guessed at."
+            "description": "The publisher, as a DID or a handle. A handle is confirmed in both directions before it is accepted, so one pointed at another publisher's DID cannot show their packages under it."
           },
           "slug": {
             "type": "string",
@@ -29,7 +29,10 @@
           "name": "PackageNotFound",
           "description": "No profile is indexed for that publisher and slug."
         },
-        { "name": "UnsupportedActor", "description": "`actor` was a handle; give a DID." },
+        {
+          "name": "ActorNotFound",
+          "description": "actor is neither a DID nor a handle that resolves to one."
+        },
         {
           "name": "NotConfigured",
           "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."

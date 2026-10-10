@@ -758,16 +758,52 @@ local function release_view(envelope, state)
   }
 end
 
---- A package, with the highest `active` version if it has one. `handle` is
---- deliberately absent: no library available to a script resolves a DID to a
---- handle, so populating it would mean inventing one. It is optional in the
---- lexicon for that reason, and arrives when `happyview.atproto` grows a
---- resolver.
-local function package_view(envelope, state, latest_version)
+--- The DID an `at-identifier` names, and the handle if one was confirmed.
+---
+--- A handle is resolved through `happyview.atproto`, whose `resolve_identity`
+--- confirms it in both directions -- a one-directional match is how a handle
+--- gets impersonated, and here it would let anyone who controls their own DNS
+--- show another publisher's packages under their name. Wrapped in `pcall`
+--- because an older `happyview.atproto` has no such export, which reads as an
+--- unresolvable identifier rather than an error.
+local function resolve_actor(actor)
+  if type(actor) ~= "string" or actor == "" then return nil end
+  if is_did(actor) then return actor, nil end
+
+  local atproto = require("happyview.atproto")
+  local ok, identity = pcall(atproto.resolve_identity, actor)
+  if not ok or type(identity) ~= "table" or not is_did(identity.did) then
+    return nil
+  end
+  return identity.did, identity.handle
+end
+
+--- The handle a DID's document claims, when it is confirmed both ways, or nil.
+---
+--- Best-effort and deliberately separate from `resolve_actor`: a lookup that
+--- fails must not turn an indexed package into a refusal, so this answers nil
+--- where `resolve_actor` answers "no such publisher".
+local function handle_for(did)
+  if not is_did(did) then return nil end
+
+  local atproto = require("happyview.atproto")
+  local ok, identity = pcall(atproto.resolve_identity, did)
+  if not ok or type(identity) ~= "table" then return nil end
+  return identity.handle
+end
+
+--- A package, with the highest `active` version if it has one.
+---
+--- `handle` is supplied by the caller rather than resolved here, and only
+--- where a resolution is affordable: a detail view can spend one network
+--- round-trip, a list of a hundred packages cannot, so `searchPackages` and
+--- `listReleases` leave it nil. It is optional in the lexicon for that reason.
+local function package_view(envelope, state, latest_version, handle)
   return {
     uri = envelope.uri,
     cid = envelope.cid,
     did = envelope.did,
+    handle = handle,
     record = envelope.record,
     status = (state and state.status) or "unknown",
     latestVersion = latest_version,
