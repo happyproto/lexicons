@@ -80,7 +80,12 @@ function handle(input, ctx)
     return failure("VersionExists", "that version is already published; publish a new one")
   end
 
-  local wrote, written = pcall(record.create, RELEASE_COLLECTION, body, { rkey = rkey })
+  -- validate = false: the record was checked above against the lexicon and
+  -- the registry's rules. Left on, HappyView also asks the PDS to require the
+  -- lexicon, and a PDS has never heard of at.happyproto.*, so it refuses the
+  -- write with `Lexicon not found`.
+  local wrote, written =
+    pcall(record.create, RELEASE_COLLECTION, body, { rkey = rkey, validate = false })
   if not wrote then
     -- The reason can name the caller's session or their PDS, so it is logged
     -- rather than returned.
