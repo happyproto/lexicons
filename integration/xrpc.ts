@@ -94,7 +94,7 @@ export async function ok(
 
 /**
  * The reply to a call expected to fail with `code`, after asserting it came
- * back as HTTP 200 `{error, message}`, and that the lexicon declares `code`.
+ * back as HTTP 400 `{error, message}`, and that the lexicon declares `code`.
  */
 export async function fails(
   nsid: string,
@@ -104,8 +104,11 @@ export async function fails(
 ): Promise<Reply> {
   const reply = await call(nsid, who, options);
   expect(declaredErrors(nsid)).toContain(code);
-  // HTTP 200: expected conditions are results, not transport errors.
-  expect({ status: reply.status, error: reply.body?.error }).toEqual({ status: 200, error: code });
+  // HTTP 400, as `com.atproto.sync.getBlob` answers a missing blob. An atproto
+  // client decides whether a call failed from the status before it reads the
+  // body, so a declared error at 200 is taken for a successful response and
+  // then fails validation against the output schema.
+  expect({ status: reply.status, error: reply.body?.error }).toEqual({ status: 400, error: code });
   expect(typeof reply.body?.message).toBe("string");
   return reply;
 }
