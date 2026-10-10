@@ -21,6 +21,7 @@ export const PLC_URL = process.env.INTEGRATION_PLC_URL ?? "http://127.0.0.1:5558
 export const PROVISIONER_URL =
   process.env.INTEGRATION_PROVISIONER_URL ?? "http://127.0.0.1:55300";
 export const CLICKHOUSE_URL = process.env.INTEGRATION_CLICKHOUSE_URL ?? "http://127.0.0.1:55400";
+export const JETSTREAM_URL = process.env.INTEGRATION_JETSTREAM_URL ?? "http://127.0.0.1:55600";
 
 /** What the fakes expect, and what the scripts are configured to send. */
 export const PROVISIONER_TOKEN = "integration-provisioner-token";
@@ -33,7 +34,8 @@ const PASSWORD = "Integration-password-123";
 export type AccountName = "happyproto" | "staff" | "customer" | "outsider";
 const ACCOUNTS: AccountName[] = ["happyproto", "staff", "customer", "outsider"];
 
-export type Account = { did: string; handle: string };
+/** `accessJwt` is kept so a test can write to the account's own repo. */
+export type Account = { did: string; handle: string; accessJwt: string };
 
 export type Stack = {
   accounts: Record<AccountName, Account>;
@@ -83,8 +85,8 @@ async function account(name: AccountName): Promise<Account> {
     body: JSON.stringify({ handle, email: `${name}@example.com`, password: PASSWORD }),
   });
   if (created.ok) {
-    const body = (await created.json()) as { did: string };
-    return { did: body.did, handle };
+    const body = (await created.json()) as { did: string; accessJwt: string };
+    return { did: body.did, handle, accessJwt: body.accessJwt };
   }
   const session = await fetch(`${PDS_URL}/xrpc/com.atproto.server.createSession`, {
     method: "POST",
@@ -97,8 +99,8 @@ async function account(name: AccountName): Promise<Account> {
         `${await created.text()}; createSession ${session.status} ${await session.text()}`,
     );
   }
-  const body = (await session.json()) as { did: string };
-  return { did: body.did, handle };
+  const body = (await session.json()) as { did: string; accessJwt: string };
+  return { did: body.did, handle, accessJwt: body.accessJwt };
 }
 
 /** Fails unless the DID resolves through the stack's PLC directory. */
@@ -396,6 +398,81 @@ async function setup(): Promise<Stack> {
 let pending: Promise<Stack> | undefined;
 
 /** The set-up stack. Set up once per test process, however many files ask. */
+
+// ---------------------------------------------------------------------------
+// The fake firehose
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait until HappyView's subscription has reached the fake. An event emitted
+ * before it lands is delivered to nobody, and the test then fails wherever
+ * the record was expected rather than here.
+ */
+export async function awaitFirehose(timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${JETSTREAM_URL}/__subscribers`).catch(() => null);
+    if (response?.ok) {
+      const { count } = (await response.json()) as { count: number };
+      if (count > 0) return;
+    }
+    await Bun.sleep(250);
+  }
+  throw new Error(`no firehose subscriber after ${timeoutMs}ms`);
+}
+
+/**
+ * Push a record through the firehose as a commit. Answers how many
+ * subscribers it reached, and throws on none, because a silently dropped
+ * event is the failure this harness exists to avoid.
+ */
+export async function emitCommit(event: {
+  did: string;
+  collection: string;
+  rkey: string;
+  record?: unknown;
+  operation?: "create" | "update" | "delete";
+  cid?: string;
+}): Promise<void> {
+  const { did, operation, ...commit } = event;
+  const response = await fetch(`${JETSTREAM_URL}/__emit`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ did, commit: { ...commit, operation: operation ?? "create" } }),
+  });
+  if (!response.ok) {
+    throw new Error(`emitCommit: ${response.status} ${await response.text()}`);
+  }
+  const { delivered } = (await response.json()) as { delivered: number };
+  if (delivered === 0) {
+    throw new Error("emitCommit: nothing was subscribed; call awaitFirehose first");
+  }
+}
+
+/**
+ * Poll until `check` answers something truthy. Indexing is asynchronous --
+ * the firehose hands the record off and the trigger runs on its own -- so a
+ * read straight after an emit is a race.
+ */
+export async function eventually<T>(
+  check: () => Promise<T | null | undefined | false>,
+  { timeoutMs = 15_000, label = "condition" }: { timeoutMs?: number; label?: string } = {},
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const value = await check();
+      if (value) return value;
+      last = value;
+    } catch (error) {
+      last = error;
+    }
+    await Bun.sleep(250);
+  }
+  throw new Error(`${label} did not hold within ${timeoutMs}ms (last: ${String(last)})`);
+}
+
 export function stack(): Promise<Stack> {
   pending ??= setup();
   return pending;

@@ -89,9 +89,12 @@ services:
       RELAY_URL: http://plc:2582
       SESSION_SECRET: e2e-test-secret-that-is-at-least-32-bytes
       TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      JETSTREAM_URL: ws://127.0.0.1:9
-      # Closed ports: the stack never subscribes to the live network or sends
-      # telemetry to the production collector.
+      # The fake replays whatever a test pushes, so a record can reach a
+      # `record.index:` trigger without a relay in the stack. Still not the
+      # live network.
+      JETSTREAM_URL: ws://fake-jetstream:6008
+      # A closed port: the stack never sends telemetry to the production
+      # collector.
       TELEMETRY_COLLECTOR_URL: http://127.0.0.1:9/v1/snapshot
       FEATURE_SPACES_ENABLED: "true"
       JOB_WORKER_CONCURRENCY: "4"
@@ -113,6 +116,8 @@ services:
         condition: service_healthy
       plc:
         condition: service_healthy
+      fake-jetstream:
+        condition: service_healthy
 
   fake-provisioner:
     image: ${BUN_IMAGE:?set in integration/.env}
@@ -127,6 +132,22 @@ services:
       - "127.0.0.1:55300:8080"
     healthcheck:
       test: ["CMD", "bun", "-e", "process.exit((await fetch('http://127.0.0.1:8080/__health')).ok ? 0 : 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  fake-jetstream:
+    image: ${BUN_IMAGE:?set in integration/.env}
+    working_dir: /app
+    command: ["bun", "run", "fake-jetstream.ts"]
+    environment:
+      PORT: "6008"
+    volumes:
+      - ./fake-jetstream.ts:/app/fake-jetstream.ts:ro
+    ports:
+      - "127.0.0.1:55600:6008"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "process.exit((await fetch('http://127.0.0.1:6008/__health')).ok ? 0 : 1)"]
       interval: 2s
       timeout: 5s
       retries: 30
