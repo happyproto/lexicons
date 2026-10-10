@@ -7,9 +7,10 @@
  * success paths at all. The read-only refusals are cheap to check against a
  * deployed instance; nothing else here is.
  *
- * Everything stays inside the stack: the artifact is a blob in the publisher's
- * own PDS, which `atproto.blob_download` reaches by resolving the DID through
- * the stack's PLC.
+ * Everything stays inside the stack. The artifact is a real blob in the
+ * publisher's own PDS, fetched by its `url` rather than by DID resolution --
+ * see the comment on `artifacts` for why that is the right shape here and not
+ * a shortcut.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -113,12 +114,19 @@ describe("the registry indexes a published package", () => {
         artifacts: {
           // A `url` rather than the `blob`, which the copy job would otherwise
           // prefer. The bytes and the checksum are the same either way -- this
-          // is the publisher's own blob -- but `atproto.blob_download`
-          // resolves the DID and gets `https://pds.localhost` out of the DID
-          // document, which no container can reach and which this stack
-          // terminates no TLS for. Fetching the same blob over the in-network
-          // http address covers the copy job, the checksum check and the
-          // store; it leaves `blob_download` itself uncovered.
+          // is the publisher's own blob -- but `atproto.blob_download` cannot
+          // reach a PDS on this network *by design*: a DID document is
+          // attacker-controlled input, so the host refuses an endpoint that
+          // resolves to a loopback or private address before sending anything
+          // (`refuse_unsafe_endpoint`, src/plugin/host/atproto.rs), and every
+          // Compose address is private. No amount of TLS changes that, and the
+          // only way around it would be a production bypass of an SSRF guard.
+          //
+          // So this is not a hole to be plugged here. `blob_download` is
+          // covered in HappyView's own tests, which take the `allow_local`
+          // override for exactly this reason, and what the url path covers is
+          // the part that belongs to the registry: the copy job, the checksum
+          // check, the store, and the status transition.
           package: {
             url: `http://pds:3000/xrpc/com.atproto.sync.getBlob?did=${publisher.did}&cid=${blob.ref.$link}`,
             // A CID carries the same sha2-256 multihash a bare checksum names,
