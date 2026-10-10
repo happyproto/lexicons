@@ -34,19 +34,6 @@ local function state_uri(our_did, rkey)
   return "at://" .. our_did .. "/" .. RELEASE_STATE .. "/" .. rkey
 end
 
---- Every reason a release is refused, in one place, so the log line and the
---- skip never disagree.
-local function release_problem(body, slug, version)
-  if type(body) ~= "table" then return "the record has no body" end
-  if body.package ~= slug then return "package does not match the record key" end
-  if body.version ~= version then return "version does not match the record key" end
-  local problem = requires_problem(body.requires)
-  if problem then return problem end
-  problem = release_extension_problem(body.extensions)
-  if problem then return problem end
-  return artifact_problem((body.artifacts or {}).package)
-end
-
 function handle(input, ctx)
   local our_did = happyproto_did(ctx)
   if not our_did then

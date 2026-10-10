@@ -51,18 +51,14 @@ function handle(input, ctx)
     return nil
   end
 
-  local body = input.record
-  if type(body) ~= "table" then return nil end
-
-  -- The lexicon pins `type` with a const, but a record arriving off the
-  -- firehose has not necessarily been checked against it, and the whole point
-  -- of the field is that a client refuses an ecosystem it does not know.
-  if body.type ~= "happyview-plugin" then
-    log.info("registry: profile is not a happyview plugin", {
-      did = publisher, slug = slug, ["type"] = tostring(body.type),
+  local problem = profile_problem(input.record, slug)
+  if problem then
+    log.info("registry: profile refused", {
+      did = publisher, slug = slug, reason = problem,
     })
     return nil
   end
+  local body = input.record
 
   put_state(our_did, publisher, slug, {
     status = "active",

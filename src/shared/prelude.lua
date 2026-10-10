@@ -680,6 +680,34 @@ local function release_extension_problem(extensions)
   return nil
 end
 
+--- Every reason a profile is refused, in one place. Shared by the indexer and
+--- by `publishProfile`, so what a publisher is told at the door is exactly
+--- what the index will accept later.
+local function profile_problem(body, slug)
+  if not is_plugin_slug(slug) then return "the slug is not a package slug" end
+  if type(body) ~= "table" then return "the record has no body" end
+  -- The lexicon pins `type` with a const, but a record off the firehose has
+  -- not necessarily been checked against it, and the whole point of the field
+  -- is that a client refuses an ecosystem it does not know.
+  if body.type ~= "happyview-plugin" then
+    return "type must be happyview-plugin"
+  end
+  return nil
+end
+
+--- Every reason a release is refused, in one place, so the log line, the skip
+--- and `publishRelease`'s refusal never disagree.
+local function release_problem(body, slug, version)
+  if type(body) ~= "table" then return "the record has no body" end
+  if body.package ~= slug then return "package does not match the record key" end
+  if body.version ~= version then return "version does not match the record key" end
+  local problem = requires_problem(body.requires)
+  if problem then return problem end
+  problem = release_extension_problem(body.extensions)
+  if problem then return problem end
+  return artifact_problem((body.artifacts or {}).package)
+end
+
 --- The state row's key. One row per (publisher, package, version), under our
 --- own DID, so a publisher cannot collide with it.
 local function release_state_rkey(did, slug, version)

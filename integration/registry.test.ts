@@ -14,6 +14,7 @@
 
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import { call, fails } from "./xrpc";
 import {
   awaitFirehose,
   emitCommit,
@@ -230,5 +231,131 @@ describe("the registry indexes a published package", () => {
     });
     expect(status).toBe(400);
     expect(body.error).toBe("ReleaseNotFound");
+  });
+});
+
+/** A profile body the rules accept. */
+function validProfile(): Record<string, unknown> {
+  return {
+    $type: PROFILE,
+    type: "happyview-plugin",
+    name: "Probe",
+    license: "MIT",
+    authors: ["HappyProto <integration@example.com>"],
+    security: ["mailto:integration@example.com"],
+  };
+}
+
+describe("the publish procedures answer what the indexer would do", () => {
+  let publisher: Account;
+
+  beforeAll(async () => {
+    publisher = (await stack()).accounts.customer;
+  });
+
+  test("a valid profile validates without writing", async () => {
+    const reply = await call("at.happyproto.registry.publishProfile", "customer", {
+      input: { slug: "probe-dry-run", record: validProfile(), validateOnly: true },
+    });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toMatchObject({ valid: true });
+    // validateOnly writes nothing, so there is no record to point at.
+    expect(reply.body.uri).toBeUndefined();
+  });
+
+  test("a profile naming another ecosystem is refused by name", async () => {
+    const reply = await fails(
+      "at.happyproto.registry.publishProfile",
+      "customer",
+      "InvalidRecord",
+      { input: { slug: "probe-wrong-type", record: { ...validProfile(), type: "npm" }, validateOnly: true } },
+    );
+    expect(reply.body.message).toContain("happyview-plugin");
+  });
+
+  test("a slug that is not a slug is refused", async () => {
+    await fails("at.happyproto.registry.publishProfile", "customer", "InvalidRecord", {
+      input: { slug: "Not A Slug", record: validProfile(), validateOnly: true },
+    });
+  });
+
+  // The release the firehose published in the suite above is indexed, so this
+  // is the real immutability check rather than a contrived one.
+  test("republishing a published version is refused as VersionExists", async () => {
+    const reply = await fails(
+      "at.happyproto.registry.publishRelease",
+      "customer",
+      "VersionExists",
+      {
+        input: {
+          record: {
+            $type: RELEASE,
+            package: SLUG,
+            version: "1.0.0",
+            artifacts: { package: { url: "https://example.com/m.wasm", checksum: "bogus" } },
+            extensions: {
+              "at.happyproto.plugin.releaseExtension": {
+                pluginType: "library",
+                apiVersion: "2",
+                capabilities: [],
+                namespace: "happyview.demo",
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(reply.body.message).toContain("already published");
+  });
+
+  test("a release whose requires is not a range is refused by name", async () => {
+    const reply = await fails(
+      "at.happyproto.registry.publishRelease",
+      "customer",
+      "InvalidRecord",
+      {
+        input: {
+          validateOnly: true,
+          record: {
+            $type: RELEASE,
+            package: SLUG,
+            version: "2.0.0",
+            requires: { "env:happyview": "not a range" },
+            artifacts: { package: { url: "https://example.com/m.wasm", checksum: "bogus" } },
+            extensions: {
+              "at.happyproto.plugin.releaseExtension": {
+                pluginType: "library",
+                apiVersion: "2",
+                capabilities: [],
+                namespace: "happyview.demo",
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(typeof reply.body.message).toBe("string");
+  });
+
+  test("a release for a slug with no indexed profile is refused", async () => {
+    await fails("at.happyproto.registry.publishRelease", "customer", "ProfileMissing", {
+      input: {
+        validateOnly: true,
+        record: {
+          $type: RELEASE,
+          package: "no-such-package",
+          version: "1.0.0",
+          artifacts: { package: { url: "https://example.com/m.wasm", checksum: "bogus" } },
+          extensions: {
+            "at.happyproto.plugin.releaseExtension": {
+              pluginType: "library",
+              apiVersion: "2",
+              capabilities: [],
+              namespace: "happyview.demo",
+            },
+          },
+        },
+      },
+    });
   });
 });

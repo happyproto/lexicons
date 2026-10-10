@@ -1,0 +1,70 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.publishProfile",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check a package profile against the rules the indexer applies, and optionally write it to the caller's repo. The indexer validates a record only after it is published and skips an invalid one quietly, so a publisher writing the record itself gets no feedback; this answers the same refusal before the record exists. Pass validateOnly to check a record without writing it. Like every XRPC procedure this needs an authenticated caller, so validateOnly is a dry run rather than an anonymous one.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["slug", "record"],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "The package slug, which becomes the record key. A profile record carries no slug of its own."
+            },
+            "record": {
+              "type": "unknown",
+              "description": "An at.happyproto.plugin.profile record."
+            },
+            "validateOnly": {
+              "type": "boolean",
+              "default": false,
+              "description": "Check the record and write nothing. Still requires authentication, as every procedure does."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["valid"],
+          "properties": {
+            "valid": {
+              "type": "boolean",
+              "description": "Always true; an invalid record is an error, not a result."
+            },
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The record written. Absent when validateOnly was set."
+            },
+            "cid": { "type": "string", "format": "cid" }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The record is not a profile the indexer would accept. The message names the reason."
+        },
+        {
+          "name": "Upstream",
+          "description": "The record could not be written to the caller's repo."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured."
+        }
+      ]
+    }
+  }
+}
