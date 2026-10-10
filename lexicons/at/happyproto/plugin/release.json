@@ -25,6 +25,12 @@
             "type": "unknown",
             "description": "Dependencies, as a map lexicons cannot type. Every key is 'env:happyview' or an 'at://<did>/at.happyproto.plugin.profile/<slug>' URI; every value is a semver range. Keyed by AT URI rather than by DID because identity here is (publisher, slug) and one publisher may hold many packages. Validated by the registry and the installer. An unrecognised 'env:' key counts as unfulfilled, which warns rather than refuses."
           },
+          "notes": {
+            "type": "string",
+            "maxGraphemes": 3000,
+            "maxLength": 30000,
+            "description": "What changed in this release, as Markdown. A client renders this to tell an operator what an upgrade brings, so it is publisher-supplied text shown to someone else: a renderer MUST NOT render embedded HTML, and MUST refuse a link scheme it does not recognise. Long enough for a changelog and no longer; `repo` is where the full history lives."
+          },
           "repo": {
             "type": "string",
             "format": "uri",
