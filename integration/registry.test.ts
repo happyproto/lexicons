@@ -349,6 +349,20 @@ describe("the publish procedures answer what the indexer would do", () => {
     expect(typeof reply.body.message).toBe("string");
   });
 
+  // The writes themselves are covered by scripts/registryWrites.test.ts: these
+  // accounts hold no OAuth session, so nothing here can reach a PDS write.
+  test("updating a profile that was never published is ProfileMissing", async () => {
+    await fails("at.happyproto.registry.updateProfile", "customer", "ProfileMissing", {
+      input: { slug: "never-published", record: validProfile() },
+    });
+  });
+
+  test("withdrawing a version that was never published is ReleaseNotFound", async () => {
+    await fails("at.happyproto.registry.withdrawRelease", "customer", "ReleaseNotFound", {
+      input: { slug: SLUG, version: "9.9.9" },
+    });
+  });
+
   test("a release for a slug with no indexed profile is refused", async () => {
     await fails("at.happyproto.registry.publishRelease", "customer", "ProfileMissing", {
       input: {

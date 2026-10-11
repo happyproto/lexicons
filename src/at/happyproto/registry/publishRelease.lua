@@ -61,6 +61,18 @@ function handle(input, ctx)
     )
   end
 
+  -- A withdrawn version can never be published again; the indexer would skip
+  -- it quietly. Read from the tombstone rather than the release row, which an
+  -- instance may no longer index. Checked before validateOnly so a dry run
+  -- says so too.
+  if caller then
+    local state = db.get("at://" .. our_did .. "/" .. RELEASE_STATE .. "/"
+      .. release_state_rkey(caller, slug, version))
+    if state and state.record and state.record.status == "deleted" then
+      return failure("VersionExists", "that version was withdrawn and can never be published again; publish a new one")
+    end
+  end
+
   if input.validateOnly then
     return { valid = true }
   end

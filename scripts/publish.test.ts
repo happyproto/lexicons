@@ -5,22 +5,9 @@
  * real write -- its accounts hold no OAuth session -- so what each procedure
  * asks HappyView to send to the PDS is proven here.
  */
-import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { expand, parseDirective, parsePrelude, render } from "./gen";
-import { HARNESS } from "./harness";
-import { findLua } from "./lua";
+import { describe, expect } from "bun:test";
+import { generated, it, run as runProcedure } from "./procedure";
 
-const lua = findLua();
-const skipLua = !lua && Boolean(process.env.ALLOW_SKIP_LUA);
-const it = skipLua ? test.skip : test;
-
-async function generated(source: string): Promise<string> {
-  const prelude = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
-  const text = await readFile(source, "utf8");
-  const blocks = expand(parseDirective(text, source), [...prelude.keys()]);
-  return render(source, blocks.map((name) => prelude.get(name)!), text);
-}
 const PROFILE_SCRIPT = await generated("src/at/happyproto/registry/publishProfile.lua");
 const RELEASE_SCRIPT = await generated("src/at/happyproto/registry/publishRelease.lua");
 
@@ -43,6 +30,7 @@ package.preload["happyview.db"] = function()
   return {
     get = function(uri)
       if uri == "at://did:plc:pub/at.happyproto.plugin.profile/probe" then return { uri = uri } end
+      if uri == __tombstone then return { uri = uri, record = { status = "deleted" } } end
       return nil
     end,
   }
@@ -81,30 +69,8 @@ const RELEASE = String.raw`{
   },
 }`;
 
-type Run = { out: any; calls: any[] };
-
-function run(script: string, input: string): Run {
-  if (!lua) {
-    throw new Error(
-      "no lua on PATH, so the publish procedures were never executed. " +
-        "Install Lua (macOS: brew install lua; Ubuntu: apt-get install -y lua5.4). " +
-        "To run deliberately without it, set ALLOW_SKIP_LUA=1.",
-    );
-  }
-  const source = [
-    HARNESS,
-    STUBS,
-    script,
-    `local __out = handle(${input}, ${CTX})`,
-    "io.write(__encode({ out = __out, calls = __calls }))",
-  ].join("\n\n");
-  const result = Bun.spawnSync([lua, "-"], { stdin: new TextEncoder().encode(source) });
-  if (result.exitCode !== 0) {
-    throw new Error(`lua exited ${result.exitCode}:\n${new TextDecoder().decode(result.stderr)}`);
-  }
-  const parsed = JSON.parse(new TextDecoder().decode(result.stdout));
-  const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
-  return { out: parsed.out, calls };
+function run(script: string, input: string) {
+  return runProcedure(script, STUBS, input, CTX);
 }
 
 // A PDS has never heard of at.happyproto.*: asked to validate against the
@@ -130,5 +96,27 @@ describe("a publish writes without asking the PDS to validate", () => {
         opts: { rkey: "probe:1.0.0", validate: false },
       },
     ]);
+  });
+});
+
+// Withdrawing a version tombstones its state row, and the indexer refuses that
+// version for good. The release row itself may be gone from the index -- an
+// instance that ran an earlier withdrawRelease dropped it -- so the tombstone is
+// what the refusal reads.
+describe("a withdrawn version", () => {
+  it("is refused by publishRelease as VersionExists, even as a dry run", () => {
+    const tombstone =
+      "at://did:plc:hp/at.happyproto.registry.releaseState/did:plc:pub:probe:1.0.0";
+    for (const input of [RELEASE, RELEASE.replace("{\n  record", "{\n  validateOnly = true,\n  record")]) {
+      const { out, calls } = runProcedure(
+        RELEASE_SCRIPT,
+        STUBS + `__tombstone = "${tombstone}"`,
+        input,
+        CTX,
+      );
+      expect(out).toMatchObject({ error: "VersionExists" });
+      expect(out.message).toContain("withdrawn");
+      expect(calls).toEqual([]);
+    }
   });
 });

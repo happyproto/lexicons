@@ -53,7 +53,7 @@
         },
         {
           "name": "VersionExists",
-          "description": "That version is already published. A version is immutable once released; publish a new one."
+          "description": "That version is already published, or was withdrawn. A version is immutable once released and never reusable; publish a new one."
         },
         {
           "name": "ProfileMissing",
