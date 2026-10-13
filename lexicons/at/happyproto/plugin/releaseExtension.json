@@ -36,6 +36,12 @@
           "type": "array",
           "description": "Hosts an outbound request may reach, as in today's manifest. The one constraint the capability model already has.",
           "items": { "type": "string", "maxLength": 256 }
+        },
+        "fileExtensions": {
+          "type": "array",
+          "maxLength": 8,
+          "description": "Interpreters only: the file extensions a project's scripts in this language use, without the dot, as in the manifest's `extensions`. A project maps `getArtifact.lua` to the interpreter claiming `lua`, so a client that installs from the registry needs this to build that map without downloading the module. Optional, because releases published before it existed carry none.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 16 }
         }
       }
     }
