@@ -110,7 +110,10 @@ local function copy_one(publisher, artifact)
     error("bytes do not match the declared checksum (declared " .. declared
       .. ", got " .. tostring(stored) .. ")")
   end
-  return { cid = cid, mimeType = mime, size = #bytes }
+  -- The store's own count, not `#bytes`: bytes that are not valid UTF-8
+  -- arrive as `{ ["$bytes"] = "<base64>" }`, whose length is not theirs.
+  local info = blobs.stat(cid)
+  return { cid = cid, mimeType = mime, size = info and info.size }
 end
 
 local function fail(message)
