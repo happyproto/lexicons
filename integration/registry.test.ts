@@ -235,6 +235,18 @@ describe("the registry indexes a published package", () => {
     expect([...served.bytes]).toEqual([...MODULE]);
   }, 120_000);
 
+  // Runs after getArtifact has seen the copy land, so the release is held.
+  test("retrying a release the registry already holds answers active", async () => {
+    const reply = await call("at.happyproto.registry.retryRelease", "customer", {
+      input: { slug: SLUG, version: "1.0.0" },
+    });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toEqual({
+      uri: `at://${publisher.did}/${RELEASE}/${SLUG}:1.0.0`,
+      status: "active",
+    });
+  });
+
   test("a version that was never published is still ReleaseNotFound at 400", async () => {
     const { status, json: body } = await json("getRelease", {
       did: publisher.did,
@@ -354,6 +366,12 @@ describe("the publish procedures answer what the indexer would do", () => {
   test("updating a profile that was never published is ProfileMissing", async () => {
     await fails("at.happyproto.registry.updateProfile", "customer", "ProfileMissing", {
       input: { slug: "never-published", record: validProfile() },
+    });
+  });
+
+  test("retrying a version that was never published is ReleaseNotFound", async () => {
+    await fails("at.happyproto.registry.retryRelease", "customer", "ReleaseNotFound", {
+      input: { slug: SLUG, version: "9.9.9" },
     });
   });
 
