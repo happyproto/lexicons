@@ -677,6 +677,38 @@ local function release_extension_problem(extensions)
   if ext.pluginType == "interpreter" and type(ext.languageId) ~= "string" then
     return "an interpreter must declare its languageId"
   end
+  -- Optional, since releases from before it existed carry none. A client
+  -- builds a file-to-interpreter map from it, so a malformed entry would
+  -- claim files no project could name. Mirrors HappyView's loader, which
+  -- refuses `json` (a project's lexicons) and a repeated entry, and ignores
+  -- the field on any other plugin type.
+  if ext.pluginType == "interpreter" and ext.fileExtensions ~= nil then
+    local list = ext.fileExtensions
+    if type(list) ~= "table" then
+      return "fileExtensions must be a list"
+    end
+    local count = 0
+    for _ in pairs(list) do count = count + 1 end
+    if count ~= #list then
+      return "fileExtensions must be a list"
+    end
+    if #list > 8 then
+      return "fileExtensions lists more than 8 extensions"
+    end
+    local seen = {}
+    for _, e in ipairs(list) do
+      if type(e) ~= "string" or not e:match("^[a-z0-9]+$") or #e > 16 then
+        return "fileExtensions entries must be 1 to 16 lowercase letters or digits, without the dot"
+      end
+      if e == "json" then
+        return "fileExtensions cannot claim json, which names a project's lexicons"
+      end
+      if seen[e] then
+        return "fileExtensions lists " .. e .. " twice"
+      end
+      seen[e] = true
+    end
+  end
   return nil
 end
 
