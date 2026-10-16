@@ -45,10 +45,11 @@
     },
     "artifacts": {
       "type": "object",
-      "description": "Map of artifact type to artifact. 'package' is the installable module and is required; the rest are presentation assets a browser renders from the index without fetching anything. A custom type takes an 'x-' prefix, so a type added here later cannot collide with someone's extension; such keys travel as extra properties and are validated out of band, as 'requires' is.",
+      "description": "Map of artifact type to artifact. 'package' is the installable module and is required; 'manifest' is its manifest.json, which is what says how to load a module published as a blob, since such a module has no directory beside it to hold a sibling file; the rest are presentation assets a browser renders from the index without fetching anything. A custom type takes an 'x-' prefix, so a type added here later cannot collide with someone's extension; such keys travel as extra properties and are validated out of band, as 'requires' is.",
       "required": ["package"],
       "properties": {
         "package": { "type": "ref", "ref": "#artifact" },
+        "manifest": { "type": "ref", "ref": "#manifestArtifact" },
         "icon": { "type": "ref", "ref": "#imageArtifact" },
         "banner": { "type": "ref", "ref": "#imageArtifact" },
         "screenshots": {
@@ -74,6 +75,26 @@
           "type": "string",
           "maxLength": 256,
           "description": "Lowercase base32 multibase-encoded multihash of the artifact bytes; sha2-256 (code 0x12) must be supported. For a blob it MUST equal the multihash inside blob.ref's CID. Where both sources are present, both must serve bytes matching it. A client rejects an unsupported hash function rather than skipping verification."
+        },
+        "contentType": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "manifestArtifact": {
+      "type": "object",
+      "description": "The module's manifest.json. A module published as a blob has no directory beside it to hold a sibling file, so this is the only thing that says how to load it. It must carry 'blob', 'url', or both; lexicons cannot express that, so publishing and indexing enforce it.",
+      "required": ["checksum"],
+      "properties": {
+        "blob": {
+          "type": "blob",
+          "accept": ["application/json"],
+          "maxSize": 1048576,
+          "description": "The manifest, stored as a blob in the publisher's PDS."
+        },
+        "url": { "type": "string", "format": "uri" },
+        "checksum": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "As '#artifact.checksum': the multihash of the bytes, which whichever source serves them is verified against."
         },
         "contentType": { "type": "string", "maxLength": 128 }
       }
