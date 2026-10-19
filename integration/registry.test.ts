@@ -258,6 +258,53 @@ describe("the registry indexes a published package", () => {
   });
 });
 
+describe("a full page of packages", () => {
+  const COUNT = 40;
+  const slugs = Array.from({ length: COUNT }, (_, i) => `page-probe-${i}`);
+  let publisher: Account;
+
+  beforeAll(async () => {
+    publisher = (await stack()).accounts.customer;
+    await awaitFirehose();
+    // Each profile carries a description the size real ones do, so a page
+    // moves as many bytes through the db library as production's does.
+    for (const slug of slugs) {
+      await emitCommit({
+        did: publisher.did,
+        collection: PROFILE,
+        rkey: slug,
+        record: {
+          $type: PROFILE,
+          type: "happyview-plugin",
+          name: `Page Probe ${slug}`,
+          description: "A package that exists to fill a page. ".repeat(30),
+          license: "MIT",
+          authors: ["HappyProto <integration@example.com>"],
+          security: ["mailto:integration@example.com"],
+        },
+      });
+    }
+  });
+
+  // A db plugin built on an SDK whose guest heap was a fixed 512 KiB that
+  // never freed trapped on a page past about ten packages, and searchPackages
+  // answered 500 for every listing api.happyproto.at served.
+  test("searchPackages answers a page of forty", async () => {
+    const found = await eventually(
+      async () => {
+        const { status, json: body } = await json("searchPackages", { limit: "100" });
+        expect(status).toBe(200);
+        const uris = new Set((body.packages as { uri: string }[]).map((p) => p.uri));
+        return slugs.every((slug) => uris.has(`at://${publisher.did}/${PROFILE}/${slug}`))
+          ? body
+          : null;
+      },
+      { label: "searchPackages to list every probe", timeoutMs: 60_000 },
+    );
+    expect((found.packages as unknown[]).length).toBeGreaterThanOrEqual(COUNT);
+  }, 120_000);
+});
+
 /** A profile body the rules accept. */
 function validProfile(): Record<string, unknown> {
   return {
