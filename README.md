@@ -130,12 +130,32 @@ lua/com/happyproto/getMe.lua         # → xrpc.query:com.happyproto.getMe
 Push to `main` deploys. Pull requests lint and then dry-run, so a review shows
 what a merge would actually replace rather than only that the files parse.
 
-Two things must be configured on the repo:
+Three things must be configured on the repo:
 
 | Kind | Name | Value |
 | --- | --- | --- |
 | Variable | `HAPPYVIEW_URL` | `https://api.happyproto.at` |
 | Secret | `HAPPYVIEW_API_KEY` | an `hv_` admin API key from the instance |
+| Secret | `LEXICON_APP_PASSWORD` | an app password for `@happyproto.at` |
+
+After a deploy, the lexicons are published as `com.atproto.lexicon.schema`
+records in `@happyproto.at`'s repo, with
+[`happyproto/actions/lexicon-publish`](https://github.com/happyproto/actions#lexicon-publish).
+A PDS that resolves lexicons on demand finds them through DNS, so each NSID
+authority needs a TXT record naming that account:
+
+| Name | Value |
+| --- | --- |
+| `_lexicon.actor.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+| `_lexicon.admin.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+| `_lexicon.fleet.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+| `_lexicon.plugin.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+| `_lexicon.registry.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+| `_lexicon.server.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
+
+A new authority (`at.happyproto.<new>.*`) needs its own record: the publish
+step fails until it exists, naming the record to add, and so does the pull
+request's dry run.
 
 `prune` is deliberately **off**. With it on, deleting a file here deletes the
 live lexicon or script — and for a record-type lexicon that also orphans

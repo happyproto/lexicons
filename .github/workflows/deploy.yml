@@ -91,6 +91,12 @@ jobs:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
           api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
           dry-run: "true"
+      # Which schemas a merge would publish, and whether every authority's
+      # _lexicon DNS still names the account.
+      - uses: happyproto/actions/lexicon-publish@v1
+        with:
+          identifier: happyproto.at
+          dry-run: "true"
 
   deploy:
     name: Deploy
@@ -135,3 +141,20 @@ jobs:
             echo "| labelers | ${{ steps.deploy.outputs.labelers-deployed }} |"
             echo "| errors | ${{ steps.deploy.outputs.errors }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The lexicons as com.atproto.lexicon.schema records in HappyProto's repo,
+  # found through _lexicon.<authority> DNS, so a PDS that resolves lexicons
+  # can validate a registry record against them. After the deploy, so the
+  # instance never serves a schema the network has not seen published.
+  publish-lexicons:
+    name: Publish lexicons
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: happyproto/actions/lexicon-publish@v1
+        with:
+          identifier: happyproto.at
+          password: ${{ secrets.LEXICON_APP_PASSWORD }}
