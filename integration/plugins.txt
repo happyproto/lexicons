@@ -3,13 +3,13 @@
 # Infrastructure copies this file into happyview_plugin_urls, so the stack
 # tests exactly what production installs. Digests from:
 #   gh release download <tag> --repo happyproto/plugins -p '*.wasm' -O - | shasum -a 256
-happyview-lua|https://github.com/happyproto/plugins/releases/download/happyview-lua-v1.0.0-alpha.3/manifest.json|sha256:a7f876dc7d01063ad52372a9459ec6701f182e24bab06aac95e5ec8c76e58553
-happyview-http|https://github.com/happyproto/plugins/releases/download/happyview-http-v1.0.0-alpha.3/manifest.json|sha256:4b5156a26104627c28b7f4c2b34687a85d55ef1e41e4f5119e7b0df80e982732
-happyview-spaces|https://github.com/happyproto/plugins/releases/download/happyview-spaces-v1.0.0-alpha.3/manifest.json|sha256:b5495c0797e409d06a9bb4b46de90a9fcad29085cb06fe8da7dfce9f5f086f0a
-happyview-xrpc|https://github.com/happyproto/plugins/releases/download/happyview-xrpc-v1.0.0-alpha.3/manifest.json|sha256:f8723db2360c96bf1cc580007a85cefd2b1585a1a0adaae41edac43ecdd394fb
-happyview-atproto|https://github.com/happyproto/plugins/releases/download/happyview-atproto-v1.0.0-alpha.3/manifest.json|sha256:95efcb6a133bbe33d1bbff07648327d2a9bfbf12916dfcb1bb92f1688487b81c
-happyview-jobs|https://github.com/happyproto/plugins/releases/download/happyview-jobs-v1.0.0-alpha.3/manifest.json|sha256:785b5ac4f7a120c1fb4ab59203b9256327387bcf8906e78b5d4cf4447a93f83f
-happyview-linked-repos|https://github.com/happyproto/plugins/releases/download/happyview-linked-repos-v1.0.0-alpha.3/manifest.json|sha256:c095660b681c8ea3ef27952a8d32dc61e489b3315e0176b750185717cf044dd6
-happyview-blobs|https://github.com/happyproto/plugins/releases/download/happyview-blobs-v1.0.0-alpha.3/manifest.json|sha256:57bccc7253bc65f50c8dc8c3a25a1e3dfd899e08bd4689beffa0498745083b9d
-happyview-db|https://github.com/happyproto/plugins/releases/download/happyview-db-v1.0.0-alpha.3/manifest.json|sha256:daa2cd550267c76e7f87203c5fd705fa40c31e632c55c84a3545e83bf8f95cd2
-happyview-record|https://github.com/happyproto/plugins/releases/download/happyview-record-v1.0.0-alpha.3/manifest.json|sha256:fdb977a1178bc71a2d7d43ef59c321a67332fe30c4c1e5e37cd1db12305294c1
+happyview-lua|https://github.com/happyproto/plugins/releases/download/happyview-lua-v1.0.0-alpha.4/manifest.json|sha256:0690ca277ec9a04115084c9ae0231cd47d85fda871665eecf656c3a84a6ff38e
+happyview-http|https://github.com/happyproto/plugins/releases/download/happyview-http-v1.0.0-alpha.4/manifest.json|sha256:4b5156a26104627c28b7f4c2b34687a85d55ef1e41e4f5119e7b0df80e982732
+happyview-spaces|https://github.com/happyproto/plugins/releases/download/happyview-spaces-v1.0.0-alpha.4/manifest.json|sha256:b5495c0797e409d06a9bb4b46de90a9fcad29085cb06fe8da7dfce9f5f086f0a
+happyview-xrpc|https://github.com/happyproto/plugins/releases/download/happyview-xrpc-v1.0.0-alpha.4/manifest.json|sha256:f8723db2360c96bf1cc580007a85cefd2b1585a1a0adaae41edac43ecdd394fb
+happyview-atproto|https://github.com/happyproto/plugins/releases/download/happyview-atproto-v1.0.0-alpha.4/manifest.json|sha256:95efcb6a133bbe33d1bbff07648327d2a9bfbf12916dfcb1bb92f1688487b81c
+happyview-jobs|https://github.com/happyproto/plugins/releases/download/happyview-jobs-v1.0.0-alpha.4/manifest.json|sha256:785b5ac4f7a120c1fb4ab59203b9256327387bcf8906e78b5d4cf4447a93f83f
+happyview-linked-repos|https://github.com/happyproto/plugins/releases/download/happyview-linked-repos-v1.0.0-alpha.4/manifest.json|sha256:c095660b681c8ea3ef27952a8d32dc61e489b3315e0176b750185717cf044dd6
+happyview-blobs|https://github.com/happyproto/plugins/releases/download/happyview-blobs-v1.0.0-alpha.4/manifest.json|sha256:57bccc7253bc65f50c8dc8c3a25a1e3dfd899e08bd4689beffa0498745083b9d
+happyview-db|https://github.com/happyproto/plugins/releases/download/happyview-db-v1.0.0-alpha.4/manifest.json|sha256:daa2cd550267c76e7f87203c5fd705fa40c31e632c55c84a3545e83bf8f95cd2
+happyview-record|https://github.com/happyproto/plugins/releases/download/happyview-record-v1.0.0-alpha.4/manifest.json|sha256:5536e95fbe94093c148727de0d1d3baa33614af68a8266ef679573b267e8740f
