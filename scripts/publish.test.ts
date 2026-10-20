@@ -77,12 +77,16 @@ function run(script: string, input: string) {
 // lexicon, it answers `InvalidRecord: Lexicon not found` and the write fails.
 // Both procedures validate the record themselves first, so they must ask the
 // PDS not to.
-describe("a publish writes without asking the PDS to validate", () => {
+// No `validate` option: the record is checked here, and its publisher's PDS
+// validates it when it can resolve the at.happyproto.* lexicons and accepts it
+// when it can't. `true` would make a PDS that can't refuse it; `false` would
+// skip HappyView's own check too.
+describe("a publish leaves validation to the PDS", () => {
   it("publishProfile", () => {
     const { out, calls } = run(PROFILE_SCRIPT, PROFILE);
     expect(out).toMatchObject({ valid: true, uri: "at://did:plc:pub/at.happyproto.plugin.profile/probe" });
     expect(calls).toEqual([
-      { fn: "create", collection: "at.happyproto.plugin.profile", opts: { rkey: "probe", validate: false } },
+      { fn: "create", collection: "at.happyproto.plugin.profile", opts: { rkey: "probe" } },
     ]);
   });
 
@@ -93,7 +97,7 @@ describe("a publish writes without asking the PDS to validate", () => {
       {
         fn: "create",
         collection: "at.happyproto.plugin.release",
-        opts: { rkey: "probe:1.0.0", validate: false },
+        opts: { rkey: "probe:1.0.0" },
       },
     ]);
   });

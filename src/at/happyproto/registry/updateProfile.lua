@@ -50,11 +50,8 @@ function handle(input, ctx)
     return failure("ProfileMissing", "no profile is indexed at that slug; publish it first")
   end
 
-  -- validate = false for the reason publishProfile gives: the record was
-  -- checked above, and a PDS asked to require at.happyproto.* refuses the
-  -- write with `Lexicon not found`.
-  local wrote, written =
-    pcall(record.put, uri, body, { swap_cid = input.swapCid, validate = false })
+  -- No `validate` option, for the reason publishProfile gives.
+  local wrote, written = pcall(record.put, uri, body, { swap_cid = input.swapCid })
   if not wrote then
     local reason = tostring(written)
     if reason:find("InvalidSwap", 1, true) then

@@ -81,13 +81,13 @@ describe("updateProfile", () => {
   it("replaces the caller's profile at its slug, guarded by the CID it was read at", () => {
     const { out, calls } = run(UPDATE_SCRIPT, update("probe", `, swapCid = "bafyold"`));
     expect(out).toEqual({ uri: "at://did:plc:pub/at.happyproto.plugin.profile/probe", cid: "bafynew" });
-    // validate = false for the reason publishProfile gives: no PDS knows the
-    // at.happyproto.* lexicons, and the record was checked here already.
+    // No `validate` option, as for the publish procedures: the PDS validates
+    // the profile when it can resolve the lexicon.
     expect(calls).toEqual([
       {
         fn: "put",
         uri: "at://did:plc:pub/at.happyproto.plugin.profile/probe",
-        opts: { swap_cid: "bafyold", validate: false },
+        opts: { swap_cid: "bafyold" },
       },
     ]);
   });

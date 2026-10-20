@@ -47,12 +47,11 @@ function handle(input, ctx)
     )
   end
 
-  -- validate = false: the record was checked above against the lexicon and
-  -- the registry's rules. Left on, HappyView also asks the PDS to require the
-  -- lexicon, and a PDS has never heard of at.happyproto.*, so it refuses the
-  -- write with `Lexicon not found`.
-  local wrote, written =
-    pcall(record.create, PROFILE_COLLECTION, body, { rkey = slug, validate = false })
+  -- No `validate` option: HappyView checks the record against the lexicon,
+  -- and the publisher's PDS validates it when it can resolve at.happyproto.*
+  -- (the lexicons are published for that) and accepts it when it can't. Asking
+  -- for `validate = true` would make every PDS that can't refuse the write.
+  local wrote, written = pcall(record.create, PROFILE_COLLECTION, body, { rkey = slug })
   if not wrote then
     -- The reason can name the caller's session or their PDS, so it is logged
     -- rather than returned.
