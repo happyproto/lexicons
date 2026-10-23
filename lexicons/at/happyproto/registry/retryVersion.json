@@ -1,0 +1,86 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.retryVersion",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Copy a version's blobs into the registry again, after an earlier copy failed. Only the registry's own account may call this. A version whose blobs are already held is answered as it is, with nothing enqueued.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "did",
+            "name",
+            "version"
+          ],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did",
+              "description": "The publisher."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A semver version without build metadata, with an optional lowercase prerelease, such as `1.2.0` or `1.2.0-beta.1`."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "availability"
+          ],
+          "properties": {
+            "availability": {
+              "type": "string",
+              "knownValues": [
+                "pending",
+                "available",
+                "deletedAtSource"
+              ],
+              "description": "`pending` means the copy was enqueued again."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured. An operator problem, not a caller's."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
+        },
+        {
+          "name": "Upstream",
+          "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
+        },
+        {
+          "name": "VersionNotFound",
+          "description": "No version of that project is indexed at that version string."
+        },
+        {
+          "name": "Forbidden",
+          "description": "Only the registry's own account may retry a copy."
+        }
+      ]
+    }
+  }
+}

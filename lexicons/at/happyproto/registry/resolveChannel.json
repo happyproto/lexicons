@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.resolveChannel",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The version a plugin's channel points at.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did",
+          "name",
+          "channel"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "The publisher."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 64,
+            "knownValues": [
+              "latest",
+              "beta",
+              "alpha"
+            ],
+            "description": "The channel's name."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "at.happyproto.registry.defs#versionView"
+        }
+      },
+      "errors": [
+        {
+          "name": "ChannelNotFound",
+          "description": "The project has no channel of that name indexed."
+        },
+        {
+          "name": "VersionNotFound",
+          "description": "The channel points at a version the registry has not indexed."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

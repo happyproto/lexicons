@@ -1,0 +1,65 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.project",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "The HappyView facts about a software.release.project that make it a plugin. The record key is the project's name, and the record lives in the same repo as the project. The registry indexes a project's releases only while this record exists and is valid.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["project", "publication", "pluginType", "authors", "security"],
+        "properties": {
+          "project": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The software.release.project this describes: the one in the same repo, under the same record key."
+          },
+          "publication": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The site.standard.publication that holds the plugin's display name, description and icon, in the same repo under the same record key. Pinned by CID, so a change to the publication takes effect only when this record is updated to point at it."
+          },
+          "pluginType": {
+            "type": "string",
+            "knownValues": ["auth", "library", "interpreter"],
+            "description": "What the plugin is. Every release must be of this type."
+          },
+          "keywords": {
+            "type": "array",
+            "maxLength": 20,
+            "items": { "type": "string", "maxGraphemes": 32, "maxLength": 320 }
+          },
+          "authors": {
+            "type": "array",
+            "minLength": 1,
+            "items": { "type": "ref", "ref": "#author" }
+          },
+          "security": {
+            "type": "array",
+            "minLength": 1,
+            "description": "Where to report a vulnerability. At least one is required, because a plugin runs inside an operator's HappyView.",
+            "items": { "type": "ref", "ref": "#contact" }
+          }
+        }
+      }
+    },
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "maxGraphemes": 128, "maxLength": 1280 },
+        "url": { "type": "string", "format": "uri" },
+        "email": { "type": "string", "maxLength": 320 }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "description": "A security contact. It must carry a url, an email, or both.",
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "email": { "type": "string", "maxLength": 320 }
+      }
+    }
+  }
+}

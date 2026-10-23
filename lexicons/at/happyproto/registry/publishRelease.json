@@ -4,21 +4,54 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Check a release against the rules the indexer applies, and optionally write it to the caller's repo. The indexer validates a record only after it is published and skips an invalid one quietly, so a publisher writing the record itself gets no feedback; this answers the same refusal before the record exists. Pass validateOnly to check a record without writing it. Like every XRPC procedure this needs an authenticated caller, so validateOnly is a dry run rather than an anonymous one.",
+      "description": "Publish a version of a plugin to the caller's repo. Writes a software.release.manifest carrying the artifact, the changelog as a site.standard.document when one is given, the software.release.version, and the channel named by track, moved to the new version, in that order. A record is written only once everything it points at exists, so a failure part-way leaves no dangling reference. Calling again with the same input after such a failure finishes the release rather than refusing it.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["record"],
+          "required": [
+            "name",
+            "version",
+            "track",
+            "artifact"
+          ],
           "properties": {
-            "record": {
-              "type": "unknown",
-              "description": "An at.happyproto.plugin.release record. Its package and version decide the record key, as the record lexicon requires of them."
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A semver version without build metadata, with an optional lowercase prerelease, such as `1.2.0` or `1.2.0-beta.1`."
+            },
+            "track": {
+              "type": "string",
+              "knownValues": [
+                "latest",
+                "beta",
+                "alpha"
+              ],
+              "description": "The channel to move to the new version."
+            },
+            "artifact": {
+              "type": "ref",
+              "ref": "at.happyproto.plugin.v1",
+              "description": "The plugin. Every blob it references must already be uploaded to the caller's repo."
+            },
+            "changelog": {
+              "type": "string",
+              "maxGraphemes": 20000,
+              "maxLength": 200000,
+              "description": "Release notes as CommonMark. The registry writes them to the caller's repo as a site.standard.document and links it from the version."
             },
             "validateOnly": {
               "type": "boolean",
               "default": false,
-              "description": "Check the record and write nothing. Still requires authentication, as every procedure does."
+              "description": "Check the input against every rule the registry applies, and write nothing. Still requires authentication."
             }
           }
         }
@@ -27,45 +60,65 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["valid"],
+          "required": [
+            "valid"
+          ],
           "properties": {
             "valid": {
               "type": "boolean",
-              "description": "Always true; an invalid record is an error, not a result."
+              "description": "Always true; invalid input is an error, not a result."
             },
-            "uri": {
-              "type": "string",
-              "format": "at-uri",
-              "description": "The record written. Absent when validateOnly was set."
+            "resumed": {
+              "type": "boolean",
+              "description": "True when the version already existed with this artifact, so this call only finished what an earlier one started."
             },
-            "cid": { "type": "string", "format": "cid" }
+            "manifest": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The software.release.manifest. Absent when validateOnly was set."
+            },
+            "version": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The software.release.version. Absent when validateOnly was set."
+            },
+            "channel": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The software.release.channel. Absent when validateOnly was set."
+            },
+            "changelog": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The changelog's site.standard.document, when a changelog was given."
+            }
           }
         }
       },
       "errors": [
         {
           "name": "AuthRequired",
-          "description": "The caller's identity could not be determined, so there is no publisher to check the profile against and no repo to write to."
-        },
-        {
-          "name": "InvalidRecord",
-          "description": "The record is not a release the indexer would accept. The message names the reason."
-        },
-        {
-          "name": "VersionExists",
-          "description": "That version is already published, or was withdrawn. A version is immutable once released and never reusable; publish a new one."
-        },
-        {
-          "name": "ProfileMissing",
-          "description": "No profile is indexed at that slug, so the release would index against nothing."
-        },
-        {
-          "name": "Upstream",
-          "description": "The record could not be written to the caller's repo."
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
         },
         {
           "name": "NotConfigured",
-          "description": "The registry has no identity configured."
+          "description": "The registry has no identity configured. An operator problem, not a caller's."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
+        },
+        {
+          "name": "Upstream",
+          "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
+        },
+        {
+          "name": "ProjectMissing",
+          "description": "The caller has no project of that name, or the registry has not indexed its at.happyproto.registry.project record. Call putProject first."
+        },
+        {
+          "name": "VersionExists",
+          "description": "That version is already published with a different artifact. A version never changes once published; publish a new one."
         }
       ]
     }

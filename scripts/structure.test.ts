@@ -183,7 +183,7 @@ const GATE_FOR_DIR: Record<string, Gate> = {
 export function requiredGate(path: string): Gate | "none" | "unmapped" {
   // The software.release scripts are record indexers, which have no caller to
   // gate, so the whole root is ungated rather than listed directory by directory.
-  if (/(^|\/)software\//.test(path)) return "none";
+  if (/^(src|lua)\/software\//.test(path)) return "none";
   const match = path.match(/(?:^|\/)(at\/happyproto\/([^/]+)\/[^/]+?)(?:\.lua)?$/);
   if (!match) return "unmapped";
   if (UNGATED[match[1]]) return "none";

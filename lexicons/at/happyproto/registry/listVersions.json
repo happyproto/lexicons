@@ -1,0 +1,71 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.listVersions",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "A plugin's versions, most recently indexed first, whatever their lifecycle state.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did",
+          "name"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "The publisher."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "versions"
+          ],
+          "properties": {
+            "versions": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "at.happyproto.registry.defs#versionView"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Absent on the last page."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "ProjectNotFound",
+          "description": "No project of that name is indexed for that publisher."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

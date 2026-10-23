@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.getVersion",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One version of a plugin, by exact version, whatever its lifecycle state or availability.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did",
+          "name",
+          "version"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "The publisher."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A semver version without build metadata, with an optional lowercase prerelease, such as `1.2.0` or `1.2.0-beta.1`."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "at.happyproto.registry.defs#versionView"
+        }
+      },
+      "errors": [
+        {
+          "name": "VersionNotFound",
+          "description": "No version of that project is indexed at that version string."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

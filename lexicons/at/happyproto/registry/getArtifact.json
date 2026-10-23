@@ -4,31 +4,63 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "An artifact's bytes, from the registry's own copy \u2014 never redirected to the publisher. A deleted release still serves them. The output encoding is `*/*`, as com.atproto.sync.getBlob's is, and the media type is the one the bytes were stored under.",
+      "description": "The bytes of a blob the registry has copied, served from its own copy and never redirected to the publisher, so a version stays installable after its publisher deletes it. Name the blob either by version and kind or by its CID. Only blobs that an indexed manifest or publication references are served. The output encoding is `*/*`, as com.atproto.sync.getBlob's is; the media type is the one the blob was published with.",
       "parameters": {
         "type": "params",
-        "required": ["did", "slug", "version"],
         "properties": {
-          "did": { "type": "string", "format": "did" },
-          "slug": { "type": "string" },
-          "version": { "type": "string" },
-          "type": {
+          "did": {
             "type": "string",
-            "default": "package",
-            "description": "Which artifact: `package` is the module, `icon`, `banner` and `screenshots` are presentation assets, and a custom type carries an `x-` prefix."
+            "format": "did",
+            "description": "The publisher. Required unless cid is given."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens. Required unless cid is given."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A semver version without build metadata, with an optional lowercase prerelease, such as `1.2.0` or `1.2.0-beta.1`. Required unless cid is given."
+          },
+          "kind": {
+            "type": "string",
+            "knownValues": [
+              "package",
+              "manifest",
+              "icon",
+              "banner",
+              "screenshot"
+            ],
+            "description": "Which blob of the version. Required unless cid is given. `icon` is the project's publication icon."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7,
+            "default": 0,
+            "description": "Which screenshot, counting from 0, when kind is `screenshot`."
+          },
+          "cid": {
+            "type": "string",
+            "format": "cid",
+            "description": "The blob's CID, in place of the other parameters."
           }
         }
       },
-      "output": { "encoding": "*/*" },
+      "output": {
+        "encoding": "*/*"
+      },
       "errors": [
-        { "name": "ReleaseNotFound", "description": "No release is indexed at that version." },
         {
           "name": "ArtifactNotHeld",
-          "description": "The release is indexed but its bytes have not been copied yet, or that artifact type was never published."
+          "description": "The registry does not hold that blob: it has not copied it yet, the version does not have one of that kind, or nothing indexed references it."
         },
         {
           "name": "NotConfigured",
-          "description": "The registry instance has no identity configured (HAPPYPROTO_DID), so it cannot read its own state. An operator problem, not a caller's."
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
         }
       ]
     }

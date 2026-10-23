@@ -1,0 +1,116 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.promoteRelease",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Publish an existing version's artifact under a new version, such as `1.2.0-rc.1` as `1.2.0`, without uploading it again. The new software.release.version points at the existing manifest. Optionally moves a channel to it and adds a changelog.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "name",
+            "fromVersion",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+            },
+            "fromVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The published version whose manifest the new version reuses."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The new version."
+            },
+            "track": {
+              "type": "string",
+              "knownValues": [
+                "latest",
+                "beta",
+                "alpha"
+              ],
+              "description": "A channel to move to the new version. No channel moves when absent."
+            },
+            "changelog": {
+              "type": "string",
+              "maxGraphemes": 20000,
+              "maxLength": 200000,
+              "description": "Release notes as CommonMark. The registry writes them to the caller's repo as a site.standard.document and links it from the version."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The new software.release.version."
+            },
+            "channel": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The software.release.channel, when track was given."
+            },
+            "changelog": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The changelog's site.standard.document, when a changelog was given."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured. An operator problem, not a caller's."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
+        },
+        {
+          "name": "Upstream",
+          "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
+        },
+        {
+          "name": "ProjectMissing",
+          "description": "The caller has no project of that name, or the registry has not indexed its at.happyproto.registry.project record. Call putProject first."
+        },
+        {
+          "name": "VersionNotFound",
+          "description": "fromVersion is not an indexed version of the caller's project."
+        },
+        {
+          "name": "VersionExists",
+          "description": "The new version is already published. A version never changes once published."
+        },
+        {
+          "name": "NotInstallable",
+          "description": "track was given, but fromVersion is unavailable or retired, so a channel cannot point at it."
+        }
+      ]
+    }
+  }
+}

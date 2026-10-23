@@ -1,0 +1,70 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.searchProjects",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Find plugins. Retired projects are left out unless includeRetired is set.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "q": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Text to match against the project's name, display name and keywords. Omit to list every project."
+          },
+          "pluginType": {
+            "type": "string",
+            "knownValues": [
+              "auth",
+              "library",
+              "interpreter"
+            ],
+            "description": "Only projects of this type."
+          },
+          "includeRetired": {
+            "type": "boolean",
+            "default": false
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "projects"
+          ],
+          "properties": {
+            "projects": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "at.happyproto.registry.defs#projectView"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Absent on the last page."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}
