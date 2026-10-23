@@ -33,6 +33,16 @@ local function problem_of(our_did, did, r)
   if type(r.status) ~= "string" or r.status == "" or #r.status > 64 then
     return "status must be a string"
   end
+  -- HappyView stores a record without checking it against its lexicon, so
+  -- the lexicon's limits hold only if they are checked here, as putStatus
+  -- checks them for a status it writes.
+  if r.kind ~= nil and (type(r.kind) ~= "string" or #r.kind > 64) then
+    return "kind must be a string of at most 64 characters"
+  end
+  if r.reason ~= nil then
+    local problem = text_problem(r.reason, "reason", 300, 3000)
+    if problem then return problem end
+  end
   if r.status == "supersededBy" and not is_release_version(r.supersededBy) then
     return "supersededBy must name a version"
   end

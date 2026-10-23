@@ -722,6 +722,23 @@ describe("software.release.status", () => {
     });
   }
 
+  it("skips one whose kind or reason exceeds the status lexicon's limits", () => {
+    const fits = status(`status = "endOfLife", kind = "${"k".repeat(64)}", reason = "${"r".repeat(300)}"`);
+    expect(index(STATUS_SCRIPT, { ...event, record: fits }).out).toBe(true);
+    // 150 characters, each a letter under ten combining accents: within the
+    // grapheme limit, over the byte limit.
+    const heavy = ("e" + "́".repeat(10)).repeat(150);
+    for (const fields of [
+      `kind = "${"k".repeat(65)}"`,
+      `kind = 7`,
+      `reason = "${"r".repeat(301)}"`,
+      `reason = "${heavy}"`,
+      `reason = { "not text" }`,
+    ]) {
+      expect(index(STATUS_SCRIPT, { ...event, record: status(`status = "endOfLife", ${fields}`) }).out).toBeNull();
+    }
+  });
+
   it("skips one with no status string", () => {
     expect(index(STATUS_SCRIPT, { ...event, record: status(`status = 7`) }).out).toBeNull();
     expect(index(STATUS_SCRIPT, { ...event, record: status(`status = ""`) }).out).toBeNull();
