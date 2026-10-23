@@ -48,6 +48,14 @@ jobs:
           name: lua
           path: lua/
       - uses: gamesgamesgamesgamesgames/happyview-actions/lint@v1
+        with:
+          lexicons: |
+            lexicons/**/*.json
+            vendor/lexicons/**/*.json
+          scripts: |
+            lua/**/*.lua
+            !lua/jobs/**
+          jobs: lua/jobs/**/*.lua
 
   # The scripts on a real HappyView, at the release production runs, with
   # real accounts and spaces and fakes for the provisioner and ClickHouse.
@@ -90,6 +98,17 @@ jobs:
         with:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
           api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          # vendor/lexicons are upstream's: deployed so the registry can index
+          # them, but lexicon-publish below reads only lexicons/.
+          lexicons: |
+            lexicons/**/*.json
+            vendor/lexicons/**/*.json
+          # Jobs are generated into lua/jobs/ and must not also be taken for
+          # route or record scripts, which would look for a lexicon to pair.
+          scripts: |
+            lua/**/*.lua
+            !lua/jobs/**
+          jobs: lua/jobs/**/*.lua
           dry-run: "true"
       # Which schemas a merge would publish, and whether every authority's
       # _lexicon DNS still names the account.
@@ -122,6 +141,17 @@ jobs:
         with:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
           api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          # vendor/lexicons are upstream's: deployed so the registry can index
+          # them, but lexicon-publish below reads only lexicons/.
+          lexicons: |
+            lexicons/**/*.json
+            vendor/lexicons/**/*.json
+          # Jobs are generated into lua/jobs/ and must not also be taken for
+          # route or record scripts, which would look for a lexicon to pair.
+          scripts: |
+            lua/**/*.lua
+            !lua/jobs/**
+          jobs: lua/jobs/**/*.lua
           # prune is deliberately OFF. Turning it on makes a deleted file
           # delete live lexicons and scripts, which for a record-type lexicon
           # also orphans indexed data. Delete deliberately, by hand, until

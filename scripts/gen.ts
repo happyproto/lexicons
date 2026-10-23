@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Inlines src/shared/prelude.lua blocks into each script under src/at/,
+ * Inlines src/shared/prelude.lua blocks into each script under src/at/ and
+ * src/software/, and into each job under jobs/ that asks for them,
  * writing complete, runnable Lua to lua/.
  *
  * HappyView v3's `require` reaches only its own `internal.*` modules and
@@ -18,7 +19,11 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
-const SRC_ROOT = "src/at";
+// `src/software` holds the scripts for the software.release.* lexicons the
+// registry indexes; they render beside src/at so lexicon, script and output
+// paths stay one-to-one.
+const SRC_ROOTS = ["src/at", "src/software"];
+const JOBS_ROOT = "jobs";
 const OUT_ROOT = "lua";
 const PRELUDE_PATH = "src/shared/prelude.lua";
 
@@ -134,7 +139,14 @@ export function render(
 }
 
 async function walk(dir: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (cause) {
+    // A root nobody has written a script under yet is not an error.
+    if ((cause as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+    throw cause;
+  }
   // Sorted, so output is deterministic across filesystems.
   entries.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -147,29 +159,56 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
-async function main(): Promise<void> {
-  const prelude = parsePrelude(await readFile(PRELUDE_PATH, "utf8"));
+/**
+ * Renders every script under the source roots into lua/, and every job into
+ * lua/jobs/. A job without a directive is copied as it is: deploying it never
+ * needed a prelude, and a directive-less job should not start failing here.
+ * Paths are resolved under `root` so tests can generate a fixture tree.
+ */
+export async function generate(root = "."): Promise<number> {
+  const at = (path: string) => join(root, path);
+  const prelude = parsePrelude(await readFile(at(PRELUDE_PATH), "utf8"));
   const order = [...prelude.keys()];
 
-  await rm(OUT_ROOT, { recursive: true, force: true });
+  await rm(at(OUT_ROOT), { recursive: true, force: true });
 
-  const sources = await walk(SRC_ROOT);
   let written = 0;
 
-  for (const source of sources) {
-    const text = await readFile(source, "utf8");
-    const names = expand(parseDirective(text, source), order);
-    const bodies = names.map((name) => prelude.get(name)!);
-    const target = join(OUT_ROOT, relative("src", source));
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, render(source, bodies, text), "utf8");
+  async function emit(source: string, target: string, copyIfBare: boolean): Promise<void> {
+    const text = await readFile(at(source), "utf8");
+    await mkdir(dirname(at(target)), { recursive: true });
+    if (copyIfBare && !DIRECTIVE.test(text)) {
+      await writeFile(at(target), text, "utf8");
+    } else {
+      const names = expand(parseDirective(text, source), order);
+      const bodies = names.map((name) => prelude.get(name)!);
+      await writeFile(at(target), render(source, bodies, text), "utf8");
+    }
     written += 1;
   }
+
+  for (const srcRoot of SRC_ROOTS) {
+    for (const file of await walk(at(srcRoot))) {
+      const source = relative(root, file);
+      await emit(source, join(OUT_ROOT, relative("src", source)), false);
+    }
+  }
+
+  for (const file of await walk(at(JOBS_ROOT))) {
+    const source = relative(root, file);
+    await emit(source, join(OUT_ROOT, source), true);
+  }
+
+  return written;
+}
+
+async function main(): Promise<void> {
+  const written = await generate();
 
   if (written === 0) {
     // A zero-file run exiting 0 would let `lint` pass having linted no Lua at
     // all -- green, and worthless.
-    console.error(`gen: wrote no files. Is ${SRC_ROOT} empty?`);
+    console.error(`gen: wrote no files. Are ${SRC_ROOTS.join(" and ")} empty?`);
     process.exit(1);
   }
 

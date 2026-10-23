@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "software.release.project",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A software project. The record key is the project name itself, making duplicate names per repo impossible and enabling AppView-free resolution. Name grammar (normative prose): 1 to 64 lowercase ASCII alphanumerics and interior hyphens only, no dots or colons, no leading or trailing hyphen.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Machine name of the project. MUST equal the record key. Serves as URL segment, uniqueness key, display fallback, and install token."
+          },
+          "renamedTo": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "When set, this project has been renamed: the record persists as a permanent alias to the successor software.release.project. Record keys are immutable, so rename is never an in-place edit and an old name is never reusable."
+          },
+          "parent": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "An AT URI to a software.release.project that this project either derives or descends from."
+          }
+        }
+      }
+    }
+  }
+}
