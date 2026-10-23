@@ -201,12 +201,17 @@ local function field(record, path)
   return v
 end
 
+-- LIKE as the query builder writes it: % and _ are wildcards, and there is
+-- no ESCAPE clause, so nothing escapes them.
 local function like(text, pattern)
   local parts = {}
-  for piece in (pattern .. "%"):gmatch("([^%%]*)%%") do
-    parts[#parts + 1] = (piece:gsub("[%^%$%(%)%.%[%]%*%+%-%?]", "%%%0"))
+  for i = 1, #pattern do
+    local c = pattern:sub(i, i)
+    if c == "%" then parts[#parts + 1] = ".*"
+    elseif c == "_" then parts[#parts + 1] = "."
+    else parts[#parts + 1] = (c:gsub("[%^%$%(%)%.%[%]%*%+%-%?%%]", "%%%0")) end
   end
-  return text:match("^" .. table.concat(parts, ".*") .. "$") ~= nil
+  return text:match("^" .. table.concat(parts) .. "$") ~= nil
 end
 
 package.preload["happyview.db"] = function()
@@ -479,6 +484,17 @@ s.security = { { email = "security@example.com", pgp = string.rep("k", 100000), 
     expect(out.error).toBe("ProjectNotFound");
   });
 
+  it("leaves out a channel the publisher deleted, and keeps it once written again", () => {
+    const deleted = `__indexed["${PROJECT_STATE_URI}"].record.deletedChannels = { latest = true }`;
+    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: deleted });
+    expect(Object.keys(out.channels)).toEqual(["beta"]);
+    // The channel indexer clears the mark when the channel is indexed again.
+    const cleared = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
+      setup: `__indexed["${PROJECT_STATE_URI}"].record.deletedChannels = { alpha = true }`,
+    });
+    expect(Object.keys(cleared.out.channels).sort()).toEqual(["beta", "latest"]);
+  });
+
   it("answers no handle when the publisher's has none, and still answers", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: `__handles = {}` });
     expect(out.uri).toBe(PROJECT_URI);
@@ -574,6 +590,25 @@ describe("searchProjects", () => {
     const { out } = query(SEARCH, `{ includeRetired = true }`, { setup: sidecars });
     expect(out.projects.map((p: any) => p.name)).toEqual(["old", "probe"]);
     expect(query(SEARCH, `{ q = "spam" }`, { setup: sidecars }).out.projects).toEqual({});
+  });
+
+  it("matches % and _ in q literally", () => {
+    // Without escaping, % would match every display name and _ any character.
+    expect(query(SEARCH, `{ q = "%", includeRetired = true }`).out.projects).toEqual({});
+    expect(query(SEARCH, `{ q = "Pr_be" }`).out.projects).toEqual({});
+    expect(query(SEARCH, `{ q = "\\\\" }`).out.projects).toEqual({});
+    const named = `__indexed["${PROJECT_STATE_URI}"].record.publication.name = "100% Pr_be"`;
+    expect(query(SEARCH, `{ q = "0% pr_b" }`, { setup: named }).out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+    expect(query(SEARCH, `{ q = "0%_" }`, { setup: named }).out.projects).toEqual({});
+  });
+
+  it("floors a fractional limit and keeps it within 1 to 100", () => {
+    const fraction = query(SEARCH, `{ limit = 1.9, includeRetired = true }`).out;
+    expect(fraction.projects.map((p: any) => p.name)).toEqual(["old"]);
+    expect(fraction.cursor).toBe("1");
+    expect(query(SEARCH, `{ limit = 0.5, includeRetired = true }`).out.cursor).toBe("1");
+    expect(query(SEARCH, `{ limit = "1.5", includeRetired = true }`).out.cursor).toBe("1");
+    expect(query(SEARCH, `{ limit = 0/0, includeRetired = true }`).out.projects).toHaveLength(2);
   });
 
   it("ignores state rows that are not the registry's own", () => {
@@ -786,6 +821,12 @@ describe("resolveChannel", () => {
     const setup = `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.name = "alpha"`;
     expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "beta" }`, { setup }).out.error).toBe("ChannelNotFound");
     expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "alpha" }`, { setup }).out.error).toBe("ChannelNotFound");
+  });
+
+  it("answers ChannelNotFound for a channel the publisher deleted, until it is written again", () => {
+    const setup = `__indexed["${PROJECT_STATE_URI}"].record.deletedChannels = { latest = true }`;
+    expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "latest" }`, { setup }).out.error).toBe("ChannelNotFound");
+    expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "beta" }`, { setup }).out.uri).toBe(VERSION_2);
   });
 
   it("answers ChannelNotFound for a channel that is not indexed", () => {

@@ -3,6 +3,10 @@
 -- Copy a version's blobs into the registry again after an earlier copy
 -- failed. Only the registry's own account may ask: the copy runs as the
 -- instance, against a publisher's PDS.
+--
+-- A version deleted at its source is retried too: the copy keeps any blob
+-- the PDS still answers for, so an instance that installed it can keep
+-- reloading it by CID, but never makes the version available.
 
 -- @prelude registry
 
@@ -38,17 +42,14 @@ function handle(input, ctx)
   end
 
   -- An available version may still lack an image whose copy failed, and
-  -- the job fetches only what it doesn't hold. One deleted at its source
-  -- never becomes available, so there is nothing to retry.
-  if state.availability ~= "deletedAtSource" then
-    local jobs = require("happyview.jobs")
-    local queued, err = pcall(jobs.create, "registry.copy-version", { did = did, name = name, version = version })
-    if not queued then
-      log.warn("registry: retryVersion could not enqueue the copy", {
-        did = did, name = name, version = version, error = tostring(err),
-      })
-      return failure("Upstream", "the copy could not be enqueued; try again")
-    end
+  -- the job fetches only what it doesn't hold.
+  local jobs = require("happyview.jobs")
+  local queued, err = pcall(jobs.create, "registry.copy-version", { did = did, name = name, version = version })
+  if not queued then
+    log.warn("registry: retryVersion could not enqueue the copy", {
+      did = did, name = name, version = version, error = tostring(err),
+    })
+    return failure("Upstream", "the copy could not be enqueued; try again")
   end
 
   return { availability = state.availability }

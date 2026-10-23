@@ -65,9 +65,10 @@ function handle(input, ctx)
   manifest = { uri = manifest.uri, cid = manifest.cid }
   -- fromVersion is indexed, so VersionNotFound would be untrue; it is the
   -- input that breaks a registry rule, since a version on this manifest
-  -- would be indexed and never served.
+  -- would be served `suspect`, which HappyView refuses to install, or with
+  -- no bytes to copy.
   if manifest_marked(our_did, caller, name, manifest.uri) then
-    return failure("InvalidRecord", "fromVersion's manifest was rewritten or deleted at its source, so a version on it would never be served")
+    return failure("InvalidRecord", "fromVersion's manifest was rewritten or deleted at its source, so a version on it could not be installed")
   end
 
   -- A version never changes once published. One already on this manifest is

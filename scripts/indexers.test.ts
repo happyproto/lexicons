@@ -657,6 +657,53 @@ describe("software.release.channel", () => {
     expect(index(CHANNEL_SCRIPT, { ...event, action: "update" }).out).toBe(true);
   });
 
+  const CHANNEL_URI = at(DID, "software.release.channel", "probe:latest");
+  const stored = `__indexed["${CHANNEL_URI}"] = { uri = "${CHANNEL_URI}", cid = "bafychannel", record = ${channel()} }`;
+
+  it("marks a deleted channel on the project's state, keeping the row and the state's other fields", () => {
+    const { out, calls } = index(CHANNEL_SCRIPT, { ...event, action: "delete", record: undefined }, {
+      setup: stored + "\n" + projectState(),
+    });
+    expect(out).toBeNull();
+    expect(writes(calls)).toEqual([
+      {
+        fn: "save_local",
+        collection: "at.happyproto.registry.projectState",
+        rkey: `${DID}:probe`,
+        did: HP,
+        body: expect.objectContaining({
+          deletedChannels: { latest: true },
+          publication: expect.objectContaining({ cid: "bafypub" }),
+        }),
+      },
+    ]);
+  });
+
+  it("marks nothing for a delete of a channel it never stored", () => {
+    const { calls } = index(CHANNEL_SCRIPT, { ...event, action: "delete", record: undefined });
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("clears the mark when the channel is written again and indexed", () => {
+    const { out, calls } = index(CHANNEL_SCRIPT, event, {
+      setup: stored + "\n" + projectState("deletedChannels = { latest = true, beta = true },"),
+    });
+    expect(out).toBe(true);
+    expect(writes(calls).map((w) => w.body.deletedChannels)).toEqual([{ beta: true }]);
+  });
+
+  it("keeps the mark when the channel written again is refused", () => {
+    const { out, calls } = index(CHANNEL_SCRIPT, { ...event, record: channel({ cid: "bafystale" }) }, {
+      setup: projectState("deletedChannels = { latest = true },"),
+    });
+    expect(out).toBeNull();
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("writes no state for a channel that was never marked", () => {
+    expect(writes(index(CHANNEL_SCRIPT, event, { setup: projectState() }).calls)).toEqual([]);
+  });
+
   it("skips a channel whose project has no sidecar", () => {
     expect(index(CHANNEL_SCRIPT, event, { setup: noSidecar(DID, "probe") }).out).toBeNull();
   });

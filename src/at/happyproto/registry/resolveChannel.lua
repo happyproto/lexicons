@@ -17,8 +17,9 @@ function handle(input, ctx)
   local row = is_did(did) and is_project_name(name) and is_channel_name(channel)
     and db.get(uri_of(did, CHANNEL, name .. ":" .. channel)) or nil
   -- A record whose own name disagrees with its key is no channel, as
-  -- getProject leaves it out too.
-  if not row or type(row.record) ~= "table" or row.record.name ~= channel then
+  -- getProject leaves it out too, and nor is one the publisher deleted.
+  if not row or type(row.record) ~= "table" or row.record.name ~= channel
+    or channel_deleted(our_did, did, name, channel) then
     return failure("ChannelNotFound", "the project has no channel of that name indexed")
   end
 

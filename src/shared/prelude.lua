@@ -720,11 +720,20 @@ end
 
 --- Writes a project's PROJECT_STATE record whole. Callers read it with
 --- `project_state` and change only their own fields, because the row is
---- shared: the publication cache, the sidecar marker and manifest marks.
+--- shared: the publication cache, the sidecar marker, and manifest and
+--- channel marks.
 local function save_project_state(our_did, did, name, state)
   local record = require("happyview.record")
   state.did, state.name = did, name
   record.save_local(PROJECT_STATE, project_state_rkey(did, name), state, our_did)
+end
+
+--- Whether the publisher deleted the channel record `name:channel`. Its row
+--- stays, so this is what stops it resolving.
+local function channel_deleted(our_did, did, name, channel)
+  local state = project_state(our_did, did, name)
+  return type(state) == "table" and type(state.deletedChannels) == "table"
+    and state.deletedChannels[channel] == true
 end
 
 --- A project's stored sidecar row, or nil when it has none or it was deleted.
@@ -1613,8 +1622,9 @@ local function display_name(our_did, did, name)
 end
 
 --- Whether the registry saw a manifest of this project rewritten or deleted
---- at its source. A version on such a manifest is indexed but never served,
---- so the gateway never puts a new version on one.
+--- at its source. A version on such a manifest is still indexed and served,
+--- but marked `suspect` (or left `deletedAtSource`), and HappyView refuses
+--- to install a suspect version, so the gateway never puts a new one there.
 local function manifest_marked(our_did, did, name, manifest_uri)
   local marks = project_state(our_did, did, name) or {}
   for _, field in ipairs({ "suspectManifests", "deletedManifests" }) do
@@ -1631,12 +1641,15 @@ local function release_lifecycle(did, name, version)
 end
 
 --- The paging arguments a registry query accepts, clamped. A caller-supplied
---- limit is never trusted as a page size.
+--- limit is never trusted as a page size: a fraction is floored, and one
+--- that is not a finite number reads as the default.
 local function registry_page(input)
-  local limit = tonumber(input.limit) or 50
+  local limit = tonumber(input.limit)
+  if not limit or limit ~= limit or limit == math.huge or limit == -math.huge then limit = 50 end
+  limit = math.floor(limit)
   if limit < 1 then limit = 1 end
   if limit > 100 then limit = 100 end
-  return limit, input.cursor
+  return math.tointeger(limit) or limit, input.cursor
 end
 
 --- The page on happyproto.at a plugin's publication links to.
@@ -1839,8 +1852,9 @@ local function project_view(our_did, did, name, handle)
     local version_did, collection, rkey
     if type(ref) == "table" then version_did, collection, rkey = parse_uri(ref.uri) end
     local version_name, version = split_rkey(rkey)
-    local version_state_row = version_did == did and collection == VERSION and version_name == name
-      and version_state(our_did, did, name, version) or nil
+    local deleted = type(state.deletedChannels) == "table" and state.deletedChannels[channel] == true
+    local version_state_row = not deleted and version_did == did and collection == VERSION
+      and version_name == name and version_state(our_did, did, name, version) or nil
     if version_state_row and is_channel_name(channel) then
       channels[channel] = {
         version = version,

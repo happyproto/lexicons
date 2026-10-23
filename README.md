@@ -196,7 +196,7 @@ release the registry would skip is refused before it is written.
 | `publishRelease` | the manifest, the changelog document, the version, and the channel `track` names. Called again after a failure part-way, it reuses what was written and finishes (`resumed`) |
 | `promoteRelease` | a new version on an existing version's manifest, and optionally moves a channel to it |
 | `putStatus` | a status about one of the caller's versions or their project |
-| `retryVersion` | nothing: `HAPPYPROTO_DID` only, it queues the blob copy again |
+| `retryVersion` | nothing: `HAPPYPROTO_DID` only, it queues the blob copy again; for a version deleted at its source the copy keeps any blob still fetchable but never makes it `available` |
 
 `putProject` and `publishRelease` take `validateOnly`.
 
@@ -221,8 +221,9 @@ What the registry derives is written with `save_local` under `HAPPYPROTO_DID`
 in collections that are deliberately not registered as lexicons, so nobody can
 publish rows into them: `at.happyproto.registry.versionState` (`<did>:<name>:<version>`:
 availability, `suspect`, the held blobs), `at.happyproto.registry.projectState`
-(`<did>:<name>`: the cached publication, and marks for a deleted sidecar or a
-rewritten or deleted manifest) and `at.happyproto.registry.changelogCache`
+(`<did>:<name>`: the cached publication, and marks for a deleted sidecar, a
+rewritten or deleted manifest, or a deleted channel, which stops resolving
+until it is written again) and `at.happyproto.registry.changelogCache`
 (`<did>:<name>:<version>`).
 
 ### Vendored lexicons

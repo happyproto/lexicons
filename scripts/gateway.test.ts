@@ -705,6 +705,9 @@ describe("promoteRelease", () => {
       });
       expect(r.out.error).toBe("InvalidRecord");
       expect(r.out.message).toContain("fromVersion");
+      // Such a version is served (suspect, or with nothing to copy); what
+      // fails is installing it.
+      expect(r.out.message).toContain("could not be installed");
       expect(writes(r.calls)).toEqual([]);
     }
   });
@@ -851,12 +854,14 @@ __indexed["${STATE_URI}"].record.failed = { banner = "the PDS answered 503" }`,
     expect(r.out).toEqual({ availability: "available" });
   });
 
-  it("enqueues nothing for a version deleted at its source", () => {
+  it("enqueues the copy for a version deleted at its source, so what is still fetchable is held", () => {
     const r = call(RETRY, INPUT, {
       ctx: ctxFor(HP),
       setup: `__indexed["${STATE_URI}"].record.availability = "deletedAtSource"`,
     });
-    expect(jobs(r.calls)).toEqual([]);
+    expect(jobs(r.calls)).toEqual([
+      { fn: "job", job_type: "registry.copy-version", input: { did: DID, name: "probe", version: "1.0.0" } },
+    ]);
     expect(r.out).toEqual({ availability: "deletedAtSource" });
   });
 

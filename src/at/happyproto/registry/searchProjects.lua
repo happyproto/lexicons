@@ -17,8 +17,25 @@
 -- whose project is not indexed is no plugin, so project_view answers nothing
 -- for it on either path.
 
-
 local db = require("happyview.db")
+
+--- `q` as a LIKE pattern body that matches it and, where `q` holds one of
+--- LIKE's own characters, possibly more. `%` and `_` are wildcards, and the
+--- escape character is `\` on Postgres and absent on SQLite, while the
+--- query builder writes no ESCAPE clause, so no escape works on both. Each
+--- of the three becomes `_`, which matches that one character among others,
+--- and `contains` drops what only the wildcard matched.
+local function like_body(q)
+  return (q:gsub("[%%_\\]", "_"))
+end
+
+--- Whether `text` contains `q` literally, ignoring ASCII case. Asked only
+--- when `q` holds a LIKE character: otherwise the database's own match is
+--- exact, and its case folding reaches past ASCII where Lua's does not.
+local function contains(text, q)
+  if not q:find("[%%_\\]") then return true end
+  return type(text) == "string" and text:lower():find(q:lower(), 1, true) ~= nil
+end
 
 --- `(did, name)` pairs whose display name or project name contains `q`,
 --- ignoring case, the display names first, each project once.
@@ -31,17 +48,21 @@ local function matches(our_did, q, limit)
       found[#found + 1] = { did = did, name = name }
     end
   end
+  local body = like_body(q)
   local by_display = db.records(PROJECT_STATE):did(our_did)
-    :where("publication.name", "ilike", "%" .. q .. "%"):limit(limit):run() or {}
+    :where("publication.name", "ilike", "%" .. body .. "%"):limit(limit):run() or {}
   for _, e in ipairs(by_display.records or {}) do
-    if type(e.record) == "table" then add(e.record.did, e.record.name) end
+    local r = e.record
+    if type(r) == "table" and type(r.publication) == "table" and contains(r.publication.name, q) then
+      add(r.did, r.name)
+    end
   end
   -- A sidecar has no name field, but the project it must point at ends in
   -- the name, so `q` is matched against that key alone.
   local by_name = db.records(SIDECAR)
-    :where("project", "ilike", "%/" .. PROJECT .. "/%" .. q .. "%"):limit(limit):run() or {}
+    :where("project", "ilike", "%/" .. PROJECT .. "/%" .. body .. "%"):limit(limit):run() or {}
   for _, e in ipairs(by_name.records or {}) do
-    add(e.did, e.rkey)
+    if contains(e.rkey, q) then add(e.did, e.rkey) end
   end
   return found
 end

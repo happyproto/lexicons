@@ -820,3 +820,17 @@ describe("every generated script defines the helpers it calls", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("the integration stack", () => {
+  test("stops HappyView from starting when the Caddy CA cannot be installed", async () => {
+    // Without it, a missing CA would surface only as TLS failures inside the
+    // registry's jobs, far from the cause.
+    const compose = await readFile("integration/compose.yml", "utf8");
+    const script = compose.slice(compose.indexOf("entrypoint:"), compose.indexOf("exec /entrypoint.sh"));
+    const lines = script.split("\n").map((l) => l.trim());
+    const strict = lines.indexOf("set -e");
+    expect(strict).toBeGreaterThan(-1);
+    expect(strict).toBeLessThan(lines.findIndex((l) => l.startsWith("cp /caddy-data/")));
+    expect(lines.findIndex((l) => l.startsWith("update-ca-certificates"))).toBeGreaterThan(strict);
+  });
+});

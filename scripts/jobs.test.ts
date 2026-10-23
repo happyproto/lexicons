@@ -402,14 +402,22 @@ end`);
     expect(gets(r.calls)).toHaveLength(0);
   });
 
-  it("fetches nothing for a version already deleted at its source", () => {
-    // The bytes can never make it available, so asking the PDS for them is
-    // work for nothing.
+  it("copies what is still fetchable for a version deleted at its source, without making it available", () => {
+    // Only an operator's retryVersion enqueues this. Installs keep reloading
+    // the version by CID, so whatever the PDS still has is worth holding.
     const r = copy(setState(`{ availability = "deletedAtSource" }`));
     expect(r.ok).toBe(true);
-    expect(gets(r.calls)).toHaveLength(0);
-    expect(puts(r.calls)).toHaveLength(0);
-    expect(writes(r.calls)).toHaveLength(0);
+    expect(r.state.held.package.cid).toBe(CIDS.package);
+    expect(r.state.held.manifest.cid).toBe(CIDS.manifest);
+    expect(r.state.availability).toBe("deletedAtSource");
+  });
+
+  it("keeps what verified and raises nothing when a deleted version's package is gone from its PDS", () => {
+    const r = copy(setState(`{ availability = "deletedAtSource" }`) + "\n" + serve(CIDS.package, `{ status = 404, body = "" }`));
+    expect(r.ok).toBe(true);
+    expect(r.state.held?.package).toBeUndefined();
+    expect(r.state.failed.package).toBeDefined();
+    expect(r.state.held.manifest.cid).toBe(CIDS.manifest);
     expect(r.state.availability).toBe("deletedAtSource");
   });
 

@@ -12,6 +12,9 @@
 -- publisher's unreachable PDS should fail a job that can be retried, rather
 -- than dead-letter a record event that was itself valid.
 --
+-- The indexer enqueues none for a version deleted at its source;
+-- retryVersion may, and then only what is still fetchable is kept.
+--
 -- A version is listed only once this job has run: the indexer writes its
 -- state `pending` and only this moves it to `available`, so the registry
 -- never lists a version whose bytes it does not hold, and never holds bytes
@@ -60,14 +63,6 @@ function handle(input, ctx)
     error("no version state at " .. state_uri .. "; the indexer writes one before it enqueues this job")
   end
   local state = row.record
-
-  -- Nothing fetched now could make it available, so the PDS is not asked.
-  if state.availability == "deletedAtSource" then
-    log.info("registry: version deleted at its source; nothing to copy", {
-      did = did, name = name, version = version,
-    })
-    return { availability = state.availability }
-  end
 
   -- The manifest the version pinned, by the CID the indexer checked. Manifest
   -- rows are never replaced, so a different CID here means the index is not
@@ -131,7 +126,12 @@ function handle(input, ctx)
   local fatal = {}
   if failed.package then fatal[#fatal + 1] = "package: " .. failed.package end
   if failed.manifest then fatal[#fatal + 1] = "manifest: " .. failed.manifest end
-  if #fatal > 0 then
+  -- A version deleted at its source is copied only when an operator asks
+  -- (retryVersion): whatever its PDS still answers for is kept above, so
+  -- installs can keep reloading it by CID, and it is never made available.
+  -- A blob the PDS no longer has is what deletion means, so it is no
+  -- failure to retry.
+  if #fatal > 0 and current.availability ~= "deletedAtSource" then
     -- Raised after the write, so what did verify is kept and the retry
     -- fetches only what is missing.
     error("could not copy " .. rkey .. " (" .. table.concat(fatal, "; ") .. ")")

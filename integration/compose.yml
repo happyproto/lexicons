@@ -80,6 +80,7 @@ services:
       - /bin/sh
       - -c
       - |
+        set -e
         export PLUGIN_URLS="$$(grep -v '^#' /plugins.txt | grep . | tr '\n' ',' | sed 's/,$$//')"
         # Trust Caddy's CA, so https://pds.localhost verifies like a real PDS.
         cp /caddy-data/caddy/pki/authorities/local/root.crt /usr/local/share/ca-certificates/caddy-local.crt
