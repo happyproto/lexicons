@@ -190,9 +190,17 @@ const noSidecar = (did: string, name: string) =>
   `__indexed["${at(did, "at.happyproto.registry.project", name)}"] = nil`;
 const unindex = (uri: string) => `__indexed["${uri}"] = nil`;
 
+const PROJECT_STATE_URI = at(HP, "at.happyproto.registry.projectState", `${DID}:probe`);
+/** A projectState for probe holding a cached publication, with `fields` spliced in. */
+const projectState = (fields = "") => `__indexed["${PROJECT_STATE_URI}"] = { uri = "${PROJECT_STATE_URI}", record = {
+  did = "${DID}", name = "probe", publication = { uri = "pub", cid = "bafypub", name = "Probe", url = "https://x" },
+  ${fields}
+} }`;
+const sidecarDeleted = projectState("sidecarDeleted = true,");
+
 describe("every index script", () => {
   const scripts: [string, string, Event, string?][] = [
-    ["sidecar", SIDECAR_SCRIPT, { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") }],
+    ["sidecar", SIDECAR_SCRIPT, { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") }, unindex(SIDECAR_URI)],
     ["project", PROJECT_SCRIPT, { collection: "software.release.project", rkey: "probe", record: `{ name = "probe" }` }, unindex(PROJECT_URI)],
     ["manifest", MANIFEST_SCRIPT, { collection: "software.release.manifest", rkey: "3knew", record: manifest() }],
     ["version", VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe:1.1.0", record: versionRecord({ version: "1.1.0" }) }],
@@ -210,13 +218,24 @@ describe("every index script", () => {
       expect(index(script, { ...event, action: "delete", record: undefined }).out).toBeNull();
     });
   }
+
+  // Versions indexed before the delete stay served; nothing new is taken.
+  for (const [name, script, event, setup = ""] of scripts.slice(1)) {
+    it(`${name}: skips a record of a project whose sidecar was deleted`, () => {
+      const { out, calls } = index(script, event, { setup: setup + "\n" + sidecarDeleted });
+      expect(out).toBeNull();
+      expect(jobs(calls)).toEqual([]);
+      expect(writes(calls)).toEqual([]);
+    });
+  }
 });
 
 describe("the sidecar (at.happyproto.registry.project)", () => {
   const event = { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") };
+  const fresh = unindex(SIDECAR_URI);
 
   it("stores it and fetches its pinned publication", () => {
-    const { out, calls } = index(SIDECAR_SCRIPT, event);
+    const { out, calls } = index(SIDECAR_SCRIPT, event, { setup: fresh });
     expect(out).toBe(true);
     expect(jobs(calls)).toEqual([
       {
@@ -228,14 +247,30 @@ describe("the sidecar (at.happyproto.registry.project)", () => {
   });
 
   it("stores it before its project exists, since the gateway writes it first", () => {
-    const { out } = index(SIDECAR_SCRIPT, event, { setup: unindex(PROJECT_URI) });
+    const { out } = index(SIDECAR_SCRIPT, event, { setup: fresh + "\n" + unindex(PROJECT_URI) });
     expect(out).toBe(true);
   });
 
   it("refetches the publication on an update, the event that says it moved", () => {
-    const { out, calls } = index(SIDECAR_SCRIPT, { ...event, action: "update" });
+    const record = sidecar(DID, "probe").replace(`"bafypub"`, `"bafypub2"`);
+    const { out, calls } = index(SIDECAR_SCRIPT, { ...event, action: "update", record });
     expect(out).toBe(true);
-    expect(jobs(calls)).toHaveLength(1);
+    expect(jobs(calls).map((j) => j.input.cid)).toEqual(["bafypub2"]);
+  });
+
+  it("skips a replayed create without fetching again", () => {
+    const { out, calls } = index(SIDECAR_SCRIPT, event);
+    expect(out).toBeNull();
+    expect(jobs(calls)).toEqual([]);
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("refuses an update that changes the plugin type, keeping the first", () => {
+    const record = sidecar(DID, "probe", "auth");
+    const { out, calls } = index(SIDECAR_SCRIPT, { ...event, action: "update", record });
+    expect(out).toBeNull();
+    expect(jobs(calls)).toEqual([]);
+    expect(logs(calls)).toHaveLength(1);
   });
 
   it("skips a sidecar that describes another project, and fetches nothing", () => {
@@ -247,14 +282,36 @@ describe("the sidecar (at.happyproto.registry.project)", () => {
 
   it("skips one with no security contact", () => {
     const record = sidecar(DID, "probe").replace(`security = { { email = "security@example.com" } }`, "security = {}");
-    expect(index(SIDECAR_SCRIPT, { ...event, record }).out).toBeNull();
+    expect(index(SIDECAR_SCRIPT, { ...event, record }, { setup: fresh }).out).toBeNull();
   });
 
-  it("does nothing on delete", () => {
-    const { out, calls } = index(SIDECAR_SCRIPT, { ...event, action: "delete", record: undefined });
+  it("marks the project's state on delete, keeping the row and the state's other fields", () => {
+    const { out, calls } = index(SIDECAR_SCRIPT, { ...event, action: "delete", record: undefined }, { setup: projectState() });
     expect(out).toBeNull();
     expect(jobs(calls)).toEqual([]);
-    expect(writes(calls)).toEqual([]);
+    expect(writes(calls)).toEqual([
+      {
+        fn: "save_local",
+        collection: "at.happyproto.registry.projectState",
+        rkey: `${DID}:probe`,
+        did: HP,
+        body: expect.objectContaining({ did: DID, name: "probe", sidecarDeleted: true, publication: expect.objectContaining({ cid: "bafypub" }) }),
+      },
+    ]);
+  });
+
+  it("marks it on delete when the project has no state yet", () => {
+    const { calls } = index(SIDECAR_SCRIPT, { ...event, action: "delete", record: undefined });
+    expect(writes(calls).map((w) => w.body)).toEqual([{ did: DID, name: "probe", sidecarDeleted: true }]);
+  });
+
+  it("clears the mark when the sidecar is written again, and fetches its publication", () => {
+    const { out, calls } = index(SIDECAR_SCRIPT, event, { setup: sidecarDeleted });
+    expect(out).toBe(true);
+    const body = writes(calls)[0].body;
+    expect(body.sidecarDeleted).toBeUndefined();
+    expect(body.publication).toMatchObject({ cid: "bafypub" });
+    expect(jobs(calls)).toHaveLength(1);
   });
 });
 
@@ -284,6 +341,11 @@ describe("software.release.project", () => {
   it("refuses a renamedTo that is not a project", () => {
     const { out } = index(PROJECT_SCRIPT, { ...event, action: "update", record: `{ ["$type"] = "software.release.project", name = "probe", renamedTo = "${MANIFEST_URI}" }` });
     expect(out).toBeNull();
+  });
+
+  it("refuses a renamedTo naming another DID's project", () => {
+    const record = `{ ["$type"] = "software.release.project", name = "probe", renamedTo = "${at(EVE, "software.release.project", "probe")}" }`;
+    expect(index(PROJECT_SCRIPT, { ...event, action: "update", record }).out).toBeNull();
   });
 
   it("refuses and logs any other update", () => {
@@ -363,15 +425,27 @@ describe("software.release.manifest", () => {
   it("keeps the first record on update and marks the versions using it suspect", () => {
     const { out, calls } = index(MANIFEST_SCRIPT, { ...event, rkey: "3kmanifest", action: "update" });
     expect(out).toBeNull();
-    expect(writes(calls)).toEqual([
+    expect(writes(calls).filter((w) => w.collection === "at.happyproto.registry.versionState")).toEqual([
       expect.objectContaining({
-        collection: "at.happyproto.registry.versionState",
         rkey: `${DID}:probe:1.0.0`,
         did: HP,
         body: expect.objectContaining({ suspect: true, availability: "available" }),
       }),
     ]);
     expect(logs(calls).some((l) => l.level === "warn")).toBe(true);
+  });
+
+  it("records the rewrite on the project's state, for versions indexed later", () => {
+    const { calls } = index(MANIFEST_SCRIPT, { ...event, rkey: "3kmanifest", action: "update" }, { setup: projectState() });
+    const state = writes(calls).find((w) => w.collection === "at.happyproto.registry.projectState");
+    expect(state.body.suspectManifests).toEqual({ [MANIFEST_URI]: true });
+    expect(state.body.publication).toMatchObject({ cid: "bafypub" });
+  });
+
+  it("records a delete on the project's state, for versions indexed later", () => {
+    const { calls } = index(MANIFEST_SCRIPT, { ...event, rkey: "3kmanifest", action: "delete", record: undefined });
+    const state = writes(calls).find((w) => w.collection === "at.happyproto.registry.projectState");
+    expect(state.body.deletedManifests).toEqual({ [MANIFEST_URI]: true });
   });
 
   it("skips a replayed create quietly", () => {
@@ -384,13 +458,13 @@ describe("software.release.manifest", () => {
     const record = manifest(PROJECT_URI, ARTIFACT.replace(`"MIT"`, `"Apache-2.0"`));
     const { out, calls } = index(MANIFEST_SCRIPT, { ...event, rkey: "3kmanifest", record });
     expect(out).toBeNull();
-    expect(writes(calls).map((w) => w.body.suspect)).toEqual([true]);
+    expect(writes(calls).filter((w) => w.collection === "at.happyproto.registry.versionState").map((w) => w.body.suspect)).toEqual([true]);
   });
 
   it("marks the versions using it deleted at source on delete, and keeps the row", () => {
     const { out, calls } = index(MANIFEST_SCRIPT, { ...event, rkey: "3kmanifest", action: "delete", record: undefined });
     expect(out).toBeNull();
-    expect(writes(calls)).toEqual([
+    expect(writes(calls).filter((w) => w.collection === "at.happyproto.registry.versionState")).toEqual([
       expect.objectContaining({
         rkey: `${DID}:probe:1.0.0`,
         body: expect.objectContaining({ availability: "deletedAtSource", suspect: false }),
@@ -433,6 +507,25 @@ describe("software.release.version", () => {
     const setup = `__indexed["${STATE_URI(NEW_STATE)}"] = { record = { suspect = true, availability = "deletedAtSource" } }`;
     const { calls } = index(VERSION_SCRIPT, event, { setup });
     expect(writes(calls)[0].body).toMatchObject({ suspect: true, availability: "pending" });
+  });
+
+  it("keeps the bytes already held when its state is rewritten", () => {
+    const setup = `__indexed["${STATE_URI(NEW_STATE)}"] = { record = { suspect = false, held = { package = { cid = "bafyheld", size = 1 } } } }`;
+    const { calls } = index(VERSION_SCRIPT, event, { setup });
+    expect(writes(calls)[0].body.held).toEqual({ package: { cid: "bafyheld", size: 1 } });
+  });
+
+  it("starts suspect when its manifest was rewritten before it arrived", () => {
+    const { out, calls } = index(VERSION_SCRIPT, event, { setup: projectState(`suspectManifests = { ["${MANIFEST_URI}"] = true },`) });
+    expect(out).toBe(true);
+    expect(writes(calls)[0].body.suspect).toBe(true);
+  });
+
+  it("starts deleted at source, with nothing to copy, when its manifest was deleted first", () => {
+    const { out, calls } = index(VERSION_SCRIPT, event, { setup: projectState(`deletedManifests = { ["${MANIFEST_URI}"] = true },`) });
+    expect(out).toBe(true);
+    expect(writes(calls)[0].body.availability).toBe("deletedAtSource");
+    expect(jobs(calls)).toEqual([]);
   });
 
   it("fetches a changelog that is a document in the publisher's repo", () => {

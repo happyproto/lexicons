@@ -39,6 +39,19 @@ local function mark_versions(our_did, uri, fields)
   until not cursor or #rows == 0
 end
 
+--- Records on the project's state that the manifest at `uri` was rewritten
+--- or deleted (`field` is `suspectManifests` or `deletedManifests`), so a
+--- version that arrives after this event still learns it. The project is the
+--- one the stored manifest names; an unstored manifest backs no version.
+local function mark_manifest(our_did, did, stored, uri, field)
+  local project_did, collection, name = parse_uri(stored and (stored.record or {}).project)
+  if project_did ~= did or collection ~= PROJECT or not is_project_name(name) then return end
+  local state = project_state(our_did, did, name) or {}
+  state[field] = state[field] or {}
+  state[field][uri] = true
+  save_project_state(our_did, did, name, state)
+end
+
 function handle(input, ctx)
   local our_did = happyproto_did(ctx)
   if not our_did then
@@ -47,17 +60,20 @@ function handle(input, ctx)
 
   local did, uri, r = input.did, input.uri, input.record
 
+  local stored = db.get(uri)
+
   if input.action == "delete" then
     -- The row stays, so versions already copied keep resolving; the state says
     -- the source is gone.
     mark_versions(our_did, uri, { availability = "deletedAtSource" })
+    mark_manifest(our_did, did, stored, uri, "deletedManifests")
     return nil
   end
 
-  local stored = db.get(uri)
   if input.action == "update" or (stored and not same_value(stored.record, r)) then
     log.warn("registry: manifest changed after publication; keeping the first", { uri = uri })
     mark_versions(our_did, uri, { suspect = true })
+    mark_manifest(our_did, did, stored, uri, "suspectManifests")
     return nil
   end
   -- A create matching the stored row is a replayed cursor.
@@ -69,7 +85,7 @@ function handle(input, ctx)
     log.info("registry: manifest names no project of its own repo", { uri = uri })
     return nil
   end
-  local sidecar = db.get(uri_of(did, SIDECAR, name))
+  local sidecar = live_sidecar(our_did, did, name)
   if not sidecar then
     log.info("registry: manifest's project has no plugin sidecar", { uri = uri, name = name })
     return nil

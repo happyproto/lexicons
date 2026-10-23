@@ -24,7 +24,8 @@ local function without_rename(r)
 end
 
 function handle(input, ctx)
-  if not happyproto_did(ctx) then
+  local our_did = happyproto_did(ctx)
+  if not our_did then
     error("HAPPYPROTO_DID is unset or malformed, so registry state cannot be written")
   end
   if input.action == "delete" then return nil end
@@ -34,15 +35,21 @@ function handle(input, ctx)
     log.info("registry: project key is not its name", { did = did, rkey = name })
     return nil
   end
-  if r.renamedTo ~= nil and select(2, parse_uri(r.renamedTo)) ~= PROJECT then
-    log.info("registry: project renamedTo is not a project", { did = did, name = name })
+  local renamed_did, renamed_collection = parse_uri(r.renamedTo)
+  if r.renamedTo ~= nil and (renamed_did ~= did or renamed_collection ~= PROJECT) then
+    -- A project can alias only its own successor: pointing it at another
+    -- repo's project would hand that repo this name's installs.
+    log.info("registry: project renamedTo is not a project of this repo", { did = did, name = name })
     return nil
   end
-  if not db.get(uri_of(did, SIDECAR, name)) then
+  if not live_sidecar(our_did, did, name) then
     log.info("registry: project has no plugin sidecar", { did = did, name = name })
     return nil
   end
 
+  -- An update to a project never stored is indexed as its first record,
+  -- unlike a manifest or version: a project may legitimately be updated (to
+  -- add renamedTo), so an update is no evidence of tampering by itself.
   local stored = db.get(input.uri)
   if stored then
     if same_value(stored.record, r) then return nil end

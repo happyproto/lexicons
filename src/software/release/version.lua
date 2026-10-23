@@ -13,7 +13,9 @@
 -- moves it to `available`, so nothing is served before its bytes are held.
 --
 -- A version is immutable. A rewrite (an `update`, or a different `create` at a
--- stored key) keeps the first record and marks the version suspect.
+-- stored key) keeps the first record and marks the version suspect. That
+-- holds even for an update of a version never stored: an update is the
+-- tampering signal, unlike a project's, which may legitimately add renamedTo.
 
 local log = require("internal.logging")
 local db = require("happyview.db")
@@ -66,7 +68,7 @@ function handle(input, ctx)
     log.info("registry: version does not match its key", { uri = uri })
     return nil
   end
-  if not db.get(uri_of(did, SIDECAR, name)) then
+  if not live_sidecar(our_did, did, name) then
     log.info("registry: version's project has no plugin sidecar", { uri = uri, name = name })
     return nil
   end
@@ -85,6 +87,14 @@ function handle(input, ctx)
     return nil
   end
 
+  -- What happened to the manifest before this version arrived still applies
+  -- to it: a rewritten manifest makes it suspect, and a deleted one leaves
+  -- nothing at the source to copy.
+  local marks = project_state(our_did, did, name) or {}
+  local rewritten = type(marks.suspectManifests) == "table" and marks.suspectManifests[ref.uri] == true
+  local gone = type(marks.deletedManifests) == "table" and marks.deletedManifests[ref.uri] == true
+  local previous = state and state.record or {}
+
   record.save_local(VERSION_STATE, state_rkey, {
     did = did,
     name = name,
@@ -92,12 +102,16 @@ function handle(input, ctx)
     uri = uri,
     manifestUri = ref.uri,
     manifestCid = ref.cid,
-    availability = "pending",
+    availability = gone and "deletedAtSource" or "pending",
     -- A suspect mark outlives a delete and a re-create: the key was rewritten.
-    suspect = (state and (state.record or {}).suspect == true) or false,
+    suspect = previous.suspect == true or rewritten,
+    -- Bytes a copy job already holds stay held and servable by CID.
+    held = previous.held,
   }, our_did)
 
-  jobs.create("registry.copy-version", { did = did, name = name, version = version })
+  if not gone then
+    jobs.create("registry.copy-version", { did = did, name = name, version = version })
+  end
 
   -- Only a document in the publisher's own repo is cached: a changelog from
   -- elsewhere is not the publisher's statement about this release.

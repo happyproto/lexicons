@@ -11,7 +11,8 @@ local log = require("internal.logging")
 local db = require("happyview.db")
 
 function handle(input, ctx)
-  if not happyproto_did(ctx) then
+  local our_did = happyproto_did(ctx)
+  if not our_did then
     error("HAPPYPROTO_DID is unset or malformed, so registry state cannot be written")
   end
   if input.action == "delete" then return nil end
@@ -23,7 +24,7 @@ function handle(input, ctx)
     log.info("registry: channel does not match its key", { did = did, rkey = input.rkey })
     return nil
   end
-  if not db.get(uri_of(did, SIDECAR, name)) then
+  if not live_sidecar(our_did, did, name) then
     log.info("registry: channel's project has no plugin sidecar", { uri = uri, name = name })
     return nil
   end

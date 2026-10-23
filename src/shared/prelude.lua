@@ -655,6 +655,42 @@ local function same_value(a, b)
   return true
 end
 
+--- The key of a project's PROJECT_STATE row.
+local function project_state_rkey(did, name)
+  return did .. ":" .. name
+end
+
+--- A project's PROJECT_STATE record, or nil when there is none. The
+--- libraries are required here rather than at the top of the block so that
+--- scripts that never touch state don't need them.
+local function project_state(our_did, did, name)
+  local db = require("happyview.db")
+  local row = db.get(uri_of(our_did, PROJECT_STATE, project_state_rkey(did, name)))
+  return row and row.record or nil
+end
+
+--- Writes a project's PROJECT_STATE record whole. Callers read it with
+--- `project_state` and change only their own fields, because the row is
+--- shared: the publication cache, the sidecar marker and manifest marks.
+local function save_project_state(our_did, did, name, state)
+  local record = require("happyview.record")
+  state.did, state.name = did, name
+  record.save_local(PROJECT_STATE, project_state_rkey(did, name), state, our_did)
+end
+
+--- A project's stored sidecar row, or nil when it has none or it was deleted.
+--- A deleted sidecar keeps its row, because versions indexed before the
+--- delete stay served and their views read it, but the project takes no new
+--- releases until the sidecar is written again.
+local function live_sidecar(our_did, did, name)
+  local db = require("happyview.db")
+  local row = db.get(uri_of(did, SIDECAR, name))
+  if not row then return nil end
+  local state = project_state(our_did, did, name)
+  if state and state.sidecarDeleted then return nil end
+  return row
+end
+
 --- The three parts of a record's at-uri, or nil. Only a DID authority is
 --- accepted: a handle in a stored reference would change meaning when the
 --- handle moves.

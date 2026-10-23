@@ -15,7 +15,7 @@ local log = require("internal.logging")
 local db = require("happyview.db")
 
 --- Why the record cannot be indexed, or nil.
-local function problem_of(did, r)
+local function problem_of(our_did, did, r)
   if type(r) ~= "table" then return "the record has no body" end
 
   local subject_did, collection, rkey = parse_uri(r.subject)
@@ -27,7 +27,7 @@ local function problem_of(did, r)
     name = split_rkey(rkey)
   end
   if not name then return "subject is not a version or project" end
-  if not db.get(uri_of(did, SIDECAR, name)) then return "the project has no plugin sidecar" end
+  if not live_sidecar(our_did, did, name) then return "the project has no plugin sidecar" end
   if not db.get(r.subject) then return "subject is not indexed" end
 
   if type(r.status) ~= "string" or r.status == "" or #r.status > 64 then
@@ -48,7 +48,8 @@ local function problem_of(did, r)
 end
 
 function handle(input, ctx)
-  if not happyproto_did(ctx) then
+  local our_did = happyproto_did(ctx)
+  if not our_did then
     error("HAPPYPROTO_DID is unset or malformed, so registry state cannot be written")
   end
   if input.action == "delete" then return nil end
@@ -61,7 +62,7 @@ function handle(input, ctx)
   -- A create matching the stored row is a replayed cursor.
   if stored then return nil end
 
-  local problem = problem_of(input.did, input.record)
+  local problem = problem_of(our_did, input.did, input.record)
   if problem then
     log.info("registry: status refused", { uri = input.uri, reason = problem })
     return nil
