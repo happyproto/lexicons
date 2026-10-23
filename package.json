@@ -10,8 +10,10 @@
   },
   "devDependencies": {
     "@atproto/lexicon": "^0.7.16",
+    "@ipld/dag-cbor": "^10.0.2",
     "@types/bun": "^1.1.0",
     "@types/pg": "^8.23.1",
+    "multiformats": "^14.0.5",
     "pg": "^8.23.1",
     "typescript": "^5"
   }

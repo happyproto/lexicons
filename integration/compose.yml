@@ -2,9 +2,11 @@
 # scripts, with real accounts in a dummy PLC directory and PDS, and fakes for
 # the two things the scripts call out to.
 #
-# Modelled on HappyView's docker-compose.e2e.yml (origin/alpha), minus Caddy:
-# nothing here signs in through a PDS OAuth screen, so nothing needs TLS.
-# Sessions are signed cookies instead (see session.ts).
+# Modelled on HappyView's docker-compose.e2e.yml (origin/alpha). Nothing here
+# signs in through a PDS OAuth screen: sessions are signed cookies instead (see
+# session.ts). Caddy is here only because the PDS's DID documents name it as
+# https://pds.localhost, and the registry's jobs fetch records and blobs from
+# whatever PDS a DID document names.
 #
 #   docker compose -f integration/compose.yml up -d --wait
 #   bun run gen && bun run test:integration
@@ -79,6 +81,9 @@ services:
       - -c
       - |
         export PLUGIN_URLS="$$(grep -v '^#' /plugins.txt | grep . | tr '\n' ',' | sed 's/,$$//')"
+        # Trust Caddy's CA, so https://pds.localhost verifies like a real PDS.
+        cp /caddy-data/caddy/pki/authorities/local/root.crt /usr/local/share/ca-certificates/caddy-local.crt
+        update-ca-certificates >/dev/null
         exec /entrypoint.sh
     environment:
       DATABASE_URL: postgres://happyview:happyview@postgres:5432/happyview
@@ -100,6 +105,7 @@ services:
       JOB_WORKER_CONCURRENCY: "4"
     volumes:
       - ./plugins.txt:/plugins.txt:ro
+      - caddy_data:/caddy-data:ro
     ports:
       - "127.0.0.1:55200:3000"
     healthcheck:
@@ -118,6 +124,26 @@ services:
         condition: service_healthy
       fake-jetstream:
         condition: service_healthy
+      caddy:
+        condition: service_healthy
+
+  caddy:
+    image: ${CADDY_IMAGE:?set in integration/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    networks:
+      default:
+        aliases:
+          - pds.localhost
+    # Healthy once the CA the happyview service installs exists.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/caddy/pki/authorities/local/root.crt"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      - pds
 
   fake-provisioner:
     image: ${BUN_IMAGE:?set in integration/.env}
@@ -167,3 +193,6 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+volumes:
+  caddy_data:
