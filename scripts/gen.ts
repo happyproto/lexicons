@@ -46,7 +46,8 @@ const IMPLIES: Record<string, string[]> = {
   provisioner: ["json", "failure"],
   instance: ["json"],
   jobs: ["failure"],
-  release: ["validate", "json"],
+  // `urlencode` for the PDS requests the jobs make through the block.
+  release: ["validate", "json", "urlencode"],
   // `authority` for happyproto_did: a registry script reads its own state
   // under that DID, so every one of them needs it.
   registry: ["release", "authority", "validate", "failure", "json"],

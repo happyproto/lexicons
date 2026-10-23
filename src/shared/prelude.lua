@@ -7,7 +7,7 @@
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
 -- and `urlencode`; `provisioner` implies `json` and `failure`;
 -- `instance` implies `json`; `jobs` implies `failure`; `release` implies
--- `validate` and `json`; `registry` implies `release`, `authority`,
+-- `validate`, `json` and `urlencode`; `registry` implies `release`, `authority`,
 -- `validate`, `failure` and `json`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
@@ -1145,6 +1145,113 @@ local function manifest_artifact(manifest)
   end
   if not found then return nil, "the manifest carries no " .. ARTIFACT_TYPE end
   return found, nil
+end
+
+--- When a cache row was written, as an RFC 3339 UTC timestamp.
+local function now_iso()
+  return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
+
+--- The body of a GET to a publisher's own PDS, or nil and why. The PDS is
+--- resolved from the DID document on every call, so a migrated account is
+--- followed. This uses `happyview.http` and not `atproto.blob_download`,
+--- which refuses plain-http and private hosts. The libraries are required
+--- here so that scripts which never fetch don't need them.
+local function pds_get(did, path)
+  local atproto = require("happyview.atproto")
+  local http = require("happyview.http")
+  local resolved, endpoint = pcall(atproto.resolve_service_endpoint, did)
+  if not resolved or type(endpoint) ~= "string" or endpoint == "" then
+    return nil, "the PDS of " .. tostring(did) .. " could not be resolved"
+  end
+  -- pcall: a request that gets no response at all raises.
+  local sent, response = pcall(http.get, (endpoint:gsub("/+$", "")) .. path)
+  if not sent then
+    return nil, "the PDS could not be reached: " .. tostring(response)
+  end
+  if type(response) ~= "table" or response.status ~= 200 then
+    return nil, "the PDS answered " .. tostring(type(response) == "table" and response.status or response)
+  end
+  if response.body == nil then return nil, "the PDS answered no body" end
+  return response.body
+end
+
+--- A record as its own repo's PDS serves it, `{uri, cid, value}`, or nil and
+--- why. The registry never indexes these records, so the CID the PDS
+--- answers is the only one there is to check a strongRef against.
+local function pds_record(uri)
+  local did, collection, rkey = parse_uri(uri)
+  if not did then return nil, "not a record at-uri: " .. tostring(uri) end
+  local body, problem = pds_get(did, "/xrpc/com.atproto.repo.getRecord?repo=" .. url_encode(did)
+    .. "&collection=" .. url_encode(collection) .. "&rkey=" .. url_encode(rkey))
+  if body == nil then return nil, problem end
+  if type(body) ~= "string" then return nil, "the PDS answered a record that is not text" end
+  local decoded_ok, decoded = pcall(json.decode, body)
+  if not decoded_ok or type(decoded) ~= "table" or type(decoded.cid) ~= "string"
+      or type(decoded.value) ~= "table" then
+    return nil, "the PDS answered something that is not a record"
+  end
+  return decoded
+end
+
+--- How many bytes an HTTP body holds. Text arrives as a Lua string and
+--- anything that is not UTF-8 as `{["$bytes"] = <base64>}`, whose byte count
+--- is worked out from the base64's length rather than by decoding it.
+local function byte_length(body)
+  if type(body) == "string" then return #body end
+  if type(body) == "table" and type(body["$bytes"]) == "string" then
+    local digits = #(body["$bytes"]:gsub("=+$", ""))
+    return digits * 6 // 8
+  end
+  return nil
+end
+
+--- A request that got no usable answer is tried this many times in one run
+--- before the blob counts as failed for that run.
+local COPY_ATTEMPTS = 3
+
+--- Copies one blob from the publisher's PDS into this instance's store and
+--- answers `{cid, mimeType, size}`, or nil and why.
+---
+--- The record's claims are not trusted: the size is the bytes' own, and the
+--- bytes count only when they hash to the declared CID. They are stored as
+--- application/octet-stream, because the store keeps a CID's first type for
+--- good, and bytes that turn out not to match must not leave the publisher's
+--- claimed type on them. The declared type goes into the answer only after
+--- the CID matches, and it is what the registry serves the blob as.
+---
+--- Only a fetch that got no usable answer is tried again. Bytes that are too
+--- big or hash wrongly would come back the same.
+local function copy_blob(did, b, types, max_size)
+  local declared = type(b) == "table" and type(b.ref) == "table" and b.ref["$link"]
+  if type(declared) ~= "string" or #declared > 128 or not declared:match("^b[a-z2-7]+$") then
+    return nil, "it has no CID"
+  end
+  if not types[b.mimeType] then
+    return nil, "its type is not accepted: " .. tostring(b.mimeType)
+  end
+
+  local path = "/xrpc/com.atproto.sync.getBlob?did=" .. url_encode(did) .. "&cid=" .. url_encode(declared)
+  local body, problem
+  for _ = 1, COPY_ATTEMPTS do
+    body, problem = pds_get(did, path)
+    if body ~= nil then break end
+  end
+  if body == nil then return nil, problem end
+
+  local size = byte_length(body)
+  if not size then return nil, "the PDS answered something that is not bytes" end
+  if size > max_size then
+    return nil, "it is larger than " .. max_size .. " bytes (" .. size .. ")"
+  end
+
+  local blobs = require("happyview.blobs")
+  local stored, cid = pcall(blobs.put, body, "application/octet-stream")
+  if not stored then return nil, "it could not be stored: " .. tostring(cid) end
+  if cid ~= declared then
+    return nil, "its bytes hash to " .. tostring(cid) .. ", not the declared " .. declared
+  end
+  return { cid = cid, mimeType = b.mimeType, size = size }
 end
 
 local STATE_SEVERITY = { active = 0, deprecated = 1, unavailable = 2, retired = 3 }

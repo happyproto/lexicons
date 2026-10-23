@@ -78,7 +78,7 @@ describe("parseDirective", () => {
 describe("expand", () => {
   const order = [
     "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
-    "provisioner", "instance", "jobs",
+    "provisioner", "instance", "jobs", "release",
   ];
 
   test("gate implies failure, access, validate and authority", () => {
@@ -92,6 +92,11 @@ describe("expand", () => {
 
   test("clickhouse implies json, failure and urlencode", () => {
     expect(expand(["clickhouse"], order)).toEqual(["json", "failure", "urlencode", "clickhouse"]);
+  });
+
+  test("release implies validate, json and urlencode", () => {
+    // urlencode for the PDS requests the registry jobs build.
+    expect(expand(["release"], order)).toEqual(["json", "validate", "urlencode", "release"]);
   });
 
   test("provisioner implies json and failure", () => {
