@@ -6,7 +6,7 @@
  * fails here even if the test only looks at one value. Every error reply
  * must name a code the lexicon declares.
  */
-import { Lexicons } from "@atproto/lexicon";
+import { jsonToLex, Lexicons } from "@atproto/lexicon";
 import { expect } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -88,7 +88,9 @@ export async function ok(
     throw new Error(`${nsid} as ${who ?? "anonymous"} failed: ${reply.status} ${reply.text}`);
   }
   // Throws with the offending path, e.g. `Output/signals/0 must have the property "label"`.
-  lexicons.assertValidXrpcOutput(nsid, reply.body);
+  // Decoded first, as a client would: a blob is a `{$link}` CID in JSON and
+  // only validates as one once it is a BlobRef.
+  lexicons.assertValidXrpcOutput(nsid, jsonToLex(reply.body));
   return reply.body;
 }
 

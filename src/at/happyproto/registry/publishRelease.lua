@@ -1,21 +1,54 @@
 -- at.happyproto.registry.publishRelease
 --
--- Check a release, and optionally write it to the caller's repo.
+-- Publish a version of a plugin to the caller's repo: the
+-- software.release.manifest carrying the artifact, the changelog as a
+-- site.standard.document when one is given, the software.release.version, and
+-- the channel named by `track`, moved to it.
 --
--- The indexer validates a release only after it has been published, and skips
--- an invalid one quietly -- which is right for a firehose, where there is
--- nobody to tell, but it means a publisher writing the record itself learns
--- nothing. This answers the same refusal while the record can still be fixed.
+-- There is no batch write, so they are written one at a time, each only once
+-- everything it points at exists: a failure part-way leaves records nothing
+-- references yet, never a reference to nothing. The same call made again
+-- finishes the release. A manifest already written for the same artifact is
+-- reused rather than written twice, and a version already written for it
+-- only has its channel moved.
 --
--- Two sets of rules apply and both are reported: the lexicon's, via
--- `record.validate`, and the registry's own, via `release_problem` -- the
--- function the indexer calls, so what is accepted here is what will index.
+-- Two calls for one version at the same time can each find no manifest to
+-- reuse and write one. Only one version write succeeds, so the other
+-- manifest is left unreferenced: never served, and harmless.
+--
+-- The artifact is checked with the rules the indexer applies, so a release
+-- the registry would skip is refused here, where the publisher can still fix
+-- it.
 
--- @prelude registry, failure
+-- @prelude registry
 
 local db = require("happyview.db")
-local record = require("happyview.record")
 local log = require("internal.logging")
+
+--- The newest manifests are searched, since a retry follows the call that
+--- wrote one closely. The write is mirrored into the index at once, so it is
+--- found before the network delivers it.
+local REUSE_WINDOW = 100
+
+--- A manifest of the caller's for this project that carries exactly this
+--- artifact, as `{uri, cid}`, or nil. One the registry saw rewritten or
+--- deleted at its source is never reused: a version on it would never be
+--- served.
+local function reusable_manifest(our_did, caller, name, artifact)
+  local wanted = canonical_json(artifact)
+  local page = db.records(MANIFEST):did(caller)
+    :where("project", "=", uri_of(caller, PROJECT, name))
+    :sort("uri", "desc"):limit(REUSE_WINDOW):run() or {}
+  for _, row in ipairs(page.records or {}) do
+    local found = manifest_artifact(row.record)
+    if found and type(row.cid) == "string" and row.cid ~= ""
+        and not manifest_marked(our_did, caller, name, row.uri)
+        and canonical_json(found) == wanted then
+      return { uri = row.uri, cid = row.cid }
+    end
+  end
+  return nil
+end
 
 function handle(input, ctx)
   local our_did = happyproto_did(ctx)
@@ -23,53 +56,58 @@ function handle(input, ctx)
     return failure("NotConfigured", "the registry has no identity configured")
   end
 
-  local body = input.record
-  if type(body) ~= "table" then
-    return failure("InvalidRecord", "the record has no body")
+  local name, version, track = input.name, input.version, input.track
+  if not is_project_name(name) then
+    return failure("InvalidRecord", "name must be 1 to 64 lowercase letters, digits and interior hyphens")
   end
-
-  -- The record key is the record's own package and version, which is what the
-  -- release lexicon requires of them. Deriving it rather than taking it means
-  -- the two cannot be given inconsistently.
-  local slug, version = body.package, body.version
-  if not is_plugin_slug(slug) then
-    return failure("InvalidRecord", "package is not a package slug")
-  end
-  if not is_plugin_version(version) then
+  if not is_release_version(version) then
     return failure("InvalidRecord", "version is not a semver version without build metadata")
   end
-
-  local problem = release_problem(body, slug, version)
-  if problem then
-    return failure("InvalidRecord", problem)
+  if not TRACKS[track] then
+    return failure("InvalidRecord", "track must be latest, beta or alpha")
   end
+  local problem = artifact_problem(input.artifact) or changelog_problem(input.changelog)
+  if problem then return failure("InvalidRecord", problem) end
+  -- The indexer finds the plugin among a manifest's artifacts by its type,
+  -- so it is always written, and compared, with one. A shallow copy, so the
+  -- caller's input is left as it was; the nested values are only read.
+  local artifact = {}
+  for k, v in pairs(input.artifact) do artifact[k] = v end
+  artifact["$type"] = ARTIFACT_TYPE
+  local changelog = input.changelog ~= "" and input.changelog or nil
 
-  local ok, err = pcall(record.validate, RELEASE_COLLECTION, body)
-  if not ok then
-    return failure("InvalidRecord", tostring(err))
-  end
-
-  -- A release indexes against its profile, so one published without it would
-  -- never appear. Checked against the index rather than the repo: the index is
-  -- what a reader sees, and a profile the firehose has not delivered yet is
-  -- indistinguishable from one that does not exist.
   local caller = ctx.caller_did
-  if caller and not db.get("at://" .. caller .. "/" .. PROFILE_COLLECTION .. "/" .. slug) then
-    return failure(
-      "ProfileMissing",
-      "no profile is indexed at that slug, so this release would index against nothing"
-    )
-  end
-
-  -- A withdrawn version can never be published again; the indexer would skip
-  -- it quietly. Read from the tombstone rather than the release row, which an
-  -- instance may no longer index. Checked before validateOnly so a dry run
-  -- says so too.
+  local version_row, resumed_manifest
   if caller then
-    local state = db.get("at://" .. our_did .. "/" .. RELEASE_STATE .. "/"
-      .. release_state_rkey(caller, slug, version))
-    if state and state.record and state.record.status == "deleted" then
-      return failure("VersionExists", "that version was withdrawn and can never be published again; publish a new one")
+    local sidecar = live_sidecar(our_did, caller, name)
+    if not sidecar or not db.get(uri_of(caller, PROJECT, name)) then
+      return failure(
+        "ProjectMissing",
+        "no plugin project of that name is indexed for you, so this release would index against nothing; call putProject first"
+      )
+    end
+    if artifact.pluginType ~= (sidecar.record or {}).pluginType then
+      return failure("InvalidRecord", "pluginType must be the project's, " .. tostring((sidecar.record or {}).pluginType))
+    end
+
+    -- A version never changes once published. One already there with this
+    -- very artifact is an earlier call of this one that failed part-way, and
+    -- only its channel is left to move.
+    version_row = db.get(uri_of(caller, VERSION, name .. ":" .. version))
+    if version_row then
+      local ref = (version_row.record or {}).manifest
+      local manifest = type(ref) == "table" and type(ref.uri) == "string" and db.get(ref.uri) or nil
+      local existing = manifest and manifest.cid == ref.cid and manifest_artifact(manifest.record)
+      if not existing or canonical_json(existing) ~= canonical_json(artifact) then
+        return failure("VersionExists", "that version is already published with another artifact; publish a new one")
+      end
+      resumed_manifest = { uri = ref.uri, cid = ref.cid }
+    end
+
+    -- The channel is what installs follow, so it never moves to a version
+    -- nobody may install.
+    if not release_lifecycle(caller, name, version_row and version).installable then
+      return failure("NotInstallable", "the project is unavailable or retired, so no channel can move to a new version")
     end
   end
 
@@ -84,27 +122,65 @@ function handle(input, ctx)
     )
   end
 
-  -- A version is immutable once released, so this refuses rather than
-  -- overwrites. `create` would be refused by the PDS anyway, but it answers
-  -- about a record key where this answers about a version.
-  local rkey = slug .. ":" .. version
-  if db.get("at://" .. caller .. "/" .. RELEASE_COLLECTION .. "/" .. rkey) then
-    return failure("VersionExists", "that version is already published; publish a new one")
-  end
-
-  -- No `validate` option: HappyView checks the record against the lexicon,
-  -- and the publisher's PDS validates it when it can resolve at.happyproto.*
-  -- (the lexicons are published for that) and accepts it when it can't. Asking
-  -- for `validate = true` would make every PDS that can't refuse the write.
-  local wrote, written = pcall(record.create, RELEASE_COLLECTION, body, { rkey = rkey })
-  if not wrote then
-    -- The reason can name the caller's session or their PDS, so it is logged
-    -- rather than returned.
-    log.warn("registry: publishRelease could not write", {
-      did = caller, slug = slug, version = version, error = tostring(written),
+  local function refused(what, err)
+    log.warn("registry: publishRelease could not write the " .. what, {
+      did = caller, name = name, version = version, error = err,
     })
-    return failure("Upstream", "the record could not be written to your repo")
+    return failure(
+      "Upstream",
+      "the " .. what .. " could not be written to your repo; what was written before it stays, and the same call can be made again"
+    )
   end
 
-  return { valid = true, uri = written.uri, cid = written.cid }
+  local project_uri = uri_of(caller, PROJECT, name)
+  local out = { valid = true }
+  local err
+
+  if version_row then
+    out.resumed = true
+    out.manifest = resumed_manifest
+    out.version = { uri = version_row.uri, cid = version_row.cid }
+    -- The document's CID is known only from its row, which the write that
+    -- created it mirrored into the index.
+    local changelog_uri = (version_row.record or {}).changelog
+    local doc = type(changelog_uri) == "string" and db.get(changelog_uri) or nil
+    if doc and type(doc.cid) == "string" and doc.cid ~= "" then
+      out.changelog = { uri = changelog_uri, cid = doc.cid }
+    end
+  else
+    out.manifest = reusable_manifest(our_did, caller, name, artifact)
+    if not out.manifest then
+      out.manifest, err = caller_write("create", MANIFEST, {
+        ["$type"] = MANIFEST,
+        project = project_uri,
+        artifacts = { artifact },
+      }, {})
+      if not out.manifest then return refused("manifest", err) end
+    end
+
+    if changelog then
+      out.changelog, err = caller_write("create", DOCUMENT,
+        changelog_document(caller, name, version, display_name(our_did, caller, name), changelog), {})
+      if not out.changelog then return refused("changelog", err) end
+    end
+
+    out.version, err = caller_write("create", VERSION, {
+      ["$type"] = VERSION,
+      project = project_uri,
+      version = version,
+      manifest = { uri = out.manifest.uri, cid = out.manifest.cid },
+      changelog = out.changelog and out.changelog.uri or nil,
+    }, { rkey = name .. ":" .. version })
+    if not out.version then return refused("version", err) end
+  end
+
+  out.channel, err = caller_write("put", uri_of(caller, CHANNEL, name .. ":" .. track), {
+    ["$type"] = CHANNEL,
+    project = project_uri,
+    name = track,
+    version = { uri = out.version.uri, cid = out.version.cid },
+  }, {})
+  if not out.channel then return refused("channel", err) end
+
+  return out
 end

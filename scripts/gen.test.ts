@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { expand, parseDirective, parsePrelude, render } from "./gen";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { expand, generate, parseDirective, parsePrelude, render } from "./gen";
 
 const PRELUDE = `
 -- @block json
@@ -47,7 +49,7 @@ describe("parsePrelude", () => {
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
       "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
-      "provisioner", "instance", "jobs", "plugin", "registry",
+      "provisioner", "instance", "jobs", "release", "registry",
     ]);
   });
 
@@ -76,7 +78,7 @@ describe("parseDirective", () => {
 describe("expand", () => {
   const order = [
     "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
-    "provisioner", "instance", "jobs",
+    "provisioner", "instance", "jobs", "release",
   ];
 
   test("gate implies failure, access, validate and authority", () => {
@@ -90,6 +92,18 @@ describe("expand", () => {
 
   test("clickhouse implies json, failure and urlencode", () => {
     expect(expand(["clickhouse"], order)).toEqual(["json", "failure", "urlencode", "clickhouse"]);
+  });
+
+  test("release implies validate, json and urlencode", () => {
+    // urlencode for the PDS requests the registry jobs build.
+    expect(expand(["release"], order)).toEqual(["json", "validate", "urlencode", "release"]);
+  });
+
+  test("registry implies everything release needs", () => {
+    // Implication is one level deep, so registry names release's own blocks.
+    expect(expand(["registry"], [...order, "registry"])).toEqual([
+      "json", "failure", "validate", "authority", "urlencode", "release", "registry",
+    ]);
   });
 
   test("provisioner implies json and failure", () => {
@@ -184,5 +198,67 @@ describe("render", () => {
     // prelude would bury the one part explaining what the endpoint is.
     expect(out.indexOf("-- What it does.")).toBeLessThan(out.indexOf("local A = 1"));
     expect(out.indexOf("local A = 1")).toBeLessThan(out.indexOf("function handle()"));
+  });
+});
+
+describe("generate", () => {
+  async function tree(files: Record<string, string>): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "gen-"));
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), text, "utf8");
+    }
+    return root;
+  }
+
+  const prelude = PRELUDE;
+
+  test("renders src/software beside src/at, at the same relative path", async () => {
+    const root = await tree({
+      "src/shared/prelude.lua": prelude,
+      "src/at/happyproto/a/b.lua": "-- @prelude failure\nreturn 1\n",
+      "src/software/release/x.lua": "-- @prelude json\nreturn 2\n",
+    });
+    try {
+      await generate(root);
+      const out = await readFile(join(root, "lua/software/release/x.lua"), "utf8");
+      expect(out).toContain("local J = 0");
+      expect(out).toContain("return 2");
+      expect(await Bun.file(join(root, "lua/at/happyproto/a/b.lua")).exists()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("renders a job with a prelude directive into lua/jobs", async () => {
+    const root = await tree({
+      "src/shared/prelude.lua": prelude,
+      "src/at/happyproto/a/b.lua": "-- @prelude json\nreturn 1\n",
+      "jobs/a.b.lua": "-- job.run:a.b\n-- @prelude failure\nreturn 3\n",
+    });
+    try {
+      await generate(root);
+      const out = await readFile(join(root, "lua/jobs/a.b.lua"), "utf8");
+      expect(out).toContain("local A = 1");
+      expect(out).not.toContain("@prelude");
+      expect(out).toContain("-- job.run:a.b");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("copies a job with no directive as it is", async () => {
+    const text = "-- job.run:c.d\nreturn 4\n";
+    const root = await tree({
+      "src/shared/prelude.lua": prelude,
+      "src/at/happyproto/a/b.lua": "-- @prelude json\nreturn 1\n",
+      "jobs/c.d.lua": text,
+    });
+    try {
+      await generate(root);
+      expect(await readFile(join(root, "lua/jobs/c.d.lua"), "utf8")).toBe(text);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

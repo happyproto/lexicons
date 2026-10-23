@@ -1,0 +1,34 @@
+{
+  "lexicon": 1,
+  "id": "software.release.manifest",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An immutable collection of release artifacts. Written once and never updated: all facts (artifact digests, sizes, locations) are fixed at creation. Lifecycle changes use software.release.status records and software.release.channel moves. Any update to an existing release record is treated by indexers as a probable-compromise signal. Valid only when this record's DID matches the referenced project's DID.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "project",
+          "artifacts"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The software.release.project this release belongs to. Must be same-DID."
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "union",
+              "refs": [],
+              "closed": false
+            },
+            "description": "Typed release artifact fragments. Distribution and integrity rules are specified by each artifact's schema."
+          }
+        }
+      }
+    }
+  }
+}

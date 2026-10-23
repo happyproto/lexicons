@@ -2,52 +2,266 @@
   "lexicon": 1,
   "id": "at.happyproto.registry.defs",
   "defs": {
-    "packageView": {
+    "ref": {
       "type": "object",
-      "description": "An indexed package. `record` is the publisher's profile verbatim; `status` and `latestVersion` are the registry's.",
-      "required": ["uri", "did", "record", "status"],
+      "description": "A record, by at-uri and the CID of the version meant.",
+      "required": ["uri", "cid"],
       "properties": {
         "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" }
+      }
+    },
+    "sidecarRef": {
+      "type": "object",
+      "description": "The project's at.happyproto.registry.project record.",
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" }
+      }
+    },
+    "projectView": {
+      "type": "object",
+      "description": "An indexed plugin: its software.release.project with the registry's view of everything around it.",
+      "required": [
+        "uri",
+        "did",
+        "name",
+        "sidecar",
+        "publication",
+        "pluginType",
+        "keywords",
+        "authors",
+        "security",
+        "channels",
+        "lifecycle",
+        "indexedAt"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The software.release.project record."
+        },
         "cid": { "type": "string", "format": "cid" },
         "did": { "type": "string", "format": "did" },
         "handle": {
           "type": "string",
           "format": "handle",
-          "description": "The publisher's handle, when the registry can resolve one. Absent otherwise; a client should not treat its absence as the package being unowned."
+          "description": "The publisher's handle, when the registry can resolve one. Its absence says nothing about who owns the project."
         },
-        "record": {
+        "name": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The project's name, which is its record key."
+        },
+        "sidecar": { "type": "ref", "ref": "#sidecarRef" },
+        "publication": { "type": "ref", "ref": "#publicationView" },
+        "pluginType": {
+          "type": "string",
+          "knownValues": ["auth", "library", "interpreter"]
+        },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "authors": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "at.happyproto.registry.project#author" }
+        },
+        "security": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "at.happyproto.registry.project#contact" }
+        },
+        "channels": {
           "type": "unknown",
-          "description": "The at.happyproto.plugin.profile record as published."
+          "description": "A map from channel name, such as `latest`, to the #channelRef it points at. Empty when no channel is indexed."
         },
-        "status": {
-          "type": "string",
-          "knownValues": ["active", "deleted", "unknown"],
-          "description": "`deleted` means the publisher withdrew the profile. The package stays readable and its releases stay resolvable by exact version; it is left out of search."
+        "banner": {
+          "type": "ref",
+          "ref": "#bannerView",
+          "description": "The banner of the version the `latest` channel points at, when it has one."
         },
-        "latestVersion": {
-          "type": "string",
-          "description": "The highest `active` version, by semver precedence, where a prerelease ranks below the same core version. Absent when no version is active yet."
+        "lifecycle": {
+          "type": "ref",
+          "ref": "#lifecycle",
+          "description": "The project's own lifecycle. Only `state` is set."
         },
         "indexedAt": { "type": "string", "format": "datetime" }
       }
     },
-    "releaseView": {
+    "versionView": {
       "type": "object",
-      "description": "An indexed release. `record` is the publisher's release verbatim; `status` is the registry's.",
-      "required": ["uri", "record", "status"],
+      "description": "An indexed version of a plugin, with the artifact its manifest carries.",
+      "required": [
+        "uri",
+        "cid",
+        "did",
+        "name",
+        "version",
+        "manifest",
+        "artifact",
+        "availability",
+        "suspect",
+        "lifecycle",
+        "indexedAt"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The software.release.version record."
+        },
+        "cid": { "type": "string", "format": "cid" },
+        "did": { "type": "string", "format": "did" },
+        "name": { "type": "string", "maxLength": 64 },
+        "version": { "type": "string", "maxLength": 64 },
+        "manifest": {
+          "type": "ref",
+          "ref": "#ref",
+          "description": "The software.release.manifest the version points at."
+        },
+        "artifact": {
+          "type": "ref",
+          "ref": "at.happyproto.plugin.v1",
+          "description": "The plugin artifact from the manifest, as published."
+        },
+        "changelog": { "type": "ref", "ref": "#changelogView" },
+        "availability": {
+          "type": "string",
+          "knownValues": ["pending", "available", "deletedAtSource"],
+          "description": "`available` means the registry holds the package and manifest bytes and serves them from getArtifact. `pending` means it has not copied them yet. `deletedAtSource` means the publisher deleted the version; the registry keeps serving what it already holds."
+        },
+        "suspect": {
+          "type": "boolean",
+          "description": "True when the publisher changed the version or its manifest after publishing it. Versions are immutable, so the registry keeps the first record it saw and flags this one."
+        },
+        "lifecycle": {
+          "type": "ref",
+          "ref": "#lifecycle",
+          "description": "The version's lifecycle, combined with the project's: the worse state of the two applies. `installable` and `events` are always set."
+        },
+        "indexedAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "channelRef": {
+      "type": "object",
+      "description": "The version a channel points at.",
+      "required": ["version", "uri", "cid", "state", "availability"],
+      "properties": {
+        "version": { "type": "string", "maxLength": 64 },
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The software.release.version record."
+        },
+        "cid": { "type": "string", "format": "cid" },
+        "state": {
+          "type": "string",
+          "knownValues": ["active", "deprecated", "unavailable", "retired"],
+          "description": "The version's lifecycle state."
+        },
+        "availability": {
+          "type": "string",
+          "knownValues": ["pending", "available", "deletedAtSource"]
+        }
+      }
+    },
+    "publicationView": {
+      "type": "object",
+      "description": "The project's site.standard.publication, at the CID its at.happyproto.registry.project record pins.",
+      "required": ["uri", "cid", "name", "url"],
       "properties": {
         "uri": { "type": "string", "format": "at-uri" },
         "cid": { "type": "string", "format": "cid" },
-        "record": {
-          "type": "unknown",
-          "description": "The at.happyproto.plugin.release record as published."
+        "name": { "type": "string", "description": "The plugin's display name." },
+        "description": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "icon": {
+          "type": "string",
+          "format": "cid",
+          "description": "The CID of the icon, which getArtifact serves once the registry has copied it."
+        }
+      }
+    },
+    "bannerView": {
+      "type": "object",
+      "required": ["cid", "width", "height"],
+      "properties": {
+        "cid": {
+          "type": "string",
+          "format": "cid",
+          "description": "The CID of the image, which getArtifact serves once the registry has copied it."
         },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "alt": { "type": "string" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "description": "A lifecycle state derived from the publisher's software.release.status records. The last status that has not been withdrawn decides it: none means `active`; `endOfDevelopment`, `endOfSupport` or `supersededBy` mean `deprecated`; `endOfDistribution` means `unavailable`; `endOfLife` means `retired`.",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "knownValues": ["active", "deprecated", "unavailable", "retired"]
+        },
+        "installable": {
+          "type": "boolean",
+          "description": "True when the state is `active` or `deprecated`."
+        },
+        "supersededBy": {
+          "type": "string",
+          "description": "The version to use instead, when the deciding status is `supersededBy`."
+        },
+        "reason": {
+          "type": "string",
+          "description": "The deciding status's reason."
+        },
+        "kind": {
+          "type": "string",
+          "description": "The deciding status's kind, such as `security`."
+        },
+        "events": {
+          "type": "array",
+          "description": "Every status about the subject, oldest first, including withdrawn ones.",
+          "items": { "type": "ref", "ref": "#lifecycleEvent" }
+        }
+      }
+    },
+    "lifecycleEvent": {
+      "type": "object",
+      "description": "One software.release.status record.",
+      "required": ["uri", "status"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
         "status": {
           "type": "string",
-          "knownValues": ["active", "pending", "deleted", "unknown"],
-          "description": "`active` means the registry holds the artifact bytes and will serve them. `pending` means it has indexed the release but not yet copied them, so getArtifact will not answer. `deleted` means the publisher withdrew it: left out of search, out of `latestVersion` and out of dependency resolution, but still served by exact version."
+          "description": "The event type, such as `endOfSupport`."
         },
-        "indexedAt": { "type": "string", "format": "datetime" }
+        "kind": { "type": "string" },
+        "reason": { "type": "string" },
+        "supersededBy": { "type": "string" },
+        "withdrawnBy": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The status that withdrew this one. A withdrawn status no longer counts toward the state."
+        }
+      }
+    },
+    "changelogView": {
+      "type": "object",
+      "description": "The version's changelog, from the registry's copy of its site.standard.document.",
+      "required": ["uri", "title", "markdown", "fetchedAt"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "title": { "type": "string" },
+        "markdown": {
+          "type": "string",
+          "description": "CommonMark written by the publisher. Render it as untrusted input, with raw HTML stripped."
+        },
+        "fetchedAt": { "type": "string", "format": "datetime" }
       }
     }
   }
