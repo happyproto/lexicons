@@ -1248,6 +1248,64 @@ local function pds_record(uri)
   return decoded
 end
 
+-- Far above what the gateway writes, but a document written some other way
+-- could be any size, and the cache is served whole.
+local MAX_CHANGELOG_TITLE_BYTES = 5000
+local MAX_CHANGELOG_MARKDOWN_BYTES = 1048576
+
+--- A changelog document's markdown: markpub content when it carries it, else
+--- the plain text every site.standard document has for exactly this purpose.
+local function changelog_markdown(v)
+  local content = v.content
+  if type(content) == "table" and content["$type"] == "at.markpub.markdown"
+      and type(content.text) == "table" and type(content.text.markdown) == "string" then
+    return content.text.markdown
+  end
+  if type(v.textContent) == "string" then return v.textContent end
+  return nil
+end
+
+--- Fetches a version's changelog document from the publisher's PDS and
+--- caches it as CHANGELOG_CACHE `<did>:<name>:<version>`. Answers the cached
+--- row, or nil, why, and whether asking again later could help. The first
+--- fill (a job) and the refresh on read share this, so both accept exactly
+--- the same documents.
+local function fetch_changelog(our_did, did, name, version, uri)
+  local document_did, collection = parse_uri(uri)
+  if document_did ~= did or collection ~= DOCUMENT then
+    -- Only the publisher's own document is their statement about a release.
+    return nil, "the changelog is not a document in the publisher's repo", false
+  end
+
+  local fetched, problem, retryable = pds_record(uri)
+  if not fetched then return nil, problem, retryable end
+
+  local v = fetched.value
+  -- A document of this project's own publication, and no other: anyone's
+  -- document could otherwise be presented as this release's notes.
+  if v.site ~= uri_of(did, PUBLICATION, name) then
+    return nil, "the changelog belongs to another publication", false
+  end
+  local markdown = changelog_markdown(v)
+  if not markdown then return nil, "the changelog has no text", false end
+  if #markdown > MAX_CHANGELOG_MARKDOWN_BYTES then
+    return nil, "the changelog is longer than " .. MAX_CHANGELOG_MARKDOWN_BYTES .. " bytes", false
+  end
+  if type(v.title) == "string" and #v.title > MAX_CHANGELOG_TITLE_BYTES then
+    return nil, "the changelog title is longer than " .. MAX_CHANGELOG_TITLE_BYTES .. " bytes", false
+  end
+
+  local cache = {
+    uri = uri,
+    title = type(v.title) == "string" and v.title or nil,
+    markdown = markdown,
+    fetchedAt = now_iso(),
+  }
+  local record = require("happyview.record")
+  record.save_local(CHANGELOG_CACHE, version_state_rkey(did, name, version), cache, our_did)
+  return cache
+end
+
 --- How many bytes an HTTP body holds. Text arrives as a Lua string and
 --- anything that is not UTF-8 as `{["$bytes"] = <base64>}`, whose byte count
 --- is worked out from the base64's length rather than by decoding it.
@@ -1544,5 +1602,207 @@ local function registry_page(input)
   if limit < 1 then limit = 1 end
   if limit > 100 then limit = 100 end
   return limit, input.cursor
+end
+
+--- The page on happyproto.at a plugin's publication links to.
+local function plugin_page_url(did, name)
+  return "https://happyproto.at/plugins/" .. did .. "/" .. name
+end
+
+--- Seconds since the epoch for an RFC 3339 UTC timestamp, or nil. Worked out
+--- by hand because `os.time` reads a date table as local time.
+local function iso_seconds(s)
+  if type(s) ~= "string" then return nil end
+  local y, mo, d, h, mi, sec = s:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
+  if not y then return nil end
+  y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
+  if mo <= 2 then y = y - 1 end
+  local era = y // 400
+  local yoe = y - era * 400
+  local doy = (153 * ((mo + 9) % 12) + 2) // 5 + d - 1
+  local days = era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+  return days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(sec)
+end
+
+--- How old a cached changelog may be before a read fetches it again.
+local CHANGELOG_TTL = 3600
+
+--- A row's indexed time. A row the gateway mirrored has none until the
+--- network echoes it, and the views promise one, so it reads as now.
+local function indexed_at(row)
+  if type(row) == "table" and type(row.indexed_at) == "string" then return row.indexed_at end
+  return now_iso()
+end
+
+local function text_or_nil(v)
+  if type(v) == "string" then return v end
+  return nil
+end
+
+--- A version's changelog for its view, refreshed first when the cached copy
+--- is over an hour old. A refresh that fails, or raises, keeps the cached
+--- copy: stale notes are better than none.
+local function changelog_view(our_did, did, name, version, document)
+  local db = require("happyview.db")
+  local row = db.get(uri_of(our_did, CHANGELOG_CACHE, version_state_rkey(did, name, version)))
+  local cache = row and type(row.record) == "table" and row.record or nil
+  -- A cache of some other document is not this version's notes.
+  if not cache or cache.uri ~= document or type(cache.markdown) ~= "string" then return nil end
+
+  local fetched = iso_seconds(cache.fetchedAt)
+  if not fetched or os.time() - fetched > CHANGELOG_TTL then
+    local ok, fresh, problem = pcall(fetch_changelog, our_did, did, name, version, document)
+    if ok and fresh then
+      cache = fresh
+    else
+      local log = require("internal.logging")
+      log.warn("registry: changelog refresh failed; serving the cached copy", {
+        did = did, name = name, version = version, problem = ok and problem or tostring(fresh),
+      })
+    end
+  end
+  return {
+    uri = cache.uri,
+    title = text_or_nil(cache.title) or "",
+    markdown = cache.markdown,
+    fetchedAt = text_or_nil(cache.fetchedAt) or now_iso(),
+  }
+end
+
+--- A version's VERSION_STATE record, or nil when the registry never indexed
+--- it.
+local function version_state(our_did, did, name, version)
+  local db = require("happyview.db")
+  local row = db.get(uri_of(our_did, VERSION_STATE, version_state_rkey(did, name, version)))
+  return row and type(row.record) == "table" and row.record or nil
+end
+
+--- The `versionView` of one indexed version, or nil when it isn't indexed.
+--- `project_statuses` may be passed in when the caller already read them.
+---
+--- Everything comes from what the registry stored: the version as first seen,
+--- the manifest it pinned, and the state the indexer and the copy job keep.
+--- The state's bookkeeping (`held`, `failed`) stays out of the view.
+local function version_view(our_did, did, name, version, project_statuses)
+  local db = require("happyview.db")
+  local uri = uri_of(did, VERSION, name .. ":" .. version)
+  local row = db.get(uri)
+  local state = version_state(our_did, did, name, version)
+  if not row or type(row.record) ~= "table" or not state then return nil end
+  local manifest = type(state.manifestUri) == "string" and db.get(state.manifestUri) or nil
+  if not manifest or manifest.cid ~= state.manifestCid then return nil end
+  local artifact = manifest_artifact(manifest.record)
+  if not artifact then return nil end
+
+  project_statuses = project_statuses or statuses_about(did, uri_of(did, PROJECT, name))
+  return {
+    uri = uri,
+    cid = row.cid,
+    did = did,
+    name = name,
+    version = version,
+    manifest = { uri = state.manifestUri, cid = state.manifestCid },
+    artifact = artifact,
+    changelog = changelog_view(our_did, did, name, version, row.record.changelog),
+    availability = text_or_nil(state.availability) or "pending",
+    suspect = state.suspect == true,
+    lifecycle = lifecycle(statuses_about(did, uri), project_statuses),
+    indexedAt = indexed_at(row),
+  }
+end
+
+--- The banner of a version's artifact as a `bannerView`, or nil.
+local function banner_view(artifact)
+  local banner = type(artifact) == "table" and artifact.banner
+  local image = type(banner) == "table" and banner.image
+  local cid = type(image) == "table" and type(image.ref) == "table" and image.ref["$link"]
+  if type(cid) ~= "string" then return nil end
+  return {
+    cid = cid,
+    -- The host may hand an integer over as a float, and the view says integer.
+    width = math.tointeger(banner.width) or banner.width,
+    height = math.tointeger(banner.height) or banner.height,
+    alt = text_or_nil(banner.alt),
+  }
+end
+
+--- The `projectView` of a plugin project, or nil when it has no sidecar.
+---
+--- A deleted sidecar keeps its row, and the project still answers: its
+--- versions stay served, so the project they belong to must stay readable.
+--- `handle` is the one the caller already confirmed, `false` when the caller
+--- already knows there is none, or nil to look it up; a lookup that fails
+--- only leaves it out.
+local function project_view(our_did, did, name, handle)
+  local db = require("happyview.db")
+  local sidecar = db.get(uri_of(did, SIDECAR, name))
+  if not sidecar or type(sidecar.record) ~= "table" then return nil end
+  local s = sidecar.record
+  local project_uri = uri_of(did, PROJECT, name)
+  local project = db.get(project_uri)
+  local state = project_state(our_did, did, name) or {}
+
+  local pin = type(s.publication) == "table" and s.publication or {}
+  local cached = type(state.publication) == "table" and state.publication or nil
+  local publication
+  if cached then
+    publication = {
+      uri = cached.uri, cid = cached.cid, name = cached.name,
+      description = text_or_nil(cached.description), url = cached.url, icon = text_or_nil(cached.icon),
+    }
+  else
+    -- Not fetched yet: the sidecar's pin and the project's own name stand in.
+    publication = { uri = pin.uri, cid = pin.cid, name = name, url = plugin_page_url(did, name) }
+  end
+
+  local project_statuses = statuses_about(did, project_uri)
+  local channels, latest = {}, nil
+  local page = db.records(CHANNEL):did(did):where("project", "=", project_uri):limit(100):run() or {}
+  for _, row in ipairs(page.records or {}) do
+    local r = row.record
+    local ref = type(r) == "table" and r.version
+    local version_did, collection, rkey
+    if type(ref) == "table" then version_did, collection, rkey = parse_uri(ref.uri) end
+    local version_name, version = split_rkey(rkey)
+    local version_state_row = version_did == did and collection == VERSION and version_name == name
+      and version_state(our_did, did, name, version) or nil
+    if version_state_row and is_channel_name(r.name) then
+      channels[r.name] = {
+        version = version,
+        uri = ref.uri,
+        cid = ref.cid,
+        state = lifecycle(statuses_about(did, ref.uri), project_statuses).state,
+        availability = text_or_nil(version_state_row.availability) or "pending",
+      }
+      if r.name == "latest" then latest = version_state_row end
+    end
+  end
+
+  local banner
+  if latest and type(latest.manifestUri) == "string" then
+    local manifest = db.get(latest.manifestUri)
+    if manifest and manifest.cid == latest.manifestCid then
+      banner = banner_view((manifest_artifact(manifest.record)))
+    end
+  end
+
+  if handle == nil then handle = handle_for(did) end
+  return {
+    uri = project_uri,
+    cid = project and project.cid or nil,
+    did = did,
+    handle = handle or nil,
+    name = name,
+    sidecar = { uri = sidecar.uri or uri_of(did, SIDECAR, name), cid = sidecar.cid },
+    publication = publication,
+    pluginType = s.pluginType,
+    keywords = json.to_array(type(s.keywords) == "table" and s.keywords or {}),
+    authors = json.to_array(type(s.authors) == "table" and s.authors or {}),
+    security = json.to_array(type(s.security) == "table" and s.security or {}),
+    channels = channels,
+    banner = banner,
+    lifecycle = { state = lifecycle(project_statuses, {}).state },
+    indexedAt = indexed_at(project or sidecar),
+  }
 end
 -- @endblock

@@ -31,8 +31,6 @@
 local db = require("happyview.db")
 local log = require("internal.logging")
 
-local PUBLICATION_BASE = "https://happyproto.at/plugins/"
-
 local function publication_problem(p)
   if type(p) ~= "table" then return "publication is missing" end
   if p.name == "" then return "publication.name is required" end
@@ -55,7 +53,7 @@ local function publication_record(did, name, p)
   return {
     ["$type"] = PUBLICATION,
     name = p.name,
-    url = PUBLICATION_BASE .. did .. "/" .. name,
+    url = plugin_page_url(did, name),
     description = p.description,
     icon = p.icon,
   }
