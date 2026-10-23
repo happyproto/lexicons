@@ -72,7 +72,7 @@ describe("name, version and channel grammar", () => {
       expect(await lua(`return is_release_version("${v}")`)).toBe(true);
     });
   }
-  for (const v of ["v1.2.0", "1.2", "1.2.0+b", "1.2.0-Alpha", "01.2.0", "1.2.0-", "1.2.0-a..b"]) {
+  for (const v of ["v1.2.0", "1.2", "1.2.0+b", "1.2.0-Alpha", "01.2.0", "1.2.0-", "1.2.0-a..b", "1.0.0-01", "1.0.0-alpha.00"]) {
     it(`refuses the version ${v}`, async () => {
       expect(await lua(`return is_release_version("${v}")`)).toBe(false);
     });
@@ -173,6 +173,58 @@ describe("artifact_problem", () => {
       .toMatch(/alt/);
   });
 
+  const alt = (lua: string) => `banner = { image = ${blob("image/png", 10)}, width = 1, height = 1, alt = ${lua} },`;
+  it("counts what follows a joiner when it is not an emoji", async () => {
+    // 3000 bytes and 750 graphemes: a joiner fuses only emoji.
+    expect(await problem(alt(`string.rep("\u{200D}a", 750)`))).toMatch(/alt/);
+  });
+  it("counts an unassigned code point in a combining block as its own grapheme", async () => {
+    expect(await problem(alt(`string.rep("\u{20F1}", 1000)`))).toMatch(/alt/);
+  });
+  it("still fuses an emoji joined to an emoji", async () => {
+    // Family: man, ZWJ, woman, ZWJ, girl. One grapheme, 18 bytes, 166 of them.
+    expect(await problem(alt(`string.rep("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 166)`))).toBeNull();
+  });
+
+  it("takes integral floats for sizes and dimensions", async () => {
+    expect(await problem(`package = ${blob("application/wasm", 1234)}, banner = { image = ${blob("image/png", 2000)}, width = 1200.0, height = 400.0 },`))
+      .toBeNull();
+    expect(await lua(`local a = ${artifact()} a.package.size = 1234.0 return artifact_problem(a)`)).toBeNull();
+  });
+  it("refuses a fractional or negative size or dimension", async () => {
+    expect(await lua(`local a = ${artifact()} a.package.size = 12.5 return artifact_problem(a)`)).toMatch(/package/);
+    expect(await lua(`local a = ${artifact()} a.package.size = -1 return artifact_problem(a)`)).toMatch(/package/);
+    expect(await lua(`local a = ${artifact()} a.banner.width = 1.5 return artifact_problem(a)`)).toMatch(/banner\.width/);
+    expect(await lua(`local a = ${artifact()} a.banner.height = -400.0 return artifact_problem(a)`)).toMatch(/banner\.height/);
+  });
+  it("refuses a blob whose link is not a CID", async () => {
+    expect(await lua(`local a = ${artifact()} a.package.ref["$link"] = "QmNotBase32" return artifact_problem(a)`))
+      .toMatch(/package has no CID/);
+    expect(await lua(`local a = ${artifact()} a.package.ref["$link"] = "b" .. string.rep("a", 128) return artifact_problem(a)`))
+      .toMatch(/package has no CID/);
+  });
+  it("refuses a package given as a string", async () => {
+    expect(await problem(`package = "${CID}",`)).toMatch(/package must be a blob/);
+  });
+  it("refuses a mimeType that is a table", async () => {
+    expect(await lua(`local a = ${artifact()} a.manifest.mimeType = { "application/json" } return artifact_problem(a)`))
+      .toMatch(/manifest has a type/);
+  });
+  it("refuses screenshots given as a map", async () => {
+    expect(await problem(`screenshots = { first = { image = ${blob("image/png", 10)}, width = 1, height = 1 } },`))
+      .toMatch(/screenshots must be a list/);
+  });
+  it("refuses a capability over 128 characters", async () => {
+    expect(await problem(`capabilities = { string.rep("c", 129) },`)).toMatch(/capabilities\[1\]/);
+  });
+  it("refuses a section it does not know", async () => {
+    expect(await problem(`sections = { description = "x", changelog = "y" },`)).toMatch(/sections\.changelog/);
+  });
+  it("refuses an env key that is not a project-shaped name", async () => {
+    expect(await problem(`requires = { ["env:HappyView"] = "^3" },`)).toMatch(/requires key/);
+    expect(await problem(`requires = { ["env:"] = "^3" },`)).toMatch(/requires key/);
+  });
+
   it("refuses 9 screenshots", async () => {
     const shot = `{ image = ${blob("image/png", 10)}, width = 1, height = 1 }`;
     expect(await problem(`screenshots = { ${Array(9).fill(shot).join(", ")} },`)).toMatch(/screenshots/);
@@ -207,6 +259,24 @@ describe("sidecar_problem", () => {
   it("refuses a mismatched project uri", async () => {
     expect(await lua(`return sidecar_problem(${sidecar(`at://${DID}/software.release.project/y`)}, "${DID}", "x")`))
       .toMatch(/project/);
+  });
+  const valid = sidecar(`at://${DID}/software.release.project/x`);
+  const edit = (change: string) => lua(`local r = ${valid}\n${change}\nreturn sidecar_problem(r, "${DID}", "x")`);
+  it("refuses more than 20 keywords", async () => {
+    expect(await edit(`r.keywords = {} for i = 1, 21 do r.keywords[i] = "k" .. i end`)).toMatch(/keywords/);
+  });
+  it("refuses a keyword over 32 graphemes", async () => {
+    expect(await edit(`r.keywords = { string.rep("k", 33) }`)).toMatch(/keywords\[1\]/);
+  });
+  it("refuses an author name over 128 graphemes, or none", async () => {
+    expect(await edit(`r.authors = { { name = string.rep("n", 129) } }`)).toMatch(/authors\[1\]\.name/);
+    expect(await edit(`r.authors = { { url = "https://x" } }`)).toMatch(/authors\[1\]\.name/);
+    expect(await edit(`r.authors = {}`)).toMatch(/authors/);
+  });
+  it("refuses an author or contact url that is not a web link", async () => {
+    expect(await edit(`r.authors = { { name = "T", url = "javascript:alert(1)" } }`)).toMatch(/authors\[1\]\.url/);
+    expect(await edit(`r.security = { { url = "ftp://x" } }`)).toMatch(/security\[1\]\.url/);
+    expect(await edit(`r.authors = { { name = "T", url = "http://x" } } r.security = { { url = "https://x/sec" } }`)).toBeNull();
   });
   it("refuses a security contact with neither url nor email", async () => {
     expect(await lua(`local r = ${sidecar(`at://${DID}/software.release.project/x`)}
@@ -287,6 +357,37 @@ describe("lifecycle", () => {
     expect(l).toMatchObject({ state: "deprecated", installable: true, supersededBy: "1.3.0" });
     expect(l.events[0].supersededBy).toBe("1.3.0");
   });
+  it("takes the version's reason when it ties the project's state", async () => {
+    const l = await lifecycle(
+      [status("3aaa", `status = "endOfSupport", reason = "mine", kind = "broken"`)],
+      [status("3aab", `status = "endOfDevelopment", reason = "project's", kind = "security"`)],
+    );
+    expect(l).toMatchObject({ state: "deprecated", reason: "mine", kind: "broken" });
+  });
+  it("does not reinstate a status when its withdrawal is itself withdrawn", async () => {
+    // A withdrawal is final: withdrawing it marks it withdrawn but does not
+    // bring back what it cancelled. Publish the status again instead.
+    const l = await lifecycle([
+      status("3aaa", `status = "endOfDistribution"`),
+      status("3aab", `status = "withdrawn", withdraws = "at://${DID}/software.release.status/3aaa"`),
+      status("3aac", `status = "withdrawn", withdraws = "at://${DID}/software.release.status/3aab"`),
+    ]);
+    expect(l.state).toBe("active");
+    expect(l.events.map((e: any) => e.withdrawnBy ?? null)).toEqual([
+      `at://${DID}/software.release.status/3aab`,
+      `at://${DID}/software.release.status/3aac`,
+      null,
+    ]);
+  });
+  it("drops event fields that are not strings", async () => {
+    const l = await lifecycle([status("3aaa", `status = "supersededBy", supersededBy = { "1.3.0" }, reason = 7, kind = true`)]);
+    expect(l.state).toBe("deprecated");
+    expect(l.supersededBy).toBeUndefined();
+    expect(l.reason).toBeUndefined();
+    expect(l.kind).toBeUndefined();
+    expect(l.events[0]).toEqual({ uri: `at://${DID}/software.release.status/3aaa`, status: "supersededBy" });
+  });
+
   it("orders severity and picks the worse", async () => {
     expect(await lua(`return { worse("active", "deprecated"), worse("retired", "unavailable"), worse("deprecated", "deprecated") }`))
       .toEqual(["deprecated", "retired", "deprecated"]);

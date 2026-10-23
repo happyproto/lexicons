@@ -609,6 +609,9 @@ local function is_release_version(s)
   if not pre then return false end
   for id in (pre .. "."):gmatch("([^.]*)%.") do
     if id == "" or not id:match("^[0-9a-z%-]+$") then return false end
+    -- Semver forbids it, and `01` and `1` would otherwise be two identifiers
+    -- that compare equal, leaving their order up to the sort.
+    if #id > 1 and id:match("^0[0-9]*$") then return false end
   end
   return true
 end
@@ -700,26 +703,27 @@ local function range_problem(s)
   end
   if s == "*" then return nil end
   for part in (s .. ","):gmatch("([^,]*),") do
-    local comparator = part:gsub("^%s+", ""):gsub("%s+$", "")
+    local comparator = part:gsub("^[ \t]+", ""):gsub("[ \t]+$", "")
     if comparator == "" then return "has an empty comparator" end
-    local version = comparator:match("^[%^~<>=]*%s*(.+)$")
-    if not version or version:match("^%d+[%w%.%-%*]*$") == nil then
+    local version = comparator:match("^[%^~<>=]*[ \t]*(.+)$")
+    if not version or version:match("^[0-9]+[0-9A-Za-z%.%-%*]*$") == nil then
       return "has a comparator that is not a version: " .. comparator
     end
   end
   return nil
 end
 
--- Code points that never start a grapheme of their own: combining marks,
--- variation selectors, zero-width joiners, emoji modifiers and tags. Not a
--- full UAX #29 segmentation, which Lua has no tables for; it errs towards
--- counting more graphemes than there are, so a string it admits is never
--- longer than the lexicon allows.
+-- Assigned code points that never start a grapheme of their own: combining
+-- marks, variation selectors, the zero-width joiner, emoji modifiers and tags.
+-- Not a full UAX #29 segmentation, which Lua has no tables for. Every range
+-- is one Unicode has assigned as extending, so an unassigned code point counts
+-- as a grapheme of its own: the count errs towards more graphemes than there
+-- are, and a string it admits is never longer than the lexicon allows.
 local function extends(cp)
   return (cp >= 0x0300 and cp <= 0x036F)
-    or (cp >= 0x1AB0 and cp <= 0x1AFF)
+    or (cp >= 0x1AB0 and cp <= 0x1ACE)
     or (cp >= 0x1DC0 and cp <= 0x1DFF)
-    or (cp >= 0x20D0 and cp <= 0x20FF)
+    or (cp >= 0x20D0 and cp <= 0x20F0)
     or (cp >= 0xFE00 and cp <= 0xFE0F)
     or (cp >= 0xFE20 and cp <= 0xFE2F)
     or (cp >= 0x1F3FB and cp <= 0x1F3FF)
@@ -728,14 +732,25 @@ local function extends(cp)
     or cp == 0x200D
 end
 
+-- Emoji a zero-width joiner can fuse into the one before it. Anything else
+-- after a joiner starts a grapheme of its own, so a run of joiners cannot
+-- hide text from the count.
+local function pictographic(cp)
+  return (cp >= 0x1F000 and cp <= 0x1FAFF)
+    or (cp >= 0x2600 and cp <= 0x27BF)
+    or (cp >= 0x2B00 and cp <= 0x2BFF)
+    or (cp >= 0x2300 and cp <= 0x23FF)
+end
+
 --- An approximate grapheme count, or nil for a string that is not UTF-8.
 local function graphemes(s)
   if not utf8.len(s) then return nil end
   local count, joined = 0, false
   for _, cp in utf8.codes(s) do
-    if joined then
+    if joined and pictographic(cp) then
       joined = false
     elseif not extends(cp) then
+      joined = false
       count = count + 1
     end
     if cp == 0x200D then joined = true end
@@ -756,6 +771,14 @@ local function text_problem(s, field, max_graphemes, max_bytes)
     return field .. " is longer than " .. max_graphemes .. " characters"
   end
   return nil
+end
+
+--- A whole number of at least `min`. The host's JSON bridge may hand an
+--- integral number over as a float, which is still the same count.
+local function is_count(x, min)
+  local whole = math.type(x) == "integer"
+    or (math.type(x) == "float" and x == math.floor(x))
+  return whole and x >= min
 end
 
 --- A Lua sequence and nothing else, so a map passed where the lexicon wants
@@ -782,13 +805,14 @@ end
 --- against the claim here; the bytes are checked against the CID when copied.
 local function blob_problem(b, field, types, max_size)
   if type(b) ~= "table" or b["$type"] ~= "blob" then return field .. " must be a blob" end
-  if type(b.ref) ~= "table" or type(b.ref["$link"]) ~= "string" or b.ref["$link"] == "" then
+  local link = type(b.ref) == "table" and b.ref["$link"]
+  if type(link) ~= "string" or #link > 128 or not link:match("^b[a-z2-7]+$") then
     return field .. " has no CID"
   end
   if not types[b.mimeType] then
     return field .. " has a type that is not accepted: " .. tostring(b.mimeType)
   end
-  if math.type(b.size) ~= "integer" or b.size < 0 then
+  if not is_count(b.size, 0) then
     return field .. " has no size"
   end
   if b.size > max_size then
@@ -797,12 +821,18 @@ local function blob_problem(b, field, types, max_size)
   return nil
 end
 
+--- A web link a dashboard can render as one. Anything else, `javascript:`
+--- above all, is refused rather than handed to a page as an href.
+local function is_web_url(s)
+  return type(s) == "string" and (s:sub(1, 8) == "https://" or s:sub(1, 7) == "http://")
+end
+
 local function image_problem(img, field)
   if type(img) ~= "table" then return field .. " must be an object" end
   local problem = blob_problem(img.image, field .. ".image", IMAGE_TYPES, MAX_IMAGE)
   if problem then return problem end
   for _, side in ipairs({ "width", "height" }) do
-    if math.type(img[side]) ~= "integer" or img[side] < 1 then
+    if not is_count(img[side], 1) then
       return field .. "." .. side .. " must be a positive integer"
     end
   end
@@ -821,7 +851,7 @@ local function requires_problem(t)
   if type(t) ~= "table" then return "requires must be an object" end
   for key, value in pairs(t) do
     if type(key) ~= "string" then return "requires has a key that is not a string" end
-    local is_env = key:match("^env:[%w%-%.]+$") ~= nil
+    local is_env = key:sub(1, 4) == "env:" and is_project_name(key:sub(5))
     local did, collection, name = parse_uri(key)
     local is_project = did ~= nil and collection == PROJECT and is_project_name(name)
     if not is_env and not is_project then
@@ -939,6 +969,11 @@ local function artifact_problem(a)
 
   if type(a.sections) ~= "table" then return "sections.description is required" end
   if a.sections.description == nil then return "sections.description is required" end
+  for key in pairs(a.sections) do
+    if key ~= "description" and key ~= "installation" and key ~= "security" then
+      return "sections." .. tostring(key) .. " is not a section; use description, installation or security"
+    end
+  end
   for _, name in ipairs({ "description", "installation", "security" }) do
     if a.sections[name] ~= nil then
       problem = text_problem(a.sections[name], "sections." .. name, 2000, 20000)
@@ -989,8 +1024,8 @@ local function sidecar_problem(r, did, name)
     if author.name == "" then return field .. ".name is required" end
     local problem = text_problem(author.name, field .. ".name", 128, 1280)
     if problem then return problem end
-    if author.url ~= nil and type(author.url) ~= "string" then
-      return field .. ".url must be a string"
+    if author.url ~= nil and not is_web_url(author.url) then
+      return field .. ".url must be an http or https link"
     end
     if author.email ~= nil and (type(author.email) ~= "string" or #author.email > 320) then
       return field .. ".email must be a string of at most 320 characters"
@@ -1008,8 +1043,8 @@ local function sidecar_problem(r, did, name)
     if not has_url and not has_email then
       return field .. " needs a url or an email"
     end
-    if contact.url ~= nil and type(contact.url) ~= "string" then
-      return field .. ".url must be a string"
+    if contact.url ~= nil and not is_web_url(contact.url) then
+      return field .. ".url must be an http or https link"
     end
     if contact.email ~= nil and (type(contact.email) ~= "string" or #contact.email > 320) then
       return field .. ".email must be a string of at most 320 characters"
@@ -1083,12 +1118,15 @@ local function derive(statuses)
   local events, decider = {}, nil
   for _, s in ipairs(sorted) do
     local r = s.record
+    -- Off the firehose these are whatever the publisher wrote, and a view
+    -- promises strings.
+    local function text(v) if type(v) == "string" then return v end end
     events[#events + 1] = {
       uri = s.uri,
-      status = r.status,
-      kind = r.kind,
-      reason = r.reason,
-      supersededBy = r.supersededBy,
+      status = text(r.status),
+      kind = text(r.kind),
+      reason = text(r.reason),
+      supersededBy = text(r.supersededBy),
       withdrawnBy = withdrawn_by[s.uri],
     }
     if EVENT_STATE[r.status] and not withdrawn_by[s.uri] then decider = r end
@@ -1117,9 +1155,11 @@ local function lifecycle(statuses, project_statuses)
     events = json.to_array(events),
   }
   if decider then
-    out.reason = decider.reason
-    out.kind = decider.kind
-    if decider.status == "supersededBy" then out.supersededBy = decider.supersededBy end
+    if type(decider.reason) == "string" then out.reason = decider.reason end
+    if type(decider.kind) == "string" then out.kind = decider.kind end
+    if decider.status == "supersededBy" and type(decider.supersededBy) == "string" then
+      out.supersededBy = decider.supersededBy
+    end
   end
   return out
 end
