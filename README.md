@@ -12,17 +12,21 @@ DID in scope for authorization.
 
 Everything is discovered by directory layout. There is no manifest.
 
-| Directory   | Pattern              | Becomes                                          |
-| ----------- | -------------------- | ------------------------------------------------ |
-| `lexicons/` | `**/*.json`          | uploaded lexicons (NSID from the `id` field)     |
-| `lua/`      | `**/*.lua`           | `xrpc.query` / `xrpc.procedure` / `record.index` |
-| `jobs/`     | `**/*.lua`           | `job.run:<type>`                                 |
-| `labelers/` | `**/*.lua`           | `labeler.apply:<nsid>`                           |
+| Directory          | Pattern     | Becomes                                                  |
+| ------------------ | ----------- | -------------------------------------------------------- |
+| `lexicons/`        | `**/*.json` | uploaded and published lexicons (NSID from the `id` field) |
+| `vendor/lexicons/` | `**/*.json` | uploaded, never published (see [Vendored lexicons](#vendored-lexicons)) |
+| `lua/`             | `**/*.lua`  | `xrpc.query` / `xrpc.procedure` / `record.index`         |
+| `lua/jobs/`        | `*.lua`     | `job.run:<type>`, generated from `jobs/`                 |
+| `labelers/`        | `**/*.lua`  | `labeler.apply:<nsid>`                                   |
 
 ### `lua/` is generated
 
-Scripts are **authored in `src/`** and generated into `lua/` by `bun run gen`.
-`lua/` is build output and is not in version control.
+Scripts are **authored in `src/`** (`src/at/` for HappyProto's own lexicons,
+`src/software/` for the `software.release.*` records the registry indexes) and
+generated into `lua/` by `bun run gen`; jobs are authored in `jobs/` and
+generated into `lua/jobs/`. `lua/` is build output and is not in version
+control.
 
 Discovery still works on directory layout — `src/at/happyproto/fleet/getSignals.lua`
 becomes `lua/at/happyproto/fleet/getSignals.lua` becomes
@@ -52,6 +56,8 @@ Each source declares which prelude blocks it needs:
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
+| `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
+| `registry` | what the gateway and the read API share: `resolve_actor`, `caller_write`, `project_view`, `version_view`, paging | `release`, `authority`, `validate`, `failure`, `json`, `urlencode` |
 
 Blocks are emitted in **prelude file order**, never directive order, because a
 Lua local must be declared before any function closing over it.
@@ -104,14 +110,26 @@ docker compose -f integration/compose.yml down -v
 ```
 
 The stack has a PLC directory and a PDS holding four real accounts
-(`happyproto`, `staff`, `customer`, `outsider`), and fakes for the provisioner
-and ClickHouse that record what they were sent. `HAPPYPROTO_DID` is
+(`happyproto`, `staff`, `customer`, `outsider`), fakes for the provisioner,
+ClickHouse and Jetstream, and Caddy in front of the PDS: the accounts' DID
+documents name the PDS as `https://pds.localhost`, and the registry's jobs
+fetch from whatever PDS a DID document names, so HappyView trusts Caddy's CA
+and reaches the PDS over TLS as it would a real one. `HAPPYPROTO_DID` is
 `happyproto`'s DID, and setup bootstraps the admin and customers spaces by
 calling `admin.createSpaces` as `happyproto` with `staff` in the staff list,
 as production does. Tests sign HappyView sessions for those accounts
 with the stack's known `SESSION_SECRET` (`integration/session.ts`), and every
 successful reply is validated against its lexicon's output schema. CI runs it
 on every pull request, and `deploy` waits for it.
+
+Records reach the index through the fake Jetstream (`emitCommit`), and
+HappyView refuses an event whose record does not hash to its CID, so
+`integration/registry.test.ts` writes each record to the PDS and emits it with
+the CID the PDS answered, or computes the CID itself (dag-cbor, sha2-256) for
+an event the PDS never sees. HappyView refuses a procedure call with no
+session before any script runs, and the accounts have no OAuth session with
+their PDS, so the gateway procedures are exercised up to the point of writing
+(their refusals and `validateOnly`); their writes are unit tested.
 
 A script's path becomes its NSID — `lua/com/happyproto/getMe.lua` binds to
 `com.happyproto.getMe` — and the **trigger type comes from the paired
@@ -124,6 +142,97 @@ trigger from.
 lexicons/com/happyproto/getMe.json   # id: com.happyproto.getMe, type: query
 lua/com/happyproto/getMe.lua         # → xrpc.query:com.happyproto.getMe
 ```
+
+## The plugin registry
+
+HappyView plugins are published as [`software.release`](https://release.software)
+records in the publisher's own repo, and `at.happyproto.registry.*` indexes
+them, copies their bytes and serves them to HappyView and hpy.
+
+### Records
+
+| Collection | Key | What it is |
+| --- | --- | --- |
+| `software.release.project` | `<name>` | the project |
+| `at.happyproto.registry.project` | `<name>` | the sidecar that makes the project a HappyView plugin: its plugin type, keywords, authors, security contacts, and a strongRef to its publication |
+| `site.standard.publication` | `<name>` | display name, description, link and icon |
+| `software.release.manifest` | TID | carries exactly one `at.happyproto.plugin.v1` artifact: the `.wasm` package and `manifest.json` as blobs, banner and screenshots, and the plugin's facts |
+| `software.release.version` | `<name>:<version>` | pins a manifest by CID; may link a `site.standard.document` changelog |
+| `software.release.channel` | `<name>:<channel>` | `latest`, `beta` or `alpha`, pinning a version by CID |
+| `software.release.status` | TID | a lifecycle event about a version or the project |
+
+Only a project with a valid sidecar is indexed: any other `software.release.*`
+record is skipped. Manifests, versions and statuses are immutable, so a
+rewrite keeps the first record, and a rewritten manifest or version marks the
+version `suspect`. A record that names something not indexed yet is skipped
+and not recovered: Jetstream delivers a repo's commits in order, and the
+gateway writes every record after what it references. HappyView does not check
+a record against its lexicon on the way in, so the index scripts hold every
+limit the lexicons state.
+
+A status's `status` is an ECMA-428 event type. Per subject, the last one not
+withdrawn decides the state, and a project's state applies to each version
+unless the version's own is worse:
+
+| Last event | State | Installable |
+| --- | --- | --- |
+| none | `active` | yes |
+| `endOfDevelopment`, `endOfSupport`, `supersededBy` | `deprecated` | yes |
+| `endOfDistribution` | `unavailable` | no |
+| `endOfLife` | `retired` | no |
+
+`withdrawn` cancels the status its `withdraws` names, and `supersededBy` names
+the version to use instead.
+
+### Procedures
+
+Each writes to the signed-in caller's repo, one record at a time in dependency
+order, and checks its input with the same rules the indexer applies, so a
+release the registry would skip is refused before it is written.
+
+| Procedure | Writes |
+| --- | --- |
+| `putProject` | the publication, the sidecar pinning it, and the project; afterwards the publication and the sidecar (`swapCid` guards the sidecar) |
+| `publishRelease` | the manifest, the changelog document, the version, and the channel `track` names. Called again after a failure part-way, it reuses what was written and finishes (`resumed`) |
+| `promoteRelease` | a new version on an existing version's manifest, and optionally moves a channel to it |
+| `putStatus` | a status about one of the caller's versions or their project |
+| `retryVersion` | nothing: `HAPPYPROTO_DID` only, it queues the blob copy again |
+
+`putProject` and `publishRelease` take `validateOnly`.
+
+### Queries
+
+`searchProjects`, `getProject`, `listVersions`, `getVersion`, `resolveChannel`
+and `getArtifact`, all anonymous. A version is `pending` until its package and
+manifest are copied and verified, then `available`; `deletedAtSource` once the
+publisher deletes it or its manifest, though bytes already held stay served. `getArtifact` serves only bytes the registry
+holds for an indexed version or a cached icon, by CID or by version and kind,
+never a redirect to the publisher.
+
+### Jobs and state
+
+| Job | Does |
+| --- | --- |
+| `registry.copy-version` | fetches each blob of a version's artifact with `com.atproto.sync.getBlob` from the PDS the publisher's DID document names, and keeps it only if it hashes to the declared CID |
+| `registry.fetch-publication` | caches the publication the sidecar pins, if its CID matches, and copies its icon |
+| `registry.fetch-changelog` | caches a version's changelog document; `getVersion` refreshes it at most once an hour |
+
+What the registry derives is written with `save_local` under `HAPPYPROTO_DID`
+in collections that are deliberately not registered as lexicons, so nobody can
+publish rows into them: `at.happyproto.registry.versionState` (`<did>:<name>:<version>`:
+availability, `suspect`, the held blobs), `at.happyproto.registry.projectState`
+(`<did>:<name>`: the cached publication, and marks for a deleted sidecar or a
+rewritten or deleted manifest) and `at.happyproto.registry.changelogCache`
+(`<did>:<name>:<version>`).
+
+### Vendored lexicons
+
+`vendor/lexicons/` holds the upstream `software.release.*` lexicons, copied
+verbatim. They are deployed so HappyView subscribes to and indexes those
+collections, and never published: HappyProto does not own that authority.
+The `site.standard.*` lexicons are not deployed at all, since nothing indexes
+them and the record library skips validation for a collection with no
+lexicon.
 
 ## Deployment
 
