@@ -634,6 +634,27 @@ local function uri_of(did, collection, rkey)
   return "at://" .. did .. "/" .. collection .. "/" .. rkey
 end
 
+--- The key of a version's VERSION_STATE row. The publisher's DID leads,
+--- because a name and version are unique only within one repo.
+local function version_state_rkey(did, name, version)
+  return did .. ":" .. name .. ":" .. version
+end
+
+--- Whether two decoded record values are equal all the way down. A record
+--- event carries no CID, so this is how an indexer tells a replayed event
+--- from a record rewritten at the same key.
+local function same_value(a, b)
+  if type(a) ~= type(b) then return false end
+  if type(a) ~= "table" then return a == b end
+  for k, v in pairs(a) do
+    if not same_value(v, b[k]) then return false end
+  end
+  for k in pairs(b) do
+    if a[k] == nil then return false end
+  end
+  return true
+end
+
 --- The three parts of a record's at-uri, or nil. Only a DID authority is
 --- accepted: a handle in a stored reference would change meaning when the
 --- handle moves.

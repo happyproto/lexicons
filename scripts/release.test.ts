@@ -104,6 +104,25 @@ describe("record keys and uris", () => {
     expect(await lua(`return { parse_uri("at://handle.test/a.b/c") == nil, parse_uri("https://x/a/b") == nil }`))
       .toEqual([true, true]);
   });
+  it("keys a version's state by publisher, name and version", async () => {
+    expect(await lua(`return version_state_rkey("${DID}", "x", "1.0.0")`)).toBe(`${DID}:x:1.0.0`);
+  });
+});
+
+describe("same_value", () => {
+  it("compares nested tables by value", async () => {
+    expect(await lua(`return same_value({ a = 1, b = { "x", { c = true } } }, { b = { "x", { c = true } }, a = 1 })`))
+      .toBe(true);
+  });
+  it("notices a missing, extra or changed field at any depth", async () => {
+    expect(await lua(`return {
+      same_value({ a = 1 }, { a = 1, b = 2 }),
+      same_value({ a = 1, b = 2 }, { a = 1 }),
+      same_value({ a = { b = 1 } }, { a = { b = 2 } }),
+      same_value({ "x", "y" }, { "x" }),
+      same_value(1, "1"),
+    }`)).toEqual([false, false, false, false, false]);
+  });
 });
 
 describe("version_lt", () => {
