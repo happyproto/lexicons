@@ -29,7 +29,8 @@ local function publication_of(pin, fetched)
   local v = fetched.value
   if type(v.name) ~= "string" or v.name == "" then return nil, "it has no name" end
   if #v.name > MAX_NAME_BYTES then return nil, "its name is longer than " .. MAX_NAME_BYTES .. " bytes" end
-  if not is_web_url(v.url) then return nil, "its url is not a web link" end
+  local problem = url_problem(v.url, "its url")
+  if problem then return nil, problem end
   if v.description ~= nil and type(v.description) ~= "string" then
     return nil, "its description is not text"
   end

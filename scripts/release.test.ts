@@ -333,6 +333,25 @@ describe("sidecar_problem", () => {
     expect(await edit(`r.security = { { url = "https:// x" } }`)).toMatch(/security\[1\]\.url/);
     expect(await edit(`r.authors = { { name = "T", url = "http://x" } } r.security = { { url = "https://x/sec" } }`)).toBeNull();
   });
+  it("refuses a link with no host right after the scheme, or with user info", async () => {
+    for (const url of ["https://?q", "https://#a", "https://:80", "https://user@example.com", "https://-x", "https://x:123456", "https://x\\ty"]) {
+      expect(await edit(`r.security = { { url = "${url}" } }`)).toMatch(/security\[1\]\.url/);
+    }
+    for (const url of ["http://localhost:2583", "https://[::1]:8080/x", "https://x?q", "https://x#a", "https://a.b-c.example/p?q=1"]) {
+      expect(await edit(`r.security = { { url = "${url}" } }`)).toBeNull();
+    }
+  });
+  it("refuses an author or contact url over 2048 bytes", async () => {
+    const at = (n: number) => `"https://x/" .. string.rep("a", ${n} - 10)`;
+    expect(await edit(`r.authors = { { name = "T", url = ${at(2048)} } }`)).toBeNull();
+    expect(await edit(`r.authors = { { name = "T", url = ${at(2049)} } }`)).toMatch(/authors\[1\]\.url is longer than 2048/);
+    expect(await edit(`r.security = { { url = ${at(2049)} } }`)).toMatch(/security\[1\]\.url is longer than 2048/);
+  });
+  it("refuses a publication cid that is not shaped like a CID", async () => {
+    for (const cid of [`"x"`, `"bafy-not-a-cid"`, `"BAFYREI"`, `"b" .. string.rep("a", 128)`, `""`, `7`]) {
+      expect(await edit(`r.publication.cid = ${cid}`)).toMatch(/publication\.cid/);
+    }
+  });
   it("refuses a security contact with neither url nor email", async () => {
     expect(await lua(`local r = ${sidecar(`at://${DID}/software.release.project/x`)}
       r.security = { {} }

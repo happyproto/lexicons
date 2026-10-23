@@ -589,6 +589,17 @@ describe("registry.fetch-publication", () => {
     }
   });
 
+  it("refuses a url over 2048 bytes or with no host", () => {
+    for (const value of [`url = "https://x/" .. string.rep("a", 2039),`, `url = "https://?q",`]) {
+      const r = job(PUBLICATION, PUBLICATION_INPUT, {
+        setup: servePublication(publicationRecord("bafypub", value)),
+        read: PROJECT_STATE_URI,
+      });
+      expect(r.ok).toBe(true);
+      expect(writes(r.calls)).toHaveLength(0);
+    }
+  });
+
   it("caches the uri the sidecar pins, not the one the PDS answered", () => {
     const r = job(PUBLICATION, PUBLICATION_INPUT, {
       setup:

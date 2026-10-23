@@ -926,12 +926,17 @@ local function string_list_problem(t, field, max_length)
   return nil
 end
 
+--- Whether `s` has the shape of a CID as atproto writes one: base32, at most
+--- 128 characters. Only the shape; bytes are checked against it on copy.
+local function is_cid(s)
+  return type(s) == "string" and #s <= 128 and s:match("^b[a-z2-7]+$") ~= nil
+end
+
 --- A blob reference as atproto serialises it. The type and size are checked
 --- against the claim here; the bytes are checked against the CID when copied.
 local function blob_problem(b, field, types, max_size)
   if type(b) ~= "table" or b["$type"] ~= "blob" then return field .. " must be a blob" end
-  local link = type(b.ref) == "table" and b.ref["$link"]
-  if type(link) ~= "string" or #link > 128 or not link:match("^b[a-z2-7]+$") then
+  if type(b.ref) ~= "table" or not is_cid(b.ref["$link"]) then
     return field .. " has no CID"
   end
   if not types[b.mimeType] then
@@ -946,10 +951,38 @@ local function blob_problem(b, field, types, max_size)
   return nil
 end
 
---- A web link a dashboard can render as one. Anything else, `javascript:`
---- above all, is refused rather than handed to a page as an href.
+--- The longest link the registry stores or serves. Links are shown, not
+--- fetched, so this bounds what one record makes every reader carry.
+local MAX_URL = 2048
+
+--- A web link a dashboard can render as one: http or https, a host (a name
+--- or a bracketed IPv6 address, with an optional port) right after the
+--- scheme, no user info, and no space or control byte anywhere. Anything
+--- else, `javascript:` above all, is refused rather than handed to a page as
+--- an href. The classes are spelled out byte by byte, because `%w` and `%s`
+--- follow the C locale.
 local function is_web_url(s)
-  return type(s) == "string" and s:match("^https?://[^/ \t\r\n\f\v]+") ~= nil
+  if type(s) ~= "string" or #s > MAX_URL then return false end
+  if s:find("[\0-\32\127]") then return false end
+  local authority = s:match("^https?://([^/?#]*)")
+  if not authority or authority == "" then return false end
+  local host, port
+  if authority:sub(1, 1) == "[" then
+    host, port = authority:match("^(%[[0-9A-Fa-f:.]+%])(.*)$")
+  else
+    host, port = authority:match("^([A-Za-z0-9][A-Za-z0-9.%-]*)(.*)$")
+  end
+  if not host then return false end
+  return port == "" or port:match("^:[0-9][0-9]?[0-9]?[0-9]?[0-9]?$") ~= nil
+end
+
+--- Why `s` is not a link the registry serves, naming `field`, or nil.
+local function url_problem(s, field)
+  if type(s) == "string" and #s > MAX_URL then
+    return field .. " is longer than " .. MAX_URL .. " bytes"
+  end
+  if not is_web_url(s) then return field .. " must be an http or https link" end
+  return nil
 end
 
 local function image_problem(img, field)
@@ -1124,8 +1157,8 @@ local function sidecar_problem(r, did, name)
   if type(publication) ~= "table" or publication.uri ~= uri_of(did, PUBLICATION, name) then
     return "publication must point at " .. uri_of(did, PUBLICATION, name)
   end
-  if type(publication.cid) ~= "string" or publication.cid == "" then
-    return "publication has no cid"
+  if not is_cid(publication.cid) then
+    return "publication.cid is not a CID"
   end
   if not PLUGIN_TYPES[r.pluginType] then
     return "pluginType is not auth, library or interpreter"
@@ -1149,8 +1182,9 @@ local function sidecar_problem(r, did, name)
     if author.name == "" then return field .. ".name is required" end
     local problem = text_problem(author.name, field .. ".name", 128, 1280)
     if problem then return problem end
-    if author.url ~= nil and not is_web_url(author.url) then
-      return field .. ".url must be an http or https link"
+    if author.url ~= nil then
+      problem = url_problem(author.url, field .. ".url")
+      if problem then return problem end
     end
     if author.email ~= nil and (type(author.email) ~= "string" or #author.email > 320) then
       return field .. ".email must be a string of at most 320 characters"
@@ -1168,8 +1202,9 @@ local function sidecar_problem(r, did, name)
     if not has_url and not has_email then
       return field .. " needs a url or an email"
     end
-    if contact.url ~= nil and not is_web_url(contact.url) then
-      return field .. ".url must be an http or https link"
+    if contact.url ~= nil then
+      local problem = url_problem(contact.url, field .. ".url")
+      if problem then return problem end
     end
     if contact.email ~= nil and (type(contact.email) ~= "string" or #contact.email > 320) then
       return field .. ".email must be a string of at most 320 characters"
@@ -1742,7 +1777,24 @@ local function banner_view(artifact)
   }
 end
 
---- The `projectView` of a plugin project, or nil when it has no sidecar.
+--- A sidecar's list of objects with only the string fields its lexicon
+--- declares. HappyView stores a record as written, so a key the lexicon
+--- never named would otherwise reach every reader unbounded.
+local function declared_list(list, keys)
+  local out = {}
+  if not is_list(list) then return json.to_array(out) end
+  for _, item in ipairs(list) do
+    if type(item) == "table" then
+      local kept = {}
+      for _, key in ipairs(keys) do kept[key] = text_or_nil(item[key]) end
+      out[#out + 1] = kept
+    end
+  end
+  return json.to_array(out)
+end
+
+--- The `projectView` of a plugin project, or nil when it has no sidecar or
+--- its project is not indexed.
 ---
 --- A deleted sidecar keeps its row, and the project still answers: its
 --- versions stay served, so the project they belong to must stay readable.
@@ -1755,7 +1807,11 @@ local function project_view(our_did, did, name, handle)
   if not sidecar or type(sidecar.record) ~= "table" then return nil end
   local s = sidecar.record
   local project_uri = uri_of(did, PROJECT, name)
+  -- The sidecar is indexed on its own, before its project, so one with no
+  -- project behind it describes nothing: answering it would let an account
+  -- that writes only sidecars fill the catalogue every instance pages.
   local project = db.get(project_uri)
+  if not project then return nil end
   local state = project_state(our_did, did, name) or {}
 
   local pin = type(s.publication) == "table" and s.publication or {}
@@ -1808,7 +1864,7 @@ local function project_view(our_did, did, name, handle)
   if handle == nil then handle = handle_for(did) end
   return {
     uri = project_uri,
-    cid = project and project.cid or nil,
+    cid = project.cid,
     did = did,
     handle = handle or nil,
     name = name,
@@ -1816,12 +1872,12 @@ local function project_view(our_did, did, name, handle)
     publication = publication,
     pluginType = s.pluginType,
     keywords = json.to_array(type(s.keywords) == "table" and s.keywords or {}),
-    authors = json.to_array(type(s.authors) == "table" and s.authors or {}),
-    security = json.to_array(type(s.security) == "table" and s.security or {}),
+    authors = declared_list(s.authors, { "name", "url", "email" }),
+    security = declared_list(s.security, { "url", "email" }),
     channels = channels,
     banner = banner,
     lifecycle = { state = lifecycle(project_statuses, {}).state },
-    indexedAt = indexed_at(project or sidecar),
+    indexedAt = indexed_at(project),
   }
 end
 -- @endblock

@@ -13,7 +13,10 @@
 -- Both matches are scoped so only plugins can fill the cap: display names
 -- come from the registry's own state rows, and project names from sidecars,
 -- which exist only for plugins. The index's ranked substring search can be
--- scoped to neither, so a stranger's rows could take every slot.
+-- scoped to neither, so a stranger's rows could take every slot. A sidecar
+-- whose project is not indexed is no plugin, so project_view answers nothing
+-- for it on either path.
+
 
 local db = require("happyview.db")
 

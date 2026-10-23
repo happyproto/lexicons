@@ -464,6 +464,21 @@ describe("getProject", () => {
     expect(out.sidecarDeleted).toBeUndefined();
   });
 
+  it("answers authors and security contacts with only the fields the lexicon declares", () => {
+    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
+      setup: `local s = __indexed["${SIDECAR_URI}"].record
+s.authors = { { name = "Trezy", url = "https://trezy.com", email = "t@example.com", avatar = string.rep("x", 100000), nested = { a = 1 } } }
+s.security = { { email = "security@example.com", pgp = string.rep("k", 100000), name = "Not declared" } }`,
+    });
+    expect(out.authors).toEqual([{ name: "Trezy", url: "https://trezy.com", email: "t@example.com" }]);
+    expect(out.security).toEqual([{ email: "security@example.com" }]);
+  });
+
+  it("answers ProjectNotFound for a sidecar whose project is not indexed", () => {
+    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: `__indexed["${PROJECT_URI}"] = nil` });
+    expect(out.error).toBe("ProjectNotFound");
+  });
+
   it("answers no handle when the publisher's has none, and still answers", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: `__handles = {}` });
     expect(out.uri).toBe(PROJECT_URI);
@@ -543,6 +558,22 @@ describe("searchProjects", () => {
     expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
     const found = query(SEARCH, `{ q = "Probe" }`, { setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true` });
     expect(found.out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+  });
+
+  it("leaves out a sidecar whose project is not indexed, so sidecars alone fill no page", () => {
+    // Eve writes only sidecars, newer than every real project.
+    const sidecars = [1, 2, 3]
+      .map(
+        (i) => `__put("${at(EVE, "at.happyproto.registry.project", "spam")}${i}", "bafyspam", {
+  project = "${at(EVE, "software.release.project", "spam")}${i}",
+  publication = { uri = "${at(EVE, "site.standard.publication", "spam")}${i}", cid = "bafyspam" },
+  pluginType = "library", authors = { { name = "Eve" } }, security = { { email = "e@example.com" } },
+}, "2026-12-01T00:00:0${i}Z")`,
+      )
+      .join("\n");
+    const { out } = query(SEARCH, `{ includeRetired = true }`, { setup: sidecars });
+    expect(out.projects.map((p: any) => p.name)).toEqual(["old", "probe"]);
+    expect(query(SEARCH, `{ q = "spam" }`, { setup: sidecars }).out.projects).toEqual({});
   });
 
   it("ignores state rows that are not the registry's own", () => {

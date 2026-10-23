@@ -32,10 +32,6 @@ local function held_kind(kind, index)
   return "screenshot." .. (i + 1)
 end
 
-local function is_cid(s)
-  return type(s) == "string" and #s <= 128 and s:match("^b[a-z2-7]+$") ~= nil
-end
-
 --- `{cid, mimeType, size?}` for a CID some state row of ours holds, or nil.
 local function held_by_cid(our_did, cid)
   -- A substring match narrows the rows; the exact match below decides. A

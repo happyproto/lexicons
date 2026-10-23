@@ -91,11 +91,12 @@ function handle(input, ctx)
 
   -- The sidecar is checked as the record it will be. Without a caller there
   -- is no repo yet, so the registry's own DID stands in for the parts that
-  -- only depend on whose repo it is.
+  -- only depend on whose repo it is, and a CID-shaped placeholder for the
+  -- publication's CID, which only its write will tell.
   local caller = ctx.caller_did
   local owner = is_did(caller) and caller or our_did
   problem = sidecar_problem(
-    sidecar_record(owner, name, input.project, { uri = uri_of(owner, PUBLICATION, name), cid = "unwritten" }),
+    sidecar_record(owner, name, input.project, { uri = uri_of(owner, PUBLICATION, name), cid = "bafyreiunwritten" }),
     owner, name
   )
   if problem then return failure("InvalidRecord", problem) end

@@ -49,7 +49,7 @@
       "required": ["name"],
       "properties": {
         "name": { "type": "string", "maxGraphemes": 128, "maxLength": 1280 },
-        "url": { "type": "string", "format": "uri" },
+        "url": { "type": "string", "format": "uri", "maxLength": 2048 },
         "email": { "type": "string", "maxLength": 320 }
       }
     },
@@ -57,7 +57,7 @@
       "type": "object",
       "description": "A security contact. It must carry a url, an email, or both.",
       "properties": {
-        "url": { "type": "string", "format": "uri" },
+        "url": { "type": "string", "format": "uri", "maxLength": 2048 },
         "email": { "type": "string", "maxLength": 320 }
       }
     }
