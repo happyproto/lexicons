@@ -85,7 +85,11 @@ const versionRecord = ({
 const STUBS = String.raw`
 __calls = {}
 __indexed = {}
-local function put(uri, cid, record) __indexed[uri] = { uri = uri, cid = cid, record = record } end
+-- Rows the network delivered carry an indexed_at; a row the gateway's own
+-- write mirrored has none until its echo arrives.
+local function put(uri, cid, record)
+  __indexed[uri] = { uri = uri, cid = cid, record = record, indexed_at = "2026-10-23T00:00:00Z" }
+end
 
 put("${SIDECAR_URI}", "bafysidecar", ${sidecar(DID, "probe")})
 put("${at(DID, "at.happyproto.registry.project", "other")}", "bafysidecar2", ${sidecar(DID, "other")})
@@ -754,5 +758,69 @@ describe("software.release.status", () => {
     const { out, calls } = index(STATUS_SCRIPT, { ...event, rkey: "3kstatus", record });
     expect(out).toBeNull();
     expect(logs(calls)).toEqual([]);
+  });
+});
+
+describe("the echo of a record the gateway wrote", () => {
+  // HappyView mirrors a caller's write into the index as soon as their PDS
+  // accepts it, without running the index script, and leaves indexed_at
+  // empty. The Jetstream echo is the record's first arrival as far as the
+  // registry's state goes, so it is not a replay of the identical row.
+  const mirrored = (uri: string) => `__indexed["${uri}"].indexed_at = nil`;
+  const cases: [string, string, Event, string, (calls: any[]) => void][] = [
+    [
+      "sidecar",
+      SIDECAR_SCRIPT,
+      { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") },
+      SIDECAR_URI,
+      (calls) => expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.fetch-publication"]),
+    ],
+    [
+      "project",
+      PROJECT_SCRIPT,
+      { collection: "software.release.project", rkey: "probe", record: `{ ["$type"] = "software.release.project", name = "probe" }` },
+      PROJECT_URI,
+      () => {},
+    ],
+    [
+      "manifest",
+      MANIFEST_SCRIPT,
+      { collection: "software.release.manifest", rkey: "3kmanifest", record: manifest() },
+      MANIFEST_URI,
+      () => {},
+    ],
+    [
+      "version",
+      VERSION_SCRIPT,
+      { collection: "software.release.version", rkey: "probe:1.0.0", record: versionRecord() },
+      VERSION_URI,
+      (calls) => expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.copy-version"]),
+    ],
+    [
+      "status",
+      STATUS_SCRIPT,
+      { collection: "software.release.status", rkey: "3kstatus", record: `{ subject = "${VERSION_URI}", status = "endOfSupport" }` },
+      STATUS_URI,
+      () => {},
+    ],
+  ];
+  for (const [name, script, event, uri, check] of cases) {
+    it(`${name}: indexes the echo of its own mirrored row as a first arrival`, () => {
+      const { out, calls } = index(script, event, { setup: mirrored(uri) });
+      expect(out).toBe(true);
+      check(calls);
+    });
+    it(`${name}: still skips a replay of a row the network delivered`, () => {
+      expect(index(script, event).out).toBeNull();
+    });
+  }
+
+  it("version: a mirrored row that differs from the echo is still a rewrite", () => {
+    const record = versionRecord({ extra: `changelog = "https://example.com/changes",` });
+    const { out, calls } = index(VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe:1.0.0", record }, {
+      setup: mirrored(VERSION_URI),
+    });
+    expect(out).toBeNull();
+    expect(writes(calls)[0].body.suspect).toBe(true);
   });
 });

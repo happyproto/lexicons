@@ -54,7 +54,7 @@ function handle(input, ctx)
   end
   if input.action == "delete" then return nil end
 
-  local stored = db.get(input.uri)
+  local stored = prior_row(input.uri, input.record)
   if input.action == "update" or (stored and not same_value(stored.record, input.record)) then
     log.warn("registry: status changed after publication; keeping the first", { uri = input.uri })
     return nil

@@ -8,7 +8,7 @@
 -- and `urlencode`; `provisioner` implies `json` and `failure`;
 -- `instance` implies `json`; `jobs` implies `failure`; `release` implies
 -- `validate`, `json` and `urlencode`; `registry` implies `release`, `authority`,
--- `validate`, `failure` and `json`.
+-- `validate`, `failure`, `json` and `urlencode`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
 -- failure helper but must NOT be admin-gated. It is the endpoint that tells a
@@ -653,6 +653,55 @@ local function same_value(a, b)
     if a[k] == nil then return false end
   end
   return true
+end
+
+--- The stored row an index event is judged against, or nil when there is
+--- none to judge it by.
+---
+--- When the gateway writes a caller's record, HappyView mirrors it into the
+--- index as soon as the PDS accepts it, without running the index script,
+--- and leaves `indexed_at` empty until the network echoes it. That echo is
+--- the record's first arrival as far as the registry's state goes, so a
+--- mirrored row equal to the event is no reason to treat it as a replay. A
+--- mirrored row that differs from the event is still a rewrite.
+local function prior_row(uri, r)
+  local db = require("happyview.db")
+  local row = db.get(uri)
+  if row and type(row.indexed_at) ~= "string" and same_value(row.record, r) then return nil end
+  return row
+end
+
+--- A value as JSON with every object's keys in order, so two decoded values
+--- that are equal encode the same whichever way their maps were built. An
+--- integral float encodes as the integer it is, because the host may hand a
+--- count over as either.
+local function canonical_json(v)
+  local t = type(v)
+  if t == "string" then return json.encode(v) end
+  if t == "boolean" then return tostring(v) end
+  if t == "number" then
+    if math.type(v) == "float" and v == math.floor(v) and v > -2^53 and v < 2^53 then
+      return string.format("%d", v)
+    end
+    if math.type(v) == "integer" then return tostring(v) end
+    return string.format("%.17g", v)
+  end
+  if t ~= "table" then return "null" end
+  local count = 0
+  for _ in pairs(v) do count = count + 1 end
+  if count > 0 and count == #v then
+    local items = {}
+    for i = 1, #v do items[i] = canonical_json(v[i]) end
+    return "[" .. table.concat(items, ",") .. "]"
+  end
+  local keys = {}
+  for k in pairs(v) do keys[#keys + 1] = { text = tostring(k), key = k } end
+  table.sort(keys, function(a, b) return a.text < b.text end)
+  local items = {}
+  for i, k in ipairs(keys) do
+    items[i] = json.encode(k.text) .. ":" .. canonical_json(v[k.key])
+  end
+  return "{" .. table.concat(items, ",") .. "}"
 end
 
 --- The key of a project's PROJECT_STATE row.
@@ -1322,6 +1371,27 @@ local function derive(statuses)
   return events, decider
 end
 
+--- Every stored status of `did` about `subject`, as `{ uri, record }`
+--- envelopes for `lifecycle`. Only the publisher's own count: anyone can
+--- write a status naming any subject.
+local MAX_STATUSES = 1000
+
+local function statuses_about(did, subject)
+  local db = require("happyview.db")
+  local out, cursor = {}, nil
+  repeat
+    local query = db.records(STATUS):did(did):where("subject", "=", subject):limit(100)
+    if cursor then query = query:cursor(cursor) end
+    local page = query:run() or {}
+    local rows = page.records or {}
+    for _, row in ipairs(rows) do
+      out[#out + 1] = { uri = row.uri, record = row.record }
+    end
+    cursor = page.cursor
+  until not cursor or #rows == 0 or #out >= MAX_STATUSES
+  return out
+end
+
 --- A version's lifecycle, from its own statuses and its project's, each a
 --- `{ uri, record }` envelope. The worse of the two states applies, and the
 --- status that set it supplies the reason; on a tie the version's own does,
@@ -1388,6 +1458,71 @@ local function handle_for(did)
   local ok, identity = pcall(atproto.resolve_identity, did)
   if not ok or type(identity) ~= "table" then return nil end
   return identity.handle
+end
+
+--- One record written to the caller's own repo with `happyview.record`'s
+--- `create` or `put`, answered as `{uri, cid}`, or nil and the error text.
+--- The text can name the caller's session or their PDS, so a procedure logs
+--- it rather than returning it.
+---
+--- No `validate` option: HappyView checks a record against a lexicon it
+--- holds, and the publisher's PDS validates what it can resolve and accepts
+--- what it can't. Asking for `validate = true` would make every PDS that
+--- can't resolve these lexicons refuse the write.
+local function caller_write(op, target, body, opts)
+  local record = require("happyview.record")
+  local ok, written = pcall(record[op], target, body, opts)
+  if not ok then return nil, tostring(written) end
+  if type(written) ~= "table" or type(written.uri) ~= "string" or type(written.cid) ~= "string" then
+    return nil, "the write answered no record reference"
+  end
+  return { uri = written.uri, cid = written.cid }
+end
+
+--- The gateway's bound on release notes. The lexicon's is an outer limit;
+--- this is what hpy is told to stay under.
+local MAX_CHANGELOG_BYTES = 20000
+
+--- Why release notes can't be written, or nil. Absent and empty both mean
+--- none.
+local function changelog_problem(markdown)
+  if markdown == nil or markdown == "" then return nil end
+  return text_problem(markdown, "changelog", MAX_CHANGELOG_BYTES, MAX_CHANGELOG_BYTES)
+end
+
+--- The site.standard.document a version's release notes are written as,
+--- under the project's own publication so the registry will cache it.
+local function changelog_document(did, name, version, display_name, markdown)
+  return {
+    ["$type"] = DOCUMENT,
+    site = uri_of(did, PUBLICATION, name),
+    path = "/changelog/" .. version,
+    title = display_name .. " " .. version,
+    publishedAt = now_iso(),
+    textContent = markdown,
+    content = {
+      ["$type"] = "at.markpub.markdown",
+      text = { ["$type"] = "at.markpub.text", markdown = markdown },
+      flavor = "commonmark",
+    },
+  }
+end
+
+--- The name a project is shown by: its cached publication's, else its own.
+local function display_name(our_did, did, name)
+  local state = project_state(our_did, did, name)
+  local publication = state and state.publication
+  if type(publication) == "table" and type(publication.name) == "string" and publication.name ~= "" then
+    return publication.name
+  end
+  return name
+end
+
+--- Whether a channel may point at a version of the caller's project: the
+--- version's lifecycle from its own statuses and the project's.
+local function release_lifecycle(did, name, version)
+  local own = version and statuses_about(did, uri_of(did, VERSION, name .. ":" .. version)) or {}
+  return lifecycle(own, statuses_about(did, uri_of(did, PROJECT, name)))
 end
 
 --- The paging arguments a registry query accepts, clamped. A caller-supplied

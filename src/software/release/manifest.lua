@@ -60,7 +60,7 @@ function handle(input, ctx)
 
   local did, uri, r = input.did, input.uri, input.record
 
-  local stored = db.get(uri)
+  local stored = prior_row(uri, r)
 
   if input.action == "delete" then
     -- The row stays, so versions already copied keep resolving; the state says

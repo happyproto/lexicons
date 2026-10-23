@@ -108,7 +108,7 @@
         },
         {
           "name": "NotInstallable",
-          "description": "track was given, but fromVersion is unavailable or retired, so a channel cannot point at it."
+          "description": "track was given, but the project is unavailable or retired, so a channel cannot point at the new version."
         }
       ]
     }

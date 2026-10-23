@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Create or update a plugin project in the caller's repo. The first call writes the software.release.project, the site.standard.publication and the at.happyproto.registry.project, in that order. Later calls update the publication and the at.happyproto.registry.project only; the project record itself is never changed.",
+      "description": "Create or update a plugin project in the caller's repo. The first call writes the site.standard.publication, the at.happyproto.registry.project and the software.release.project, in that order, so each is indexed after what it depends on. Later calls update the publication and the at.happyproto.registry.project only; the project record itself is never changed.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -37,7 +37,7 @@
             "validateOnly": {
               "type": "boolean",
               "default": false,
-              "description": "Check the input against every rule the registry applies, and write nothing. Still requires authentication."
+              "description": "Check the input against every rule the registry applies, and write nothing. Works without authentication, but only a signed-in call is also checked against the caller's existing records."
             }
           }
         }

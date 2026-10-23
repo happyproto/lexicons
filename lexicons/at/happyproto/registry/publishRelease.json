@@ -51,7 +51,7 @@
             "validateOnly": {
               "type": "boolean",
               "default": false,
-              "description": "Check the input against every rule the registry applies, and write nothing. Still requires authentication."
+              "description": "Check the input against every rule the registry applies, and write nothing. Works without authentication, but only a signed-in call is also checked against the caller's existing records."
             }
           }
         }
@@ -119,6 +119,10 @@
         {
           "name": "VersionExists",
           "description": "That version is already published with a different artifact. A version never changes once published; publish a new one."
+        },
+        {
+          "name": "NotInstallable",
+          "description": "The project is unavailable or retired, so the channel cannot be moved to a new version."
         }
       ]
     }

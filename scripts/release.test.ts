@@ -448,3 +448,21 @@ describe("lifecycle", () => {
       .toEqual(["deprecated", "retired", "deprecated"]);
   });
 });
+
+describe("canonical_json", () => {
+  it("orders every object's keys, whatever order the map was built in", async () => {
+    expect(await lua(`return canonical_json({ b = 1, a = { d = true, c = "x" } })`)).toBe(
+      `{"a":{"c":"x","d":true},"b":1}`,
+    );
+  });
+  it("keeps a list in its own order", async () => {
+    expect(await lua(`return canonical_json({ "b", "a", { z = 1, y = 2 } })`)).toBe(`["b","a",{"y":2,"z":1}]`);
+  });
+  it("encodes an integral float as the integer it is", async () => {
+    expect(await lua(`return canonical_json({ size = 456.0 }) == canonical_json({ size = 456 })`)).toBe(true);
+    expect(await lua(`return canonical_json(1.5)`)).toBe("1.5");
+  });
+  it("tells two artifacts apart by any field", async () => {
+    expect(await lua(`return canonical_json({ license = "MIT" }) == canonical_json({ license = "Apache-2.0" })`)).toBe(false);
+  });
+});

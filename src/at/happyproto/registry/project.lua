@@ -47,7 +47,7 @@ function handle(input, ctx)
     return nil
   end
 
-  local stored = db.get(input.uri)
+  local stored = prior_row(input.uri, input.record)
   -- Every manifest was checked against the sidecar's type when indexed, so a
   -- new type would leave them all of the wrong one.
   if stored and (stored.record or {}).pluginType ~= r.pluginType then

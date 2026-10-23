@@ -53,7 +53,7 @@ function handle(input, ctx)
     return nil
   end
 
-  local stored = db.get(uri)
+  local stored = prior_row(uri, r)
   if input.action == "update" or (stored and not same_value(stored.record, r)) then
     log.warn("registry: version changed after publication; keeping the first", {
       did = did, name = name, version = version,

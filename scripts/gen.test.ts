@@ -99,6 +99,13 @@ describe("expand", () => {
     expect(expand(["release"], order)).toEqual(["json", "validate", "urlencode", "release"]);
   });
 
+  test("registry implies everything release needs", () => {
+    // Implication is one level deep, so registry names release's own blocks.
+    expect(expand(["registry"], [...order, "registry"])).toEqual([
+      "json", "failure", "validate", "authority", "urlencode", "release", "registry",
+    ]);
+  });
+
   test("provisioner implies json and failure", () => {
     expect(expand(["provisioner"], order)).toEqual(["json", "failure", "provisioner"]);
   });

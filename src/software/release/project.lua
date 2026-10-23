@@ -50,7 +50,7 @@ function handle(input, ctx)
   -- An update to a project never stored is indexed as its first record,
   -- unlike a manifest or version: a project may legitimately be updated (to
   -- add renamedTo), so an update is no evidence of tampering by itself.
-  local stored = db.get(input.uri)
+  local stored = prior_row(input.uri, input.record)
   if stored then
     if same_value(stored.record, r) then return nil end
     local old = stored.record or {}

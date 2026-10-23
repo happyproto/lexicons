@@ -49,8 +49,9 @@ const IMPLIES: Record<string, string[]> = {
   // `urlencode` for the PDS requests the jobs make through the block.
   release: ["validate", "json", "urlencode"],
   // `authority` for happyproto_did: a registry script reads its own state
-  // under that DID, so every one of them needs it.
-  registry: ["release", "authority", "validate", "failure", "json"],
+  // under that DID, so every one of them needs it. `urlencode` because
+  // implication is one level deep and `release` calls it.
+  registry: ["release", "authority", "validate", "failure", "json", "urlencode"],
 };
 
 export function parsePrelude(text: string): Map<string, string> {
