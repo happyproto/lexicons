@@ -150,7 +150,6 @@ const UNGATED: Record<string, string> = {
  * *endpoint* directory is still refused until someone picks its gate.
  */
 const UNGATED_DIRS: Record<string, string> = {
-  plugin: "record-index handlers; a firehose event has no caller to gate",
   registry: "public reads; any instance resolves a plugin without an account here",
 };
 

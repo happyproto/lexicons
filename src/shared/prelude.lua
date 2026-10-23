@@ -6,7 +6,9 @@
 -- closing over it. `authority` implies `validate`; `gate` implies `failure`,
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
 -- and `urlencode`; `provisioner` implies `json` and `failure`;
--- `instance` implies `json`; `jobs` implies `failure`.
+-- `instance` implies `json`; `jobs` implies `failure`; `release` implies
+-- `validate` and `json`; `registry` implies `release`, `authority`,
+-- `validate`, `failure` and `json`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
 -- failure helper but must NOT be admin-gated. It is the endpoint that tells a
@@ -539,65 +541,158 @@ local function follow_operation(op)
 end
 -- @endblock
 
--- @block plugin
--- Checks for the `at.happyproto.plugin.*` records the registry indexes.
+-- @block release
+-- Checks for the software.release records the registry indexes and the
+-- at.happyproto records that make one a HappyView plugin.
 --
--- Three constraints the lexicons cannot express live here, because a lexicon
--- cannot require one of two fields and cannot type an arbitrary-key map: an
--- artifact must carry `blob` or `url`, `extensions` must actually carry our
--- manifest, and `requires` keys and ranges have to be read. Unenforced here
--- they are enforced nowhere.
+-- The lexicons cannot say most of what matters here: `requires` is an
+-- arbitrary-key map, an interpreter's fields are required only for an
+-- interpreter, and HappyView's atproto validation does not enforce a blob's
+-- `accept` or `maxSize`. Unenforced here they are enforced nowhere, so the
+-- gateway and the indexer both ask these, and what a publisher is refused at
+-- the door is exactly what the index refuses later.
 
---- Where registry state lives. Deliberately NOT registered as a lexicon:
+local PROJECT = "software.release.project"
+local MANIFEST = "software.release.manifest"
+local VERSION = "software.release.version"
+local CHANNEL = "software.release.channel"
+local STATUS = "software.release.status"
+local SIDECAR = "at.happyproto.registry.project"
+local PUBLICATION = "site.standard.publication"
+local DOCUMENT = "site.standard.document"
+local ARTIFACT_TYPE = "at.happyproto.plugin.v1"
+
+--- Where registry state lives. Deliberately NOT registered as lexicons:
 --- registering a record type makes Jetstream subscribe to it network-wide,
 --- and anyone could then publish rows the registry would read as its own.
 --- These are written locally under HAPPYPROTO_DID and never leave.
-local RELEASE_STATE = "at.happyproto.registry.releaseState"
-local PACKAGE_STATE = "at.happyproto.registry.packageState"
+local VERSION_STATE = "at.happyproto.registry.versionState"
+local PROJECT_STATE = "at.happyproto.registry.projectState"
+local CHANGELOG_CACHE = "at.happyproto.registry.changelogCache"
 
---- A package slug. It is the profile's record key and the first half of a
---- release's, so it must survive a record key, a URL path segment, and a
---- split on `:` -- which is why a colon is not allowed in it.
-local function is_plugin_slug(s)
-  return type(s) == "string"
-    and #s >= 1
-    and #s <= 128
-    and s:match("^%a[%w%-%.]*$") ~= nil
+--- The channels a publisher releases onto. Any name-shaped channel is a valid
+--- record, but these are the ones HappyView and hpy follow.
+local TRACKS = { latest = true, beta = true, alpha = true }
+
+local PLUGIN_TYPES = { auth = true, library = true, interpreter = true }
+
+local IMAGE_TYPES = {
+  ["image/png"] = true, ["image/jpeg"] = true, ["image/webp"] = true,
+  ["image/gif"] = true, ["image/avif"] = true,
+}
+
+local MAX_PACKAGE = 16777216
+local MAX_MANIFEST = 1000000
+local MAX_IMAGE = 1000000
+
+--- A project's name: its record key, the first half of a version's and a
+--- channel's, and a URL path segment. 1 to 64 lowercase letters, digits and
+--- interior hyphens, so it survives all three and a split on `:`.
+local function is_project_name(s)
+  if type(s) ~= "string" or #s < 1 or #s > 64 then return false end
+  return s:match("^[a-z0-9]$") ~= nil or s:match("^[a-z0-9][a-z0-9%-]*[a-z0-9]$") ~= nil
 end
 
---- Semver 2.0 without build metadata. `+` cannot appear in an atproto record
---- key, so a version carrying it could never equal its own rkey half.
---- Prerelease identifiers are allowed; a leading `v` is not.
-local function is_plugin_version(s)
-  if type(s) ~= "string" or #s > 256 or s:find("+", 1, true) then return false end
-  local core, pre = s:match("^(%d+%.%d+%.%d+)%-?([%w%.%-]*)$")
-  if not core then return false end
-  if pre ~= "" and pre:match("^[%w%.%-]+$") == nil then return false end
+--- Semver core plus an optional lowercase prerelease, at most 64 characters.
+--- No build metadata, because `+` cannot appear in a record key, and no
+--- uppercase, because a version is compared as its key and `Alpha` and
+--- `alpha` would be two versions that precede differently.
+local function is_release_version(s)
+  if type(s) ~= "string" or #s > 64 then return false end
+  local major, minor, patch, rest = s:match("^(%d+)%.(%d+)%.(%d+)(.*)$")
+  if not major then return false end
+  for _, n in ipairs({ major, minor, patch }) do
+    if #n > 1 and n:sub(1, 1) == "0" then return false end
+  end
+  if rest == "" then return true end
+  local pre = rest:match("^%-(.+)$")
+  if not pre then return false end
+  for id in (pre .. "."):gmatch("([^.]*)%.") do
+    if id == "" or not id:match("^[0-9a-z%-]+$") then return false end
+  end
   return true
 end
 
---- A release's record key is `<slug>:<version>`. Answers both halves, or nil
---- for anything that is not exactly that shape.
-local function split_release_rkey(rkey)
-  if type(rkey) ~= "string" then return nil end
-  local slug, version = rkey:match("^([^:]+):(.+)$")
-  if not slug or not is_plugin_slug(slug) or not is_plugin_version(version) then
-    return nil
-  end
-  return slug, version
+--- A channel record names any name-shaped channel; the tracks are a subset.
+local function is_channel_name(s)
+  return is_project_name(s)
 end
 
---- Whether a version-requirement string is the dialect we parse, answering a
---- reason when it is not.
+--- `<name>:<rest>` with exactly one colon and a valid name, or nil. The rest
+--- is left to the caller, which knows whether it is a version or a channel.
+local function split_rkey(rkey)
+  if type(rkey) ~= "string" then return nil end
+  local name, rest = rkey:match("^([^:]+):([^:]+)$")
+  if not name or not is_project_name(name) then return nil end
+  return name, rest
+end
+
+local function uri_of(did, collection, rkey)
+  return "at://" .. did .. "/" .. collection .. "/" .. rkey
+end
+
+--- The three parts of a record's at-uri, or nil. Only a DID authority is
+--- accepted: a handle in a stored reference would change meaning when the
+--- handle moves.
+local function parse_uri(uri)
+  if type(uri) ~= "string" then return nil end
+  local did, collection, rkey = uri:match("^at://([^/]+)/([^/]+)/([^/]+)$")
+  if not did or not is_did(did) then return nil end
+  return did, collection, rkey
+end
+
+--- Semver precedence. Numeric on the core triple; a prerelease sorts below the
+--- same core without one, so `3.0.0-alpha.1` is never newer than `3.0.0`; and
+--- prerelease identifiers compare one by one, numeric ones as numbers and
+--- before any alphanumeric one, so `alpha.10` follows `alpha.2`.
+local function version_lt(a, b)
+  local function parts(v)
+    local major, minor, patch, pre = v:match("^(%d+)%.(%d+)%.(%d+)%-?(.*)$")
+    return tonumber(major), tonumber(minor), tonumber(patch), pre
+  end
+  if type(a) ~= "string" or type(b) ~= "string" then return false end
+  local amaj, amin, apat, apre = parts(a)
+  local bmaj, bmin, bpat, bpre = parts(b)
+  if not amaj or not bmaj then return a < b end
+  if amaj ~= bmaj then return amaj < bmaj end
+  if amin ~= bmin then return amin < bmin end
+  if apat ~= bpat then return apat < bpat end
+  if apre == bpre then return false end
+  if apre == "" then return false end
+  if bpre == "" then return true end
+
+  local function ids(pre)
+    local out = {}
+    for id in (pre .. "."):gmatch("([^.]*)%.") do out[#out + 1] = id end
+    return out
+  end
+  local aids, bids = ids(apre), ids(bpre)
+  for i = 1, math.max(#aids, #bids) do
+    local x, y = aids[i], bids[i]
+    if x == nil then return true end
+    if y == nil then return false end
+    if x ~= y then
+      local xn = x:match("^%d+$") and tonumber(x)
+      local yn = y:match("^%d+$") and tonumber(y)
+      if xn and yn then return xn < yn end
+      if xn then return true end
+      if yn then return false end
+      return x < y
+    end
+  end
+  return false
+end
+
+--- Whether a version requirement is the dialect we parse, answering a reason
+--- when it is not.
 ---
---- Ranges are Cargo's `VersionReq`, which `plugin::graph` already parses
---- `dependencies` with, so a registry requirement and the dependency graph
---- agree. Comparators are comma-separated and ANDed. `||` is node-semver,
---- which FAIR and EmDash tooling would produce, so it is refused **by name**
---- rather than left to a parser that reports an unexpected `'|'` and tells a
---- publisher nothing. This is a shape check; Cargo's own parser is the
---- authority at install time.
-local function semver_range_problem(s)
+--- Ranges are Cargo's `VersionReq`, which HappyView's dependency graph already
+--- parses, so a registry requirement and the graph agree. Comparators are
+--- comma-separated and ANDed. `||` is node-semver, which other ecosystems'
+--- tooling produces, so it is refused **by name** rather than left to a
+--- parser that reports an unexpected `'|'` and tells a publisher nothing.
+--- This is a shape check; Cargo's own parser is the authority at install.
+local function range_problem(s)
   if type(s) ~= "string" or s == "" then return "is not a string" end
   if s:find("||", 1, true) then
     return "uses `||`, which Cargo's semver does not support; "
@@ -615,86 +710,207 @@ local function semver_range_problem(s)
   return nil
 end
 
---- `requires` is an `unknown` field, so the lexicon guarantees only that it
---- is an object. Every key must be `env:happyview` or a profile AT URI, and
---- every value a range. Keyed by AT URI rather than DID because identity is
---- (publisher, slug) and one publisher may hold many packages.
+-- Code points that never start a grapheme of their own: combining marks,
+-- variation selectors, zero-width joiners, emoji modifiers and tags. Not a
+-- full UAX #29 segmentation, which Lua has no tables for; it errs towards
+-- counting more graphemes than there are, so a string it admits is never
+-- longer than the lexicon allows.
+local function extends(cp)
+  return (cp >= 0x0300 and cp <= 0x036F)
+    or (cp >= 0x1AB0 and cp <= 0x1AFF)
+    or (cp >= 0x1DC0 and cp <= 0x1DFF)
+    or (cp >= 0x20D0 and cp <= 0x20FF)
+    or (cp >= 0xFE00 and cp <= 0xFE0F)
+    or (cp >= 0xFE20 and cp <= 0xFE2F)
+    or (cp >= 0x1F3FB and cp <= 0x1F3FF)
+    or (cp >= 0xE0020 and cp <= 0xE007F)
+    or (cp >= 0xE0100 and cp <= 0xE01EF)
+    or cp == 0x200D
+end
+
+--- An approximate grapheme count, or nil for a string that is not UTF-8.
+local function graphemes(s)
+  if not utf8.len(s) then return nil end
+  local count, joined = 0, false
+  for _, cp in utf8.codes(s) do
+    if joined then
+      joined = false
+    elseif not extends(cp) then
+      count = count + 1
+    end
+    if cp == 0x200D then joined = true end
+  end
+  return count
+end
+
+--- Why a string breaks a lexicon's limits, or nil. `field` names it in the
+--- answer, since a publisher has to find it.
+local function text_problem(s, field, max_graphemes, max_bytes)
+  if type(s) ~= "string" then return field .. " must be a string" end
+  if #s > max_bytes then
+    return field .. " is longer than " .. max_bytes .. " bytes"
+  end
+  local count = graphemes(s)
+  if not count then return field .. " is not valid UTF-8" end
+  if count > max_graphemes then
+    return field .. " is longer than " .. max_graphemes .. " characters"
+  end
+  return nil
+end
+
+--- A Lua sequence and nothing else, so a map passed where the lexicon wants
+--- an array is refused rather than read partially by ipairs.
+local function is_list(t)
+  if type(t) ~= "table" then return false end
+  local count = 0
+  for _ in pairs(t) do count = count + 1 end
+  return count == #t
+end
+
+local function string_list_problem(t, field, max_length)
+  if not is_list(t) then return field .. " must be a list" end
+  for i, s in ipairs(t) do
+    if type(s) ~= "string" then return field .. "[" .. i .. "] must be a string" end
+    if #s > max_length then
+      return field .. "[" .. i .. "] is longer than " .. max_length .. " characters"
+    end
+  end
+  return nil
+end
+
+--- A blob reference as atproto serialises it. The type and size are checked
+--- against the claim here; the bytes are checked against the CID when copied.
+local function blob_problem(b, field, types, max_size)
+  if type(b) ~= "table" or b["$type"] ~= "blob" then return field .. " must be a blob" end
+  if type(b.ref) ~= "table" or type(b.ref["$link"]) ~= "string" or b.ref["$link"] == "" then
+    return field .. " has no CID"
+  end
+  if not types[b.mimeType] then
+    return field .. " has a type that is not accepted: " .. tostring(b.mimeType)
+  end
+  if math.type(b.size) ~= "integer" or b.size < 0 then
+    return field .. " has no size"
+  end
+  if b.size > max_size then
+    return field .. " is larger than " .. max_size .. " bytes"
+  end
+  return nil
+end
+
+local function image_problem(img, field)
+  if type(img) ~= "table" then return field .. " must be an object" end
+  local problem = blob_problem(img.image, field .. ".image", IMAGE_TYPES, MAX_IMAGE)
+  if problem then return problem end
+  for _, side in ipairs({ "width", "height" }) do
+    if math.type(img[side]) ~= "integer" or img[side] < 1 then
+      return field .. "." .. side .. " must be a positive integer"
+    end
+  end
+  if img.alt ~= nil then
+    return text_problem(img.alt, field .. ".alt", 300, 3000)
+  end
+  return nil
+end
+
+--- `requires` is an `unknown` field, so the lexicon guarantees nothing about
+--- it. Every key is `env:<name>` or a software.release.project at-uri, and
+--- every value a range. Keyed by URI rather than DID because identity is
+--- (publisher, name) and one publisher may hold many projects.
 local function requires_problem(t)
   if t == nil then return nil end
   if type(t) ~= "table" then return "requires must be an object" end
   for key, value in pairs(t) do
-    if type(key) ~= "string" then return "requires has a non-string key" end
+    if type(key) ~= "string" then return "requires has a key that is not a string" end
     local is_env = key:match("^env:[%w%-%.]+$") ~= nil
-    local did, slug = key:match("^at://([^/]+)/at%.happyproto%.plugin%.profile/(.+)$")
-    local is_package = did ~= nil and is_did(did) and is_plugin_slug(slug)
-    if not is_env and not is_package then
-      return "requires key is neither env:* nor a profile AT URI: " .. key
+    local did, collection, name = parse_uri(key)
+    local is_project = did ~= nil and collection == PROJECT and is_project_name(name)
+    if not is_env and not is_project then
+      return "requires key is neither env:<name> nor a " .. PROJECT .. " at-uri: " .. key
     end
-    local problem = semver_range_problem(value)
+    local problem = range_problem(value)
     if problem then return "requires[" .. key .. "] " .. problem end
   end
   return nil
 end
 
---- An artifact must name its bytes somehow. The lexicon requires `checksum`
---- and can require neither `blob` nor `url`, since it cannot express "one of
---- these two".
-local function artifact_problem(a)
-  if type(a) ~= "table" then return "artifact is missing" end
-  if type(a.checksum) ~= "string" or a.checksum == "" then
-    return "artifact has no checksum"
-  end
-  if a.blob == nil and (type(a.url) ~= "string" or a.url == "") then
-    return "artifact carries neither a blob nor a url"
+--- The first key named `checksum` or `url` anywhere in a table. A blob is
+--- verified by its CID and fetched from the publisher's PDS, so either would
+--- be a second, unverified claim about the same bytes.
+local function forbidden_key(t, path)
+  for key, value in pairs(t) do
+    if key == "checksum" or key == "url" then return path .. key end
+    if type(value) == "table" then
+      local found = forbidden_key(value, path .. tostring(key) .. ".")
+      if found then return found end
+    end
   end
   return nil
 end
 
-local PLUGIN_TYPES = { auth = true, library = true, interpreter = true }
-
---- The manifest, which `extensions` carries under our NSID. `extensions` is
---- `unknown` too, so its presence and shape are ours to check.
-local function release_extension_problem(extensions)
-  if type(extensions) ~= "table" then return "extensions is missing" end
-  local ext = extensions["at.happyproto.plugin.releaseExtension"]
-  if type(ext) ~= "table" then
-    return "extensions carries no at.happyproto.plugin.releaseExtension"
+--- Every rule an `at.happyproto.plugin.v1` artifact must meet, the first
+--- broken one answered as a sentence naming the field.
+local function artifact_problem(a)
+  if type(a) ~= "table" then return "the artifact is missing" end
+  if a["$type"] ~= nil and a["$type"] ~= ARTIFACT_TYPE then
+    return "the artifact is not an " .. ARTIFACT_TYPE
   end
-  if not PLUGIN_TYPES[ext.pluginType] then
+  local forbidden = forbidden_key(a, "")
+  if forbidden then
+    return forbidden .. " is not allowed; blobs are verified by their CIDs"
+  end
+
+  local problem = blob_problem(a.package, "package", { ["application/wasm"] = true }, MAX_PACKAGE)
+    or blob_problem(a.manifest, "manifest", { ["application/json"] = true }, MAX_MANIFEST)
+  if problem then return problem end
+
+  if a.banner ~= nil then
+    problem = image_problem(a.banner, "banner")
+    if problem then return problem end
+  end
+  if a.screenshots ~= nil then
+    if not is_list(a.screenshots) then return "screenshots must be a list" end
+    if #a.screenshots > 8 then return "screenshots lists more than 8 images" end
+    for i, shot in ipairs(a.screenshots) do
+      problem = image_problem(shot, "screenshots[" .. i .. "]")
+      if problem then return problem end
+    end
+  end
+
+  if not PLUGIN_TYPES[a.pluginType] then
     return "pluginType is not auth, library or interpreter"
   end
-  -- Every plugin type requires api_version 2 or later; there is no fallback.
-  local major = tonumber(tostring(ext.apiVersion or ""):match("^(%d+)"))
+  -- Every plugin type requires API version 2 or later; there is no fallback.
+  local major = type(a.apiVersion) == "string" and #a.apiVersion <= 16
+    and tonumber(a.apiVersion:match("^(%d+)"))
   if not major or major < 2 then
     return "apiVersion must be \"2\" or later"
   end
-  if type(ext.capabilities) ~= "table" then
+  if a.capabilities == nil then
     return "capabilities must be declared, even when empty"
   end
-  if ext.pluginType == "library" and type(ext.namespace) ~= "string" then
-    return "a library must declare its namespace"
+  problem = string_list_problem(a.capabilities, "capabilities", 128)
+  if problem then return problem end
+
+  if a.pluginType == "library" then
+    if type(a.namespace) ~= "string" or a.namespace == "" then
+      return "a library must declare its namespace"
+    end
+    if #a.namespace > 256 then return "namespace is longer than 256 characters" end
   end
-  if ext.pluginType == "interpreter" and type(ext.languageId) ~= "string" then
-    return "an interpreter must declare its languageId"
-  end
-  -- Optional, since releases from before it existed carry none. A client
-  -- builds a file-to-interpreter map from it, so a malformed entry would
-  -- claim files no project could name. Mirrors HappyView's loader, which
-  -- refuses `json` (a project's lexicons) and a repeated entry, and ignores
-  -- the field on any other plugin type.
-  if ext.pluginType == "interpreter" and ext.fileExtensions ~= nil then
-    local list = ext.fileExtensions
-    if type(list) ~= "table" then
-      return "fileExtensions must be a list"
+
+  -- A client builds a file-to-interpreter map from these, so a malformed
+  -- entry would claim files no project could name. Mirrors HappyView's
+  -- loader, which refuses `json` (a project's lexicons) and a repeat.
+  if a.pluginType == "interpreter" then
+    if type(a.languageId) ~= "string" or a.languageId == "" then
+      return "an interpreter must declare its languageId"
     end
-    local count = 0
-    for _ in pairs(list) do count = count + 1 end
-    if count ~= #list then
-      return "fileExtensions must be a list"
+    if #a.languageId > 64 then return "languageId is longer than 64 characters" end
+    local list = a.fileExtensions
+    if not is_list(list) or #list == 0 then
+      return "fileExtensions must list 1 to 8 extensions for an interpreter"
     end
-    if #list > 8 then
-      return "fileExtensions lists more than 8 extensions"
-    end
+    if #list > 8 then return "fileExtensions lists more than 8 extensions" end
     local seen = {}
     for _, e in ipairs(list) do
       if type(e) ~= "string" or not e:match("^[a-z0-9]+$") or #e > 16 then
@@ -703,99 +919,221 @@ local function release_extension_problem(extensions)
       if e == "json" then
         return "fileExtensions cannot claim json, which names a project's lexicons"
       end
-      if seen[e] then
-        return "fileExtensions lists " .. e .. " twice"
-      end
+      if seen[e] then return "fileExtensions lists " .. e .. " twice" end
       seen[e] = true
+    end
+  end
+
+  if a.allowedHosts ~= nil then
+    problem = string_list_problem(a.allowedHosts, "allowedHosts", 256)
+    if problem then return problem end
+  end
+
+  problem = requires_problem(a.requires)
+  if problem then return problem end
+
+  if type(a.license) ~= "string" or a.license == "" then
+    return "license is required"
+  end
+  if #a.license > 256 then return "license is longer than 256 characters" end
+
+  if type(a.sections) ~= "table" then return "sections.description is required" end
+  if a.sections.description == nil then return "sections.description is required" end
+  for _, name in ipairs({ "description", "installation", "security" }) do
+    if a.sections[name] ~= nil then
+      problem = text_problem(a.sections[name], "sections." .. name, 2000, 20000)
+      if problem then return problem end
     end
   end
   return nil
 end
 
---- Every reason a profile is refused, in one place. Shared by the indexer and
---- by `publishProfile`, so what a publisher is told at the door is exactly
---- what the index will accept later.
-local function profile_problem(body, slug)
-  if not is_plugin_slug(slug) then return "the slug is not a package slug" end
-  if type(body) ~= "table" then return "the record has no body" end
-  -- The lexicon pins `type` with a const, but a record off the firehose has
-  -- not necessarily been checked against it, and the whole point of the field
-  -- is that a client refuses an ecosystem it does not know.
-  if body.type ~= "happyview-plugin" then
-    return "type must be happyview-plugin"
+--- Every rule the `at.happyproto.registry.project` sidecar must meet. It is
+--- what makes a project a plugin, so it must point at the project and the
+--- publication under its own key in its own repo: one pointing elsewhere
+--- would let a publisher dress another project up as theirs.
+local function sidecar_problem(r, did, name)
+  if type(r) ~= "table" then return "the record has no body" end
+  if not is_did(did) or not is_project_name(name) then
+    return "the record key is not a project name"
+  end
+  if r.project ~= uri_of(did, PROJECT, name) then
+    return "project must be " .. uri_of(did, PROJECT, name)
+  end
+  local publication = r.publication
+  if type(publication) ~= "table" or publication.uri ~= uri_of(did, PUBLICATION, name) then
+    return "publication must point at " .. uri_of(did, PUBLICATION, name)
+  end
+  if type(publication.cid) ~= "string" or publication.cid == "" then
+    return "publication has no cid"
+  end
+  if not PLUGIN_TYPES[r.pluginType] then
+    return "pluginType is not auth, library or interpreter"
+  end
+
+  if r.keywords ~= nil then
+    if not is_list(r.keywords) then return "keywords must be a list" end
+    if #r.keywords > 20 then return "keywords lists more than 20 keywords" end
+    for i, keyword in ipairs(r.keywords) do
+      local problem = text_problem(keyword, "keywords[" .. i .. "]", 32, 320)
+      if problem then return problem end
+    end
+  end
+
+  if not is_list(r.authors) or #r.authors == 0 then
+    return "authors must list at least one author"
+  end
+  for i, author in ipairs(r.authors) do
+    local field = "authors[" .. i .. "]"
+    if type(author) ~= "table" then return field .. " must be an object" end
+    if author.name == "" then return field .. ".name is required" end
+    local problem = text_problem(author.name, field .. ".name", 128, 1280)
+    if problem then return problem end
+    if author.url ~= nil and type(author.url) ~= "string" then
+      return field .. ".url must be a string"
+    end
+    if author.email ~= nil and (type(author.email) ~= "string" or #author.email > 320) then
+      return field .. ".email must be a string of at most 320 characters"
+    end
+  end
+
+  if not is_list(r.security) or #r.security == 0 then
+    return "security must list at least one contact"
+  end
+  for i, contact in ipairs(r.security) do
+    local field = "security[" .. i .. "]"
+    if type(contact) ~= "table" then return field .. " must be an object" end
+    local has_url = type(contact.url) == "string" and contact.url ~= ""
+    local has_email = type(contact.email) == "string" and contact.email ~= ""
+    if not has_url and not has_email then
+      return field .. " needs a url or an email"
+    end
+    if contact.url ~= nil and type(contact.url) ~= "string" then
+      return field .. ".url must be a string"
+    end
+    if contact.email ~= nil and (type(contact.email) ~= "string" or #contact.email > 320) then
+      return field .. ".email must be a string of at most 320 characters"
+    end
   end
   return nil
 end
 
---- Every reason a release is refused, in one place, so the log line, the skip
---- and `publishRelease`'s refusal never disagree.
-local function release_problem(body, slug, version)
-  if type(body) ~= "table" then return "the record has no body" end
-  if body.package ~= slug then return "package does not match the record key" end
-  if body.version ~= version then return "version does not match the record key" end
-  local problem = requires_problem(body.requires)
-  if problem then return problem end
-  problem = release_extension_problem(body.extensions)
-  if problem then return problem end
-  return artifact_problem((body.artifacts or {}).package)
+--- The manifest's one plugin artifact. A manifest may carry other
+--- ecosystems' artifacts beside it, but two of ours would leave which one to
+--- install up to the reader.
+local function manifest_artifact(manifest)
+  if type(manifest) ~= "table" or not is_list(manifest.artifacts) then
+    return nil, "the manifest has no artifacts"
+  end
+  local found
+  for _, a in ipairs(manifest.artifacts) do
+    if type(a) == "table" and a["$type"] == ARTIFACT_TYPE then
+      if found then return nil, "the manifest carries more than one " .. ARTIFACT_TYPE end
+      found = a
+    end
+  end
+  if not found then return nil, "the manifest carries no " .. ARTIFACT_TYPE end
+  return found, nil
 end
 
---- The state row's key. One row per (publisher, package, version), under our
---- own DID, so a publisher cannot collide with it.
-local function release_state_rkey(did, slug, version)
-  return did .. ":" .. slug .. ":" .. version
+local STATE_SEVERITY = { active = 0, deprecated = 1, unavailable = 2, retired = 3 }
+
+--- The more severe of two states. A project's state applies to every version
+--- unless the version's own is worse.
+local function worse(a, b)
+  if (STATE_SEVERITY[b] or 0) > (STATE_SEVERITY[a] or 0) then return b end
+  return a
+end
+
+-- What each event type means for installation. Anything else is ignored:
+-- ECMA-428 has more event types than a registry needs to act on.
+local EVENT_STATE = {
+  endOfDevelopment = "deprecated",
+  endOfSupport = "deprecated",
+  supersededBy = "deprecated",
+  endOfDistribution = "unavailable",
+  endOfLife = "retired",
+}
+
+--- One subject's statuses in rkey order, as events, with the status that
+--- decides its state: the last one not withdrawn whose type means something.
+local function derive(statuses)
+  local sorted = {}
+  for _, s in ipairs(statuses or {}) do
+    if type(s) == "table" and type(s.record) == "table" and type(s.uri) == "string" then
+      sorted[#sorted + 1] = s
+    end
+  end
+  -- A TID sorts by time as a string, so rkey order is creation order.
+  table.sort(sorted, function(x, y)
+    local _, _, xk = parse_uri(x.uri)
+    local _, _, yk = parse_uri(y.uri)
+    xk, yk = xk or x.uri, yk or y.uri
+    if xk ~= yk then return xk < yk end
+    return x.uri < y.uri
+  end)
+
+  local withdrawn_by = {}
+  for _, s in ipairs(sorted) do
+    if s.record.status == "withdrawn" and type(s.record.withdraws) == "string" then
+      withdrawn_by[s.record.withdraws] = withdrawn_by[s.record.withdraws] or s.uri
+    end
+  end
+
+  local events, decider = {}, nil
+  for _, s in ipairs(sorted) do
+    local r = s.record
+    events[#events + 1] = {
+      uri = s.uri,
+      status = r.status,
+      kind = r.kind,
+      reason = r.reason,
+      supersededBy = r.supersededBy,
+      withdrawnBy = withdrawn_by[s.uri],
+    }
+    if EVENT_STATE[r.status] and not withdrawn_by[s.uri] then decider = r end
+  end
+  return events, decider
+end
+
+--- A version's lifecycle, from its own statuses and its project's, each a
+--- `{ uri, record }` envelope. The worse of the two states applies, and the
+--- status that set it supplies the reason; on a tie the version's own does,
+--- since it is the more specific statement.
+local function lifecycle(statuses, project_statuses)
+  local events, own = derive(statuses)
+  local _, inherited = derive(project_statuses)
+  local own_state = own and EVENT_STATE[own.status] or "active"
+  local inherited_state = inherited and EVENT_STATE[inherited.status] or "active"
+
+  local state, decider = own_state, own
+  if STATE_SEVERITY[inherited_state] > STATE_SEVERITY[own_state] then
+    state, decider = inherited_state, inherited
+  end
+
+  local out = {
+    state = state,
+    installable = state == "active" or state == "deprecated",
+    events = json.to_array(events),
+  }
+  if decider then
+    out.reason = decider.reason
+    out.kind = decider.kind
+    if decider.status == "supersededBy" then out.supersededBy = decider.supersededBy end
+  end
+  return out
 end
 -- @endblock
 
 -- @block registry
--- Shaping the registry's two views, and ordering versions.
---
--- The views keep the publisher's record and the registry's own state apart:
--- `record` is what was published, verbatim, and `status` is ours. Mixing them
--- would make it impossible to hand a client back what the publisher signed.
-
-local PROFILE_COLLECTION = "at.happyproto.plugin.profile"
-local RELEASE_COLLECTION = "at.happyproto.plugin.release"
-
---- Semver precedence, enough to pick a latest. Numeric on the core triple,
---- and a prerelease sorts BELOW the same core without one, which is the rule
---- that keeps `3.0.0-alpha.1` from being "latest" over `3.0.0`.
-local function plugin_version_lt(a, b)
-  local function parts(v)
-    local major, minor, patch, pre = v:match("^(%d+)%.(%d+)%.(%d+)%-?(.*)$")
-    return tonumber(major), tonumber(minor), tonumber(patch), pre
-  end
-  local amaj, amin, apat, apre = parts(a)
-  local bmaj, bmin, bpat, bpre = parts(b)
-  if not amaj or not bmaj then return a < b end
-  if amaj ~= bmaj then return amaj < bmaj end
-  if amin ~= bmin then return amin < bmin end
-  if apat ~= bpat then return apat < bpat end
-  if apre == bpre then return false end
-  if apre == "" then return false end
-  if bpre == "" then return true end
-  return apre < bpre
-end
-
---- A release as the contract describes it. `status` comes from our state row;
---- a release with no row has not been seen by the indexer, which is reported
---- as `unknown` rather than guessed at.
-local function release_view(envelope, state)
-  return {
-    uri = envelope.uri,
-    cid = envelope.cid,
-    record = envelope.record,
-    status = (state and state.status) or "unknown",
-    indexedAt = envelope.indexed_at,
-  }
-end
+-- What the registry's queries share: paging, and naming the publisher.
 
 --- The DID an `at-identifier` names, and the handle if one was confirmed.
 ---
 --- A handle is resolved through `happyview.atproto`, whose `resolve_identity`
 --- confirms it in both directions -- a one-directional match is how a handle
 --- gets impersonated, and here it would let anyone who controls their own DNS
---- show another publisher's packages under their name. Wrapped in `pcall`
+--- show another publisher's plugins under their name. Wrapped in `pcall`
 --- because an older `happyview.atproto` has no such export, which reads as an
 --- unresolvable identifier rather than an error.
 local function resolve_actor(actor)
@@ -813,7 +1151,7 @@ end
 --- The handle a DID's document claims, when it is confirmed both ways, or nil.
 ---
 --- Best-effort and deliberately separate from `resolve_actor`: a lookup that
---- fails must not turn an indexed package into a refusal, so this answers nil
+--- fails must not turn an indexed project into a refusal, so this answers nil
 --- where `resolve_actor` answers "no such publisher".
 local function handle_for(did)
   if not is_did(did) then return nil end
@@ -822,25 +1160,6 @@ local function handle_for(did)
   local ok, identity = pcall(atproto.resolve_identity, did)
   if not ok or type(identity) ~= "table" then return nil end
   return identity.handle
-end
-
---- A package, with the highest `active` version if it has one.
----
---- `handle` is supplied by the caller rather than resolved here, and only
---- where a resolution is affordable: a detail view can spend one network
---- round-trip, a list of a hundred packages cannot, so `searchPackages` and
---- `listReleases` leave it nil. It is optional in the lexicon for that reason.
-local function package_view(envelope, state, latest_version, handle)
-  return {
-    uri = envelope.uri,
-    cid = envelope.cid,
-    did = envelope.did,
-    handle = handle,
-    record = envelope.record,
-    status = (state and state.status) or "unknown",
-    latestVersion = latest_version,
-    indexedAt = envelope.indexed_at,
-  }
 end
 
 --- The paging arguments a registry query accepts, clamped. A caller-supplied

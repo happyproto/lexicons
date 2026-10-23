@@ -46,10 +46,10 @@ const IMPLIES: Record<string, string[]> = {
   provisioner: ["json", "failure"],
   instance: ["json"],
   jobs: ["failure"],
-  plugin: ["validate"],
+  release: ["validate", "json"],
   // `authority` for happyproto_did: a registry script reads its own state
   // under that DID, so every one of them needs it.
-  registry: ["plugin", "authority", "validate"],
+  registry: ["release", "authority", "validate", "failure", "json"],
 };
 
 export function parsePrelude(text: string): Map<string, string> {

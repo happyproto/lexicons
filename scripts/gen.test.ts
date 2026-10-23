@@ -49,7 +49,7 @@ describe("parsePrelude", () => {
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
       "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
-      "provisioner", "instance", "jobs", "plugin", "registry",
+      "provisioner", "instance", "jobs", "release", "registry",
     ]);
   });
 
