@@ -3,8 +3,10 @@
 -- xrpc.query:at.happyproto.registry.listVersions
 --
 -- A plugin's versions, most recently indexed first, whatever their state.
--- Each is the full versionView, so a stale changelog is refreshed here as it
--- is in getVersion.
+--
+-- Changelogs are served as cached and never refreshed here: a page would
+-- wait on one fetch per version, and an anonymous query has no caller to
+-- enqueue a refresh job as. getVersion refreshes the one it answers.
 
 local db = require("happyview.db")
 
@@ -31,7 +33,7 @@ function handle(input, ctx)
     -- A row with no state was written through the gateway and not yet
     -- indexed; it is listed once the network echoes it.
     local view = version_name == name and is_release_version(version)
-      and version_view(our_did, did, name, version, project_statuses) or nil
+      and version_view(our_did, did, name, version, { project_statuses = project_statuses }) or nil
     if view then versions[#versions + 1] = view end
   end
 

@@ -1639,18 +1639,24 @@ local function text_or_nil(v)
   return nil
 end
 
---- A version's changelog for its view, refreshed first when the cached copy
---- is over an hour old. A refresh that fails, or raises, keeps the cached
---- copy: stale notes are better than none.
-local function changelog_view(our_did, did, name, version, document)
+--- A version's changelog for its view. With `refresh`, a cached copy whose
+--- last fetch or attempt is over an hour old is fetched again first.
+---
+--- A refresh that fails, or raises, keeps the cached copy, since stale notes
+--- are better than none, and stamps `checkedAt` on it. The next refresh waits
+--- an hour from that attempt, so a document that can never be fetched again,
+--- or a PDS that is slow to say so, costs one request an hour and not one
+--- per read.
+local function changelog_view(our_did, did, name, version, document, refresh)
   local db = require("happyview.db")
-  local row = db.get(uri_of(our_did, CHANGELOG_CACHE, version_state_rkey(did, name, version)))
+  local rkey = version_state_rkey(did, name, version)
+  local row = db.get(uri_of(our_did, CHANGELOG_CACHE, rkey))
   local cache = row and type(row.record) == "table" and row.record or nil
   -- A cache of some other document is not this version's notes.
   if not cache or cache.uri ~= document or type(cache.markdown) ~= "string" then return nil end
 
-  local fetched = iso_seconds(cache.fetchedAt)
-  if not fetched or os.time() - fetched > CHANGELOG_TTL then
+  local last = math.max(iso_seconds(cache.fetchedAt) or 0, iso_seconds(cache.checkedAt) or 0)
+  if refresh and os.time() - last > CHANGELOG_TTL then
     local ok, fresh, problem = pcall(fetch_changelog, our_did, did, name, version, document)
     if ok and fresh then
       cache = fresh
@@ -1659,6 +1665,12 @@ local function changelog_view(our_did, did, name, version, document)
       log.warn("registry: changelog refresh failed; serving the cached copy", {
         did = did, name = name, version = version, problem = ok and problem or tostring(fresh),
       })
+      cache.checkedAt = now_iso()
+      local record = require("happyview.record")
+      local stamped, why = pcall(record.save_local, CHANGELOG_CACHE, rkey, cache, our_did)
+      if not stamped then
+        log.warn("registry: could not record the changelog refresh attempt", { error = tostring(why) })
+      end
     end
   end
   return {
@@ -1678,12 +1690,16 @@ local function version_state(our_did, did, name, version)
 end
 
 --- The `versionView` of one indexed version, or nil when it isn't indexed.
---- `project_statuses` may be passed in when the caller already read them.
+--- `opts.project_statuses` may be passed in when the caller already read
+--- them. `opts.refresh` lets a stale changelog be fetched again before
+--- answering; a list leaves it off, since one page would otherwise wait on a
+--- fetch per version.
 ---
 --- Everything comes from what the registry stored: the version as first seen,
 --- the manifest it pinned, and the state the indexer and the copy job keep.
 --- The state's bookkeeping (`held`, `failed`) stays out of the view.
-local function version_view(our_did, did, name, version, project_statuses)
+local function version_view(our_did, did, name, version, opts)
+  opts = opts or {}
   local db = require("happyview.db")
   local uri = uri_of(did, VERSION, name .. ":" .. version)
   local row = db.get(uri)
@@ -1694,7 +1710,7 @@ local function version_view(our_did, did, name, version, project_statuses)
   local artifact = manifest_artifact(manifest.record)
   if not artifact then return nil end
 
-  project_statuses = project_statuses or statuses_about(did, uri_of(did, PROJECT, name))
+  local project_statuses = opts.project_statuses or statuses_about(did, uri_of(did, PROJECT, name))
   return {
     uri = uri,
     cid = row.cid,
@@ -1703,7 +1719,7 @@ local function version_view(our_did, did, name, version, project_statuses)
     version = version,
     manifest = { uri = state.manifestUri, cid = state.manifestCid },
     artifact = artifact,
-    changelog = changelog_view(our_did, did, name, version, row.record.changelog),
+    changelog = changelog_view(our_did, did, name, version, row.record.changelog, opts.refresh),
     availability = text_or_nil(state.availability) or "pending",
     suspect = state.suspect == true,
     lifecycle = lifecycle(statuses_about(did, uri), project_statuses),
@@ -1760,21 +1776,24 @@ local function project_view(our_did, did, name, handle)
   local page = db.records(CHANNEL):did(did):where("project", "=", project_uri):limit(100):run() or {}
   for _, row in ipairs(page.records or {}) do
     local r = row.record
-    local ref = type(r) == "table" and r.version
+    -- Keyed by the record key, as resolveChannel looks a channel up; a record
+    -- whose own name disagrees with its key is not answered as either.
+    local channel_project, channel = split_rkey(row.rkey)
+    local ref = type(r) == "table" and channel_project == name and r.name == channel and r.version
     local version_did, collection, rkey
     if type(ref) == "table" then version_did, collection, rkey = parse_uri(ref.uri) end
     local version_name, version = split_rkey(rkey)
     local version_state_row = version_did == did and collection == VERSION and version_name == name
       and version_state(our_did, did, name, version) or nil
-    if version_state_row and is_channel_name(r.name) then
-      channels[r.name] = {
+    if version_state_row and is_channel_name(channel) then
+      channels[channel] = {
         version = version,
         uri = ref.uri,
         cid = ref.cid,
         state = lifecycle(statuses_about(did, ref.uri), project_statuses).state,
         availability = text_or_nil(version_state_row.availability) or "pending",
       }
-      if r.name == "latest" then latest = version_state_row end
+      if channel == "latest" then latest = version_state_row end
     end
   end
 

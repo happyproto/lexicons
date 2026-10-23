@@ -243,9 +243,11 @@ package.preload["happyview.db"] = function()
             local v = field(e.record, f[1])
             if f[2] == "=" then
               if v ~= f[3] then keep = false end
-            elseif f[2] == "like" then
+            elseif f[2] == "like" or f[2] == "ilike" then
               local text = type(v) == "table" and __encode(v) or (v ~= nil and tostring(v) or nil)
-              if not text or not like(text, f[3]) then keep = false end
+              local pattern = f[3]
+              if text and f[2] == "ilike" then text, pattern = text:lower(), pattern:lower() end
+              if not text or not like(text, pattern) then keep = false end
             else
               error("unsupported operator " .. f[2])
             end
@@ -415,6 +417,13 @@ describe("getProject", () => {
     expect(Object.keys(out.channels)).toEqual(["beta"]);
   });
 
+  it("keys channels by their record key and leaves out one whose name disagrees", () => {
+    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
+      setup: `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.name = "alpha"`,
+    });
+    expect(Object.keys(out.channels)).toEqual(["latest"]);
+  });
+
   it("answers the cached publication without the fields only the registry uses", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`);
     expect(out.publication).toEqual({
@@ -506,6 +515,36 @@ describe("searchProjects", () => {
     expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
   });
 
+  it("does not let rows outside the registry's plugins take a capped slot", () => {
+    // Strangers' state rows and plain software.release projects (no sidecar)
+    // that match q, each indexed before probe's rows.
+    const crowd = [1, 2, 3]
+      .map(
+        (i) => `
+      __put("${at(EVE, "at.happyproto.registry.projectState", "x")}${"${i}"}", nil, {
+        did = "${EVE}", name = "probe${"${i}"}", publication = { name = "Probe ${"${i}"}" } }, "2026-01-01T00:00:0${"${i}"}Z")
+      __put("${at(EVE, "software.release.project", "probe")}${"${i}"}", "bafyeve", { name = "probe${"${i}"}" }, "2026-01-01T00:00:0${"${i}"}Z")`,
+      )
+      .join("\n");
+    const { out } = query(SEARCH, `{ q = "probe", limit = 1 }`, { setup: crowd });
+    expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+    const byName = query(SEARCH, `{ q = "ol", limit = 1, includeRetired = true }`, { setup: crowd });
+    expect(byName.out.projects.map((p: any) => p.name)).toEqual(["old"]);
+  });
+
+  it("matches q only against the project name in a sidecar's project", () => {
+    // Every sidecar's project uri contains "release" and the publisher's DID.
+    expect(query(SEARCH, `{ q = "release", includeRetired = true }`).out.projects).toEqual({});
+    expect(query(SEARCH, `{ q = "plc", includeRetired = true }`).out.projects).toEqual({});
+  });
+
+  it("keeps listing an indexed project whose sidecar was deleted", () => {
+    const { out } = query(SEARCH, `{}`, { setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true` });
+    expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+    const found = query(SEARCH, `{ q = "Probe" }`, { setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true` });
+    expect(found.out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+  });
+
   it("ignores state rows that are not the registry's own", () => {
     const { out } = query(SEARCH, `{ q = "Zebra" }`, {
       setup: `__put("${at(EVE, "at.happyproto.registry.projectState", `${DID}:probe`)}", nil, {
@@ -590,8 +629,35 @@ describe("getVersion", () => {
       const r = query(GET_VERSION, `{ did = "${DID}", name = "probe", version = "1.0.0" }`, { setup: STALE + "\n" + setup });
       expect(r.out.changelog.markdown).toBe("# Old notes");
       expect(r.out.changelog.fetchedAt).toBe("2026-01-01T00:00:00Z");
-      expect(saves(r.calls)).toHaveLength(0);
+      // The content is kept and only the attempt is stamped.
+      expect(saves(r.calls)).toHaveLength(1);
+      const kept = r.indexed[CHANGELOG_URI].record;
+      expect(kept.markdown).toBe("# Old notes");
+      expect(kept.fetchedAt).toBe("2026-01-01T00:00:00Z");
+      expect(kept.checkedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
     }
+  });
+
+  it("does not retry a failed refresh within the hour", () => {
+    const r = query(GET_VERSION, `{ did = "${DID}", name = "probe", version = "1.0.0" }`, {
+      setup: STALE + `\n__indexed["${CHANGELOG_URI}"].record.checkedAt = os.date("!%Y-%m-%dT%H:%M:%SZ")\n` + serveDocument("# New"),
+    });
+    expect(gets(r.calls)).toHaveLength(0);
+    expect(saves(r.calls)).toHaveLength(0);
+    expect(r.out.changelog.markdown).toBe("# Old notes");
+  });
+
+  it("retries a failed refresh once the hour has passed", () => {
+    const r = query(GET_VERSION, `{ did = "${DID}", name = "probe", version = "1.0.0" }`, {
+      setup: STALE + `\n__indexed["${CHANGELOG_URI}"].record.checkedAt = "2026-01-01T00:30:00Z"\n` + serveDocument("# New"),
+    });
+    expect(gets(r.calls)).toHaveLength(1);
+    expect(r.out.changelog.markdown).toBe("# New");
+  });
+
+  it("refreshes in resolveChannel as in getVersion", () => {
+    const r = query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "latest" }`, { setup: STALE + "\n" + serveDocument("# New") });
+    expect(r.out.changelog.markdown).toBe("# New");
   });
 
   it("answers no changelog from a cache of a document the version does not link", () => {
@@ -634,9 +700,26 @@ describe("listVersions", () => {
     expect(second.versions.map((v: any) => v.version)).toEqual(["1.0.0"]);
   });
 
-  it("refreshes a stale changelog as getVersion does", () => {
-    const r = query(LIST_VERSIONS, `{ did = "${DID}", name = "probe" }`, { setup: STALE + "\n" + serveDocument("# New") });
-    expect(r.out.versions[1].changelog.markdown).toBe("# New");
+  it("serves cached changelogs without fetching, however stale", () => {
+    // Three versions, each with a changelog cached long ago.
+    const setup = [
+      STALE,
+      `__indexed["${VERSION_2}"].record.changelog = "${at(DID, "site.standard.document", "3kdoc2")}"`,
+      `__put("${at(HP, "at.happyproto.registry.changelogCache", `${DID}:probe:1.1.0-beta.1`)}", nil, {
+        uri = "${at(DID, "site.standard.document", "3kdoc2")}", title = "t", markdown = "two", fetchedAt = "2026-01-01T00:00:00Z" })`,
+      `__put("${at(DID, "software.release.version", "probe:1.2.0")}", "bafyversionthree", {
+        project = "${PROJECT_URI}", version = "1.2.0", manifest = { uri = "${MANIFEST_1}", cid = "bafymanifestone" },
+        changelog = "${at(DID, "site.standard.document", "3kdoc3")}" })`,
+      `__put("${state("probe:1.2.0")}", nil, { did = "${DID}", name = "probe", version = "1.2.0",
+        manifestUri = "${MANIFEST_1}", manifestCid = "bafymanifestone", availability = "available", suspect = false })`,
+      `__put("${at(HP, "at.happyproto.registry.changelogCache", `${DID}:probe:1.2.0`)}", nil, {
+        uri = "${at(DID, "site.standard.document", "3kdoc3")}", title = "t", markdown = "three", fetchedAt = "2026-01-01T00:00:00Z" })`,
+      serveDocument("# New"),
+    ].join("\n");
+    const r = query(LIST_VERSIONS, `{ did = "${DID}", name = "probe" }`, { setup });
+    expect(r.out.versions.map((v: any) => v.changelog?.markdown)).toEqual(["three", "two", "# Old notes"]);
+    expect(gets(r.calls)).toHaveLength(0);
+    expect(saves(r.calls)).toHaveLength(0);
   });
 
   it("answers ProjectNotFound for a project with no sidecar", () => {
@@ -666,6 +749,12 @@ describe("resolveChannel", () => {
     expect(out.lifecycle.state).toBe("retired");
     expect(out.lifecycle.installable).toBe(false);
     expect(out.lifecycle.kind).toBe("security");
+  });
+
+  it("answers ChannelNotFound for a channel record whose name disagrees with its key", () => {
+    const setup = `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.name = "alpha"`;
+    expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "beta" }`, { setup }).out.error).toBe("ChannelNotFound");
+    expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "alpha" }`, { setup }).out.error).toBe("ChannelNotFound");
   });
 
   it("answers ChannelNotFound for a channel that is not indexed", () => {

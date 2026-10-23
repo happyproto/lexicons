@@ -4,16 +4,21 @@
 --
 -- Finds plugins. Retired projects are left out unless asked for.
 --
--- Two paths, because the index's substring search takes no cursor: with `q`
--- the answer is ranked by match and capped at `limit`, with no cursor, and
--- without it every sidecar is paged, newest first. Filters run on the page,
+-- Two paths. With `q`, display names and project names are matched and the
+-- answer is capped at `limit`, with no cursor, since it merges two queries.
+-- Without it every sidecar is paged, newest first. Filters run on the page,
 -- so a filtered page can hold fewer than `limit` projects and still carry a
 -- cursor.
+--
+-- Both matches are scoped so only plugins can fill the cap: display names
+-- come from the registry's own state rows, and project names from sidecars,
+-- which exist only for plugins. The index's ranked substring search can be
+-- scoped to neither, so a stranger's rows could take every slot.
 
 local db = require("happyview.db")
 
---- `(did, name)` pairs whose display name or project name matches `q`, the
---- display names first, each project once.
+--- `(did, name)` pairs whose display name or project name contains `q`,
+--- ignoring case, the display names first, each project once.
 local function matches(our_did, q, limit)
   local found, seen = {}, {}
   local function add(did, name)
@@ -23,11 +28,16 @@ local function matches(our_did, q, limit)
       found[#found + 1] = { did = did, name = name }
     end
   end
-  for _, e in ipairs(db.search(PROJECT_STATE, "publication.name", q, limit) or {}) do
-    -- Only the registry's own state: a row under any other DID is not ours.
-    if e.did == our_did and type(e.record) == "table" then add(e.record.did, e.record.name) end
+  local by_display = db.records(PROJECT_STATE):did(our_did)
+    :where("publication.name", "ilike", "%" .. q .. "%"):limit(limit):run() or {}
+  for _, e in ipairs(by_display.records or {}) do
+    if type(e.record) == "table" then add(e.record.did, e.record.name) end
   end
-  for _, e in ipairs(db.search(PROJECT, "name", q, limit) or {}) do
+  -- A sidecar has no name field, but the project it must point at ends in
+  -- the name, so `q` is matched against that key alone.
+  local by_name = db.records(SIDECAR)
+    :where("project", "ilike", "%/" .. PROJECT .. "/%" .. q .. "%"):limit(limit):run() or {}
+  for _, e in ipairs(by_name.records or {}) do
     add(e.did, e.rkey)
   end
   return found

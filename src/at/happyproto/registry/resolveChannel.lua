@@ -16,7 +16,9 @@ function handle(input, ctx)
   local did, name, channel = input.did, input.name, input.channel
   local row = is_did(did) and is_project_name(name) and is_channel_name(channel)
     and db.get(uri_of(did, CHANNEL, name .. ":" .. channel)) or nil
-  if not row or type(row.record) ~= "table" then
+  -- A record whose own name disagrees with its key is no channel, as
+  -- getProject leaves it out too.
+  if not row or type(row.record) ~= "table" or row.record.name ~= channel then
     return failure("ChannelNotFound", "the project has no channel of that name indexed")
   end
 
@@ -27,7 +29,7 @@ function handle(input, ctx)
   if type(ref) == "table" then version_did, collection, rkey = parse_uri(ref.uri) end
   local version_name, version = split_rkey(rkey)
   local view = version_did == did and collection == VERSION and version_name == name
-    and is_release_version(version) and version_view(our_did, did, name, version) or nil
+    and is_release_version(version) and version_view(our_did, did, name, version, { refresh = true }) or nil
   if not view then
     return failure("VersionNotFound", "the channel points at a version the registry has not indexed")
   end
