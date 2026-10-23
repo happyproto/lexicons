@@ -1152,27 +1152,31 @@ local function now_iso()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
 end
 
---- The body of a GET to a publisher's own PDS, or nil and why. The PDS is
---- resolved from the DID document on every call, so a migrated account is
---- followed. This uses `happyview.http` and not `atproto.blob_download`,
---- which refuses plain-http and private hosts. The libraries are required
---- here so that scripts which never fetch don't need them.
+--- The body of a GET to a publisher's own PDS, or nil, why, and whether
+--- asking again at once could help. The PDS is resolved from the DID
+--- document on every call, so a migrated account is followed. This uses
+--- `happyview.http` and not `atproto.blob_download`, which refuses plain-http
+--- and private hosts. The libraries are required here so that scripts which
+--- never fetch don't need them.
 local function pds_get(did, path)
   local atproto = require("happyview.atproto")
   local http = require("happyview.http")
   local resolved, endpoint = pcall(atproto.resolve_service_endpoint, did)
-  if not resolved or type(endpoint) ~= "string" or endpoint == "" then
-    return nil, "the PDS of " .. tostring(did) .. " could not be resolved"
+  -- The endpoint comes from a DID document its subject controls, so only a
+  -- web URL is fetched: anything else could point the request elsewhere. An
+  -- endpoint that does not resolve will not resolve a moment later either.
+  if not resolved or not is_web_url(endpoint) then
+    return nil, "the PDS of " .. tostring(did) .. " could not be resolved", false
   end
   -- pcall: a request that gets no response at all raises.
   local sent, response = pcall(http.get, (endpoint:gsub("/+$", "")) .. path)
   if not sent then
-    return nil, "the PDS could not be reached: " .. tostring(response)
+    return nil, "the PDS could not be reached: " .. tostring(response), true
   end
   if type(response) ~= "table" or response.status ~= 200 then
-    return nil, "the PDS answered " .. tostring(type(response) == "table" and response.status or response)
+    return nil, "the PDS answered " .. tostring(type(response) == "table" and response.status or response), true
   end
-  if response.body == nil then return nil, "the PDS answered no body" end
+  if response.body == nil then return nil, "the PDS answered no body", true end
   return response.body
 end
 
@@ -1220,8 +1224,9 @@ local COPY_ATTEMPTS = 3
 --- claimed type on them. The declared type goes into the answer only after
 --- the CID matches, and it is what the registry serves the blob as.
 ---
---- Only a fetch that got no usable answer is tried again. Bytes that are too
---- big or hash wrongly would come back the same.
+--- Only a fetch that reached no PDS or got no usable answer is tried again.
+--- Bytes that are too big or hash wrongly would come back the same, and so
+--- would a PDS that does not resolve.
 local function copy_blob(did, b, types, max_size)
   local declared = type(b) == "table" and type(b.ref) == "table" and b.ref["$link"]
   if type(declared) ~= "string" or #declared > 128 or not declared:match("^b[a-z2-7]+$") then
@@ -1232,10 +1237,10 @@ local function copy_blob(did, b, types, max_size)
   end
 
   local path = "/xrpc/com.atproto.sync.getBlob?did=" .. url_encode(did) .. "&cid=" .. url_encode(declared)
-  local body, problem
+  local body, problem, retryable
   for _ = 1, COPY_ATTEMPTS do
-    body, problem = pds_get(did, path)
-    if body ~= nil then break end
+    body, problem, retryable = pds_get(did, path)
+    if body ~= nil or not retryable then break end
   end
   if body == nil then return nil, problem end
 

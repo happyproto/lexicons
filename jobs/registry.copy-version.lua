@@ -61,11 +61,20 @@ function handle(input, ctx)
   end
   local state = row.record
 
+  -- Nothing fetched now could make it available, so the PDS is not asked.
+  if state.availability == "deletedAtSource" then
+    log.info("registry: version deleted at its source; nothing to copy", {
+      did = did, name = name, version = version,
+    })
+    return { availability = state.availability }
+  end
+
   -- The manifest the version pinned, by the CID the indexer checked. Manifest
   -- rows are never replaced, so a different CID here means the index is not
   -- what the version vouched for, and nothing is copied on its word.
+  local pinned = state.manifestCid
   local manifest = type(state.manifestUri) == "string" and db.get(state.manifestUri) or nil
-  if not manifest or manifest.cid ~= state.manifestCid then
+  if not manifest or manifest.cid ~= pinned then
     error("the manifest " .. tostring(state.manifestUri) .. " is not stored at the CID the version pinned")
   end
   local artifact, problem = manifest_artifact(manifest.record)
@@ -96,6 +105,12 @@ function handle(input, ctx)
   -- delete the indexer marked meanwhile must survive this write.
   local fresh = db.get(state_uri)
   local current = fresh and type(fresh.record) == "table" and fresh.record or state
+  -- The version was written again against another manifest meanwhile. What
+  -- was copied belongs to the old one, so none of it is merged; the retry
+  -- copies for the manifest the version pins now.
+  if current.manifestCid ~= pinned then
+    error("the manifest of " .. rkey .. " changed while its blobs were copied")
+  end
   local held = type(current.held) == "table" and current.held or {}
   local failures = type(current.failed) == "table" and current.failed or {}
   for kind, result in pairs(copied) do

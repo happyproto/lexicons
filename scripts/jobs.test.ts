@@ -402,6 +402,51 @@ end`);
     expect(gets(r.calls)).toHaveLength(0);
   });
 
+  it("fetches nothing for a version already deleted at its source", () => {
+    // The bytes can never make it available, so asking the PDS for them is
+    // work for nothing.
+    const r = copy(setState(`{ availability = "deletedAtSource" }`));
+    expect(r.ok).toBe(true);
+    expect(gets(r.calls)).toHaveLength(0);
+    expect(puts(r.calls)).toHaveLength(0);
+    expect(writes(r.calls)).toHaveLength(0);
+    expect(r.state.availability).toBe("deletedAtSource");
+  });
+
+  it("asks an unresolvable PDS once per blob, not once per attempt", () => {
+    // Resolution failing again a moment later is not a transport hiccup; the
+    // job's own retry is the one that should try again.
+    const r = copy(`package.loaded["happyview.atproto"] = { resolve_service_endpoint = function(did)
+  __calls[#__calls + 1] = { fn = "resolve", did = did }
+  return nil
+end }`);
+    expect(r.ok).toBe(false);
+    expect(r.calls.filter((c) => c.fn === "resolve")).toHaveLength(4);
+  });
+
+  it("refuses a PDS endpoint that is not an http or https URL", () => {
+    for (const endpoint of ["javascript:alert(1)", "file:///etc/passwd", "pds.test"]) {
+      const r = copy(`package.loaded["happyview.atproto"] = { resolve_service_endpoint = function() return "${endpoint}" end }`);
+      expect(r.ok).toBe(false);
+      expect(gets(r.calls)).toHaveLength(0);
+      expect(r.state.failed.package).toContain("could not be resolved");
+    }
+  });
+
+  it("writes nothing when the version's manifest changed while the blobs were fetched", () => {
+    // A version re-created against another manifest meanwhile: what was
+    // copied is not that manifest's, and merging it would vouch for it.
+    const r = copy(`local real = __reply
+__reply = function(m, url)
+  __indexed["${STATE_URI}"].record.manifestCid = "bafyanother"
+  return real(m, url)
+end`);
+    expect(r.ok).toBe(false);
+    expect(writes(r.calls)).toHaveLength(0);
+    expect(r.state.held).toBeUndefined();
+    expect(r.state.availability).toBe("pending");
+  });
+
   it("copies nothing when the stored manifest is not the one the version pinned", () => {
     const r = copy(setState(`{ manifestCid = "bafyelse" }`));
     expect(r.ok).toBe(false);
@@ -544,6 +589,32 @@ describe("registry.fetch-publication", () => {
     }
   });
 
+  it("caches the uri the sidecar pins, not the one the PDS answered", () => {
+    const r = job(PUBLICATION, PUBLICATION_INPUT, {
+      setup:
+        servePublication(publicationRecord()) +
+        `\n__decoded["PUB"].uri = "${at("did:plc:eve", "site.standard.publication", "probe")}"`,
+      read: PROJECT_STATE_URI,
+    });
+    expect(r.state.publication.uri).toBe(PUBLICATION_URI);
+  });
+
+  it("refuses a name longer than 5000 bytes or a description longer than 30000", () => {
+    for (const value of [`name = string.rep("a", 5001),`, `description = string.rep("a", 30001),`]) {
+      const r = job(PUBLICATION, PUBLICATION_INPUT, {
+        setup: servePublication(publicationRecord("bafypub", value)),
+        read: PROJECT_STATE_URI,
+      });
+      expect(writes(r.calls)).toHaveLength(0);
+      expect(logs(r.calls).some((l) => l.level === "warn")).toBe(true);
+    }
+    const r = job(PUBLICATION, PUBLICATION_INPUT, {
+      setup: servePublication(publicationRecord("bafypub", `name = string.rep("a", 5000), description = string.rep("a", 30000),`)),
+      read: PROJECT_STATE_URI,
+    });
+    expect(r.state.publication.name).toHaveLength(5000);
+  });
+
   it("raises when the PDS cannot answer, so the job is retried", () => {
     const r = job(PUBLICATION, PUBLICATION_INPUT, { read: PROJECT_STATE_URI });
     expect(r.ok).toBe(false);
@@ -621,6 +692,19 @@ describe("registry.fetch-changelog", () => {
     expect(r.ok).toBe(true);
     expect(gets(r.calls)).toHaveLength(0);
     expect(writes(r.calls)).toHaveLength(0);
+  });
+
+  it("refuses a title longer than 5000 bytes", () => {
+    const r = fetchChangelog(`textContent = "plain",`, `__decoded["DOC"].value.title = string.rep("a", 5001)`);
+    expect(writes(r.calls)).toHaveLength(0);
+    expect(logs(r.calls).some((l) => l.level === "warn")).toBe(true);
+  });
+
+  it("refuses markdown longer than 1 MiB", () => {
+    const over = fetchChangelog(`textContent = string.rep("a", 1048577),`);
+    expect(writes(over.calls)).toHaveLength(0);
+    const at = fetchChangelog(`textContent = string.rep("a", 1048576),`);
+    expect(at.state.markdown).toHaveLength(1048576);
   });
 
   it("raises when the PDS cannot answer, so the job is retried", () => {

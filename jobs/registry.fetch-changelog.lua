@@ -14,6 +14,11 @@ local record = require("happyview.record")
 
 local MARKPUB = "at.markpub.markdown"
 
+-- Far above what the gateway writes, but a document written some other way
+-- could be any size, and the cache is served whole.
+local MAX_TITLE_BYTES = 5000
+local MAX_MARKDOWN_BYTES = 1048576
+
 --- The document's markdown: markpub content when it carries it, else the
 --- plain text every site.standard document has for exactly this purpose.
 local function markdown_of(v)
@@ -58,6 +63,15 @@ function handle(input, ctx)
   if not markdown then
     log.warn("registry: changelog has no text", { uri = uri })
     return { skipped = "no text" }
+  end
+
+  if #markdown > MAX_MARKDOWN_BYTES then
+    log.warn("registry: changelog is too long to cache", { uri = uri, bytes = #markdown })
+    return { skipped = "too long" }
+  end
+  if type(v.title) == "string" and #v.title > MAX_TITLE_BYTES then
+    log.warn("registry: changelog title is too long to cache", { uri = uri, bytes = #v.title })
+    return { skipped = "title too long" }
   end
 
   local cache = {

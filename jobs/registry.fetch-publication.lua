@@ -17,14 +17,26 @@ local db = require("happyview.db")
 
 --- The cached publication, or nil and why. Only what the views show is kept,
 --- and only in shapes a page can render safely.
-local function publication_of(fetched)
+--- The uri is the pinned one, never the one the PDS answered with: the CID
+--- was checked against the pin, and the uri is the PDS's to misreport.
+---
+--- Bounds are generous against the lexicon's own, since only another PDS
+--- would answer more, but they keep one publisher from filling the cache.
+local MAX_NAME_BYTES = 5000
+local MAX_DESCRIPTION_BYTES = 30000
+
+local function publication_of(pin, fetched)
   local v = fetched.value
   if type(v.name) ~= "string" or v.name == "" then return nil, "it has no name" end
+  if #v.name > MAX_NAME_BYTES then return nil, "its name is longer than " .. MAX_NAME_BYTES .. " bytes" end
   if not is_web_url(v.url) then return nil, "its url is not a web link" end
   if v.description ~= nil and type(v.description) ~= "string" then
     return nil, "its description is not text"
   end
-  return { uri = fetched.uri, cid = fetched.cid, name = v.name, description = v.description, url = v.url }
+  if v.description ~= nil and #v.description > MAX_DESCRIPTION_BYTES then
+    return nil, "its description is longer than " .. MAX_DESCRIPTION_BYTES .. " bytes"
+  end
+  return { uri = pin.uri, cid = fetched.cid, name = v.name, description = v.description, url = v.url }
 end
 
 function handle(input, ctx)
@@ -65,7 +77,7 @@ function handle(input, ctx)
     return { skipped = "cid mismatch" }
   end
 
-  local publication, refused = publication_of(fetched)
+  local publication, refused = publication_of(pin, fetched)
   if not publication then
     log.warn("registry: publication refused", { did = did, name = name, problem = refused })
     return { skipped = refused }
