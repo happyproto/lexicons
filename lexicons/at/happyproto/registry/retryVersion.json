@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Copy a version's blobs into the registry again, after an earlier copy failed. Only the registry's own account may call this. A version whose blobs are already held is answered as it is, with nothing enqueued.",
+      "description": "Copy a version's blobs into the registry again, after an earlier copy failed. Only the registry's own account may call this. The copy is enqueued for any version not deleted at its source, so an available version whose optional images failed can be retried; the copy fetches only what is not held yet. A version deleted at its source is answered as it is, with nothing enqueued.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -50,7 +50,7 @@
                 "available",
                 "deletedAtSource"
               ],
-              "description": "`pending` means the copy was enqueued again."
+              "description": "The version's availability when the retry was asked for. The copy runs afterwards, so this does not yet reflect it."
             }
           }
         }

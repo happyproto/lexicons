@@ -46,7 +46,13 @@ function handle(input, ctx)
     return { skipped = "not the publisher's document" }
   end
 
-  local fetched, problem = pds_record(uri)
+  local fetched, problem, retryable = pds_record(uri)
+  if not fetched and not retryable then
+    -- A PDS that does not resolve now won't on a retry either, so the job
+    -- finishes. A later record event queues a fresh fetch.
+    log.warn("registry: could not fetch from the publisher's PDS", { did = did, uri = uri, problem = problem })
+    return { skipped = "unresolvable" }
+  end
   if not fetched then
     -- Raised, so the job is retried: the publisher's PDS may be down.
     error("could not fetch " .. tostring(uri) .. ": " .. tostring(problem))

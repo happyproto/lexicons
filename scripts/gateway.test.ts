@@ -108,6 +108,9 @@ put("${STATE_URI}", nil, {
 })
 
 __fail = {}
+-- Records in the caller's repo that the index never stored, such as one the
+-- indexer refused: a create at their key fails, as the PDS's would.
+__repo = {}
 __writes = 0
 
 local function mirror(uri, cid, body)
@@ -127,7 +130,7 @@ package.preload["happyview.record"] = function()
       __writes = __writes + 1
       if not rkey then rkey = "tid-" .. __writes end
       local uri = "at://" .. __caller .. "/" .. collection .. "/" .. rkey
-      if __indexed[uri] then error("InvalidRequest: Record already exists") end
+      if __indexed[uri] or __repo[uri] then error("InvalidRequest: Record already exists") end
       local cid = "bafy" .. collection .. __writes
       mirror(uri, cid, body)
       return { uri = uri, cid = cid }
@@ -295,12 +298,12 @@ describe("putProject", () => {
   it("first writes the publication, then the sidecar pinning it, then the project", () => {
     const r = call(PUT_PROJECT, PROJECT_INPUT(), { setup: NO_PROJECT });
     expect(order(r.calls)).toEqual([
-      "create site.standard.publication",
-      "create at.happyproto.registry.project",
-      "create software.release.project",
+      "put site.standard.publication",
+      "put at.happyproto.registry.project",
+      "put software.release.project",
     ]);
     const [publication, sidecar, project] = writes(r.calls);
-    expect(publication.rkey).toBe("probe");
+    expect(publication.uri).toBe(PUBLICATION_URI);
     expect(publication.body).toEqual({
       $type: "site.standard.publication",
       name: "Probe",
@@ -308,7 +311,7 @@ describe("putProject", () => {
       url: `https://happyproto.at/plugins/${DID}/probe`,
       icon: { $type: "blob", ref: { $link: CID }, mimeType: "image/png", size: 2000 },
     });
-    expect(sidecar.rkey).toBe("probe");
+    expect(sidecar.uri).toBe(SIDECAR_URI);
     expect(sidecar.body).toEqual({
       $type: "at.happyproto.registry.project",
       project: PROJECT_URI,
@@ -318,7 +321,7 @@ describe("putProject", () => {
       authors: [{ name: "Trezy", url: "https://trezy.com" }],
       security: [{ email: "security@example.com" }],
     });
-    expect(project.rkey).toBe("probe");
+    expect(project.uri).toBe(PROJECT_URI);
     expect(project.body).toEqual({ $type: "software.release.project", name: "probe" });
     expect(r.out).toEqual({
       valid: true,
@@ -329,7 +332,7 @@ describe("putProject", () => {
     });
   });
 
-  it("finishes a first call that failed part-way, without creating what exists", () => {
+  it("finishes a first call that failed part-way, writing over what it left", () => {
     const r = call(PUT_PROJECT, PROJECT_INPUT(), {
       setup: NO_PROJECT + `\n__fail["software.release.project"] = "the PDS is down"`,
       again: "",
@@ -340,8 +343,18 @@ describe("putProject", () => {
     expect(order(second)).toEqual([
       "put site.standard.publication",
       "put at.happyproto.registry.project",
-      "create software.release.project",
+      "put software.release.project",
     ]);
+  });
+
+  it("adopts records already in the caller's repo that the index never stored", () => {
+    // A create at their keys would fail; a put creates or replaces.
+    const r = call(PUT_PROJECT, PROJECT_INPUT(), {
+      setup: NO_PROJECT + `\n__repo["${PROJECT_URI}"] = true\n__repo["${SIDECAR_URI}"] = true\n__repo["${PUBLICATION_URI}"] = true`,
+    });
+    expect(r.out.error).toBeUndefined();
+    expect(r.out.created).toBe(true);
+    expect(r.out.project.uri).toBe(PROJECT_URI);
   });
 
   it("later puts the publication, then the sidecar pinning its new CID, swapping on the sidecar's CID", () => {
@@ -377,6 +390,11 @@ describe("putProject", () => {
     expect(JSON.stringify(logs(r.calls))).toContain("secret-token");
   });
 
+  it("accepts a display name of 64 characters", () => {
+    const r = call(PUT_PROJECT, PROJECT_INPUT(`validateOnly = true,`).replace(`name = "Probe"`, `name = string.rep("é", 64)`), { ctx: ANONYMOUS });
+    expect(r.out).toEqual({ valid: true });
+  });
+
   it("refuses to change the plugin type", () => {
     const r = call(PUT_PROJECT, PROJECT_INPUT("", `pluginType = "library",`).replace(`pluginType = "interpreter",\n`, ""));
     expect(r.out.error).toBe("InvalidRecord");
@@ -393,7 +411,7 @@ describe("putProject", () => {
   const refusals: [string, string, string][] = [
     ["a name that is not a project name", `{ name = "Probe", publication = { name = "P" }, project = {} }`, "name"],
     ["an empty display name", PROJECT_INPUT().replace(`name = "Probe"`, `name = ""`), "publication.name"],
-    ["a display name over 128 characters", PROJECT_INPUT().replace(`name = "Probe"`, `name = string.rep("a", 129)`), "publication.name"],
+    ["a display name over 64 characters", PROJECT_INPUT().replace(`name = "Probe"`, `name = string.rep("a", 65)`), "publication.name"],
     ["a description over 300 characters", PROJECT_INPUT().replace(`"Pokes at things."`, `string.rep("a", 301)`), "publication.description"],
     ["an SVG icon", PROJECT_INPUT().replace(`"image/png", size = 2000`, `"image/svg+xml", size = 2000`), "publication.icon"],
     ["an icon over 1 MB", PROJECT_INPUT().replace(`"image/png", size = 2000`, `"image/png", size = 1000001`), "publication.icon"],
@@ -508,6 +526,15 @@ describe("publishRelease", () => {
     expect(r.out.changelog).toEqual({ uri: at(DID, "site.standard.document", "tid-2"), cid: "bafysite.standard.document2" });
     expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.1.0"));
     expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe:beta"));
+  });
+
+  it("leaves the caller's artifact as it was sent", () => {
+    const r = call(PUBLISH, RELEASE("", artifact(`license = "Apache-2.0",`).replace(`["$type"] = "at.happyproto.plugin.v1",`, "")), {
+      again: `__calls[#__calls + 1] = { fn = "input", type = __input.artifact["$type"] or "none" }`,
+    });
+    expect(r.first.valid).toBe(true);
+    expect(r.calls.find((c) => c.fn === "input").type).toBe("none");
+    expect(writes(r.calls)[0].body.artifacts[0].$type).toBe("at.happyproto.plugin.v1");
   });
 
   it("resumes an existing version whose manifest carries the same artifact, sent in another key order", () => {
@@ -657,6 +684,31 @@ describe("promoteRelease", () => {
     expect(writes(r.calls)).toEqual([]);
   });
 
+  it("answers resumed and every ref, the changelog's included, when finishing a promotion", () => {
+    const r = call(PROMOTE, PROMOTE_INPUT(`track = "latest", changelog = "Promoted."`), {
+      setup: `__fail["software.release.channel"] = "the PDS is down"`,
+      again: "",
+    });
+    expect(r.first.error).toBe("Upstream");
+    expect(r.out.resumed).toBe(true);
+    expect(r.out.changelog).toEqual({ uri: at(DID, "site.standard.document", "tid-1"), cid: "bafysite.standard.document1" });
+    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.0.1"));
+    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe:latest"));
+    const fresh = call(PROMOTE, PROMOTE_INPUT());
+    expect(fresh.out.resumed).toBeUndefined();
+  });
+
+  it("refuses a fromVersion whose manifest the registry saw rewritten or deleted", () => {
+    for (const mark of ["suspectManifests", "deletedManifests"]) {
+      const r = call(PROMOTE, PROMOTE_INPUT(), {
+        setup: `__indexed["${PROJECT_STATE_URI}"].record.${mark} = { ["${MANIFEST_URI}"] = true }`,
+      });
+      expect(r.out.error).toBe("InvalidRecord");
+      expect(r.out.message).toContain("fromVersion");
+      expect(writes(r.calls)).toEqual([]);
+    }
+  });
+
   it("finishes a promotion whose channel write failed", () => {
     const r = call(PROMOTE, PROMOTE_INPUT(`track = "latest"`), {
       setup: `__fail["software.release.channel"] = "the PDS is down"`,
@@ -789,15 +841,23 @@ describe("retryVersion", () => {
     expect(r.out).toEqual({ availability: "pending" });
   });
 
-  it("enqueues nothing for a version whose blobs are held or deleted at source", () => {
-    for (const availability of ["available", "deletedAtSource"]) {
-      const r = call(RETRY, INPUT, {
-        ctx: ctxFor(HP),
-        setup: `__indexed["${STATE_URI}"].record.availability = "${availability}"`,
-      });
-      expect(jobs(r.calls)).toEqual([]);
-      expect(r.out).toEqual({ availability });
-    }
+  it("enqueues the copy again for an available version whose optional blobs failed", () => {
+    const r = call(RETRY, INPUT, {
+      ctx: ctxFor(HP),
+      setup: `__indexed["${STATE_URI}"].record.availability = "available"
+__indexed["${STATE_URI}"].record.failed = { banner = "the PDS answered 503" }`,
+    });
+    expect(jobs(r.calls).map((j) => j.job_type)).toEqual(["registry.copy-version"]);
+    expect(r.out).toEqual({ availability: "available" });
+  });
+
+  it("enqueues nothing for a version deleted at its source", () => {
+    const r = call(RETRY, INPUT, {
+      ctx: ctxFor(HP),
+      setup: `__indexed["${STATE_URI}"].record.availability = "deletedAtSource"`,
+    });
+    expect(jobs(r.calls)).toEqual([]);
+    expect(r.out).toEqual({ availability: "deletedAtSource" });
   });
 
   it("answers VersionNotFound without a version state", () => {

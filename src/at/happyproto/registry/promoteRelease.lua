@@ -63,6 +63,12 @@ function handle(input, ctx)
     return failure("VersionNotFound", "fromVersion is not an indexed version of your project")
   end
   manifest = { uri = manifest.uri, cid = manifest.cid }
+  -- fromVersion is indexed, so VersionNotFound would be untrue; it is the
+  -- input that breaks a registry rule, since a version on this manifest
+  -- would be indexed and never served.
+  if manifest_marked(our_did, caller, name, manifest.uri) then
+    return failure("InvalidRecord", "fromVersion's manifest was rewritten or deleted at its source, so a version on it would never be served")
+  end
 
   -- A version never changes once published. One already on this manifest is
   -- an earlier call of this one that failed part-way.
@@ -92,7 +98,15 @@ function handle(input, ctx)
   local err
 
   if existing then
+    out.resumed = true
     out.version = { uri = existing.uri, cid = existing.cid }
+    -- The document's CID is known only from its row, which the write that
+    -- created it mirrored into the index.
+    local changelog_uri = (existing.record or {}).changelog
+    local doc = type(changelog_uri) == "string" and db.get(changelog_uri) or nil
+    if doc and type(doc.cid) == "string" and doc.cid ~= "" then
+      out.changelog = { uri = changelog_uri, cid = doc.cid }
+    end
   else
     if changelog then
       out.changelog, err = caller_write("create", DOCUMENT,

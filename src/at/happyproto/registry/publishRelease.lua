@@ -12,6 +12,10 @@
 -- reused rather than written twice, and a version already written for it
 -- only has its channel moved.
 --
+-- Two calls for one version at the same time can each find no manifest to
+-- reuse and write one. Only one version write succeeds, so the other
+-- manifest is left unreferenced: never served, and harmless.
+--
 -- The artifact is checked with the rules the indexer applies, so a release
 -- the registry would skip is refused here, where the publisher can still fix
 -- it.
@@ -31,9 +35,6 @@ local REUSE_WINDOW = 100
 --- deleted at its source is never reused: a version on it would never be
 --- served.
 local function reusable_manifest(our_did, caller, name, artifact)
-  local marks = project_state(our_did, caller, name) or {}
-  local suspect = type(marks.suspectManifests) == "table" and marks.suspectManifests or {}
-  local deleted = type(marks.deletedManifests) == "table" and marks.deletedManifests or {}
   local wanted = canonical_json(artifact)
   local page = db.records(MANIFEST):did(caller)
     :where("project", "=", uri_of(caller, PROJECT, name))
@@ -41,7 +42,7 @@ local function reusable_manifest(our_did, caller, name, artifact)
   for _, row in ipairs(page.records or {}) do
     local found = manifest_artifact(row.record)
     if found and type(row.cid) == "string" and row.cid ~= ""
-        and not suspect[row.uri] and not deleted[row.uri]
+        and not manifest_marked(our_did, caller, name, row.uri)
         and canonical_json(found) == wanted then
       return { uri = row.uri, cid = row.cid }
     end
@@ -55,7 +56,7 @@ function handle(input, ctx)
     return failure("NotConfigured", "the registry has no identity configured")
   end
 
-  local name, version, track, artifact = input.name, input.version, input.track, input.artifact
+  local name, version, track = input.name, input.version, input.track
   if not is_project_name(name) then
     return failure("InvalidRecord", "name must be 1 to 64 lowercase letters, digits and interior hyphens")
   end
@@ -65,10 +66,13 @@ function handle(input, ctx)
   if not TRACKS[track] then
     return failure("InvalidRecord", "track must be latest, beta or alpha")
   end
-  local problem = artifact_problem(artifact) or changelog_problem(input.changelog)
+  local problem = artifact_problem(input.artifact) or changelog_problem(input.changelog)
   if problem then return failure("InvalidRecord", problem) end
   -- The indexer finds the plugin among a manifest's artifacts by its type,
-  -- so it is always written, and compared, with one.
+  -- so it is always written, and compared, with one. A shallow copy, so the
+  -- caller's input is left as it was; the nested values are only read.
+  local artifact = {}
+  for k, v in pairs(input.artifact) do artifact[k] = v end
   artifact["$type"] = ARTIFACT_TYPE
   local changelog = input.changelog ~= "" and input.changelog or nil
 

@@ -109,8 +109,8 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "maxGraphemes": 128,
-          "maxLength": 1280,
+          "maxGraphemes": 64,
+          "maxLength": 640,
           "description": "The plugin's display name."
         },
         "description": {
@@ -121,10 +121,14 @@
         "icon": {
           "type": "blob",
           "accept": [
-            "image/*"
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "image/avif"
           ],
           "maxSize": 1000000,
-          "description": "A blob already uploaded to the caller's repo."
+          "description": "A blob already uploaded to the caller's repo: a PNG, JPEG, WebP, GIF or AVIF image, the raster types the registry copies and serves. SVG is refused, since it can carry script."
         }
       }
     },

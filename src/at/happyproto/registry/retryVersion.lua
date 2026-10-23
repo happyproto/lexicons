@@ -37,9 +37,10 @@ function handle(input, ctx)
     return failure("VersionNotFound", "no version of that project is indexed at that version string")
   end
 
-  -- Only a pending version has anything left to copy: one available holds
-  -- its blobs, and one deleted at its source never becomes available.
-  if state.availability == "pending" then
+  -- An available version may still lack an image whose copy failed, and
+  -- the job fetches only what it doesn't hold. One deleted at its source
+  -- never becomes available, so there is nothing to retry.
+  if state.availability ~= "deletedAtSource" then
     local jobs = require("happyview.jobs")
     local queued, err = pcall(jobs.create, "registry.copy-version", { did = did, name = name, version = version })
     if not queued then

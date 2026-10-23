@@ -615,6 +615,14 @@ describe("registry.fetch-publication", () => {
     expect(r.state.publication.name).toHaveLength(5000);
   });
 
+  it("finishes without writing when the publisher's PDS cannot be resolved", () => {
+    // A retry moments later would not resolve it either.
+    const r = job(PUBLICATION, PUBLICATION_INPUT, { setup: `package.loaded["happyview.atproto"] = { resolve_service_endpoint = function() return nil end }`, read: PROJECT_STATE_URI });
+    expect(r.ok).toBe(true);
+    expect(writes(r.calls)).toHaveLength(0);
+    expect(logs(r.calls).some((l) => l.level === "warn")).toBe(true);
+  });
+
   it("raises when the PDS cannot answer, so the job is retried", () => {
     const r = job(PUBLICATION, PUBLICATION_INPUT, { read: PROJECT_STATE_URI });
     expect(r.ok).toBe(false);
@@ -705,6 +713,13 @@ describe("registry.fetch-changelog", () => {
     expect(writes(over.calls)).toHaveLength(0);
     const at = fetchChangelog(`textContent = string.rep("a", 1048576),`);
     expect(at.state.markdown).toHaveLength(1048576);
+  });
+
+  it("finishes without writing when the publisher's PDS cannot be resolved", () => {
+    const r = job(CHANGELOG, CHANGELOG_INPUT, { setup: `package.loaded["happyview.atproto"] = { resolve_service_endpoint = function() return nil end }`, read: CHANGELOG_URI });
+    expect(r.ok).toBe(true);
+    expect(writes(r.calls)).toHaveLength(0);
+    expect(logs(r.calls).some((l) => l.level === "warn")).toBe(true);
   });
 
   it("raises when the PDS cannot answer, so the job is retried", () => {

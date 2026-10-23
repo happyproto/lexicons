@@ -1229,20 +1229,21 @@ local function pds_get(did, path)
   return response.body
 end
 
---- A record as its own repo's PDS serves it, `{uri, cid, value}`, or nil and
---- why. The registry never indexes these records, so the CID the PDS
---- answers is the only one there is to check a strongRef against.
+--- A record as its own repo's PDS serves it, `{uri, cid, value}`, or nil,
+--- why, and whether asking again later could help. The registry never
+--- indexes these records, so the CID the PDS answers is the only one there
+--- is to check a strongRef against.
 local function pds_record(uri)
   local did, collection, rkey = parse_uri(uri)
-  if not did then return nil, "not a record at-uri: " .. tostring(uri) end
-  local body, problem = pds_get(did, "/xrpc/com.atproto.repo.getRecord?repo=" .. url_encode(did)
+  if not did then return nil, "not a record at-uri: " .. tostring(uri), false end
+  local body, problem, retryable = pds_get(did, "/xrpc/com.atproto.repo.getRecord?repo=" .. url_encode(did)
     .. "&collection=" .. url_encode(collection) .. "&rkey=" .. url_encode(rkey))
-  if body == nil then return nil, problem end
-  if type(body) ~= "string" then return nil, "the PDS answered a record that is not text" end
+  if body == nil then return nil, problem, retryable end
+  if type(body) ~= "string" then return nil, "the PDS answered a record that is not text", true end
   local decoded_ok, decoded = pcall(json.decode, body)
   if not decoded_ok or type(decoded) ~= "table" or type(decoded.cid) ~= "string"
       or type(decoded.value) ~= "table" then
-    return nil, "the PDS answered something that is not a record"
+    return nil, "the PDS answered something that is not a record", true
   end
   return decoded
 end
@@ -1516,6 +1517,17 @@ local function display_name(our_did, did, name)
     return publication.name
   end
   return name
+end
+
+--- Whether the registry saw a manifest of this project rewritten or deleted
+--- at its source. A version on such a manifest is indexed but never served,
+--- so the gateway never puts a new version on one.
+local function manifest_marked(our_did, did, name, manifest_uri)
+  local marks = project_state(our_did, did, name) or {}
+  for _, field in ipairs({ "suspectManifests", "deletedManifests" }) do
+    if type(marks[field]) == "table" and marks[field][manifest_uri] then return true end
+  end
+  return false
 end
 
 --- Whether a channel may point at a version of the caller's project: the

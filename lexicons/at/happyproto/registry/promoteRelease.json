@@ -59,6 +59,10 @@
             "version"
           ],
           "properties": {
+            "resumed": {
+              "type": "boolean",
+              "description": "True when the new version already existed on the same manifest, so this call only finished what an earlier one started."
+            },
             "version": {
               "type": "ref",
               "ref": "at.happyproto.registry.defs#ref",
