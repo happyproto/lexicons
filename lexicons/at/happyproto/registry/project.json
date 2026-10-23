@@ -33,11 +33,13 @@
           "authors": {
             "type": "array",
             "minLength": 1,
+            "maxLength": 20,
             "items": { "type": "ref", "ref": "#author" }
           },
           "security": {
             "type": "array",
             "minLength": 1,
+            "maxLength": 20,
             "description": "Where to report a vulnerability. At least one is required, because a plugin runs inside an operator's HappyView.",
             "items": { "type": "ref", "ref": "#contact" }
           }

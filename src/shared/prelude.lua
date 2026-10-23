@@ -1150,6 +1150,9 @@ local function artifact_problem(a)
   return nil
 end
 
+--- The most authors, and the most security contacts, a sidecar may list.
+local MAX_PEOPLE = 20
+
 --- Every rule the `at.happyproto.registry.project` sidecar must meet. It is
 --- what makes a project a plugin, so it must point at the project and the
 --- publication under its own key in its own repo: one pointing elsewhere
@@ -1185,6 +1188,7 @@ local function sidecar_problem(r, did, name)
   if not is_list(r.authors) or #r.authors == 0 then
     return "authors must list at least one author"
   end
+  if #r.authors > MAX_PEOPLE then return "authors lists more than " .. MAX_PEOPLE .. " authors" end
   for i, author in ipairs(r.authors) do
     local field = "authors[" .. i .. "]"
     if type(author) ~= "table" then return field .. " must be an object" end
@@ -1203,6 +1207,7 @@ local function sidecar_problem(r, did, name)
   if not is_list(r.security) or #r.security == 0 then
     return "security must list at least one contact"
   end
+  if #r.security > MAX_PEOPLE then return "security lists more than " .. MAX_PEOPLE .. " contacts" end
   for i, contact in ipairs(r.security) do
     local field = "security[" .. i .. "]"
     if type(contact) ~= "table" then return field .. " must be an object" end
@@ -1791,12 +1796,14 @@ local function banner_view(artifact)
 end
 
 --- A sidecar's list of objects with only the string fields its lexicon
---- declares. HappyView stores a record as written, so a key the lexicon
---- never named would otherwise reach every reader unbounded.
+--- declares, and at most MAX_PEOPLE of them. HappyView stores a record as
+--- written, so a key the lexicon never named, or a row stored before the
+--- count was bounded, would otherwise reach every reader unbounded.
 local function declared_list(list, keys)
   local out = {}
   if not is_list(list) then return json.to_array(out) end
   for _, item in ipairs(list) do
+    if #out >= MAX_PEOPLE then break end
     if type(item) == "table" then
       local kept = {}
       for _, key in ipairs(keys) do kept[key] = text_or_nil(item[key]) end

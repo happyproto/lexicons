@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Copy a version's blobs into the registry again, after an earlier copy failed. Only the registry's own account may call this. The copy is enqueued for any indexed version and fetches only what is not held yet, so an available version whose optional images failed can be retried. For a version deleted at its source, the copy keeps whatever blobs the publisher's PDS still serves, so instances that installed it can keep loading it by CID, but the version stays deletedAtSource and is never made available.",
+      "description": "Copy a version's blobs into the registry again, after an earlier copy failed. Only the registry's own account may call this. The copy is enqueued for any indexed version and fetches only what is not held yet, so an available version whose optional images failed can be retried. For a version deleted at its source, the copy keeps whatever blobs the publisher's PDS still serves, so instances that installed it can keep loading it by CID, but the version stays deletedAtSource and is never made available. For such a version, a blob that cannot be fetched, whether it is missing or the fetch failed transiently, is recorded in `failed` and not retried automatically; call retryVersion again.",
       "input": {
         "encoding": "application/json",
         "schema": {

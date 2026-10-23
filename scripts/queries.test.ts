@@ -240,7 +240,7 @@ package.preload["happyview.db"] = function()
       function q:limit(n) self.max = n; return self end
       function q:cursor(c) self.after = c; return self end
       function q:run()
-        __calls[#__calls + 1] = { fn = "records", collection = collection, filters = self.filters, after = self.after }
+        __calls[#__calls + 1] = { fn = "records", collection = collection, filters = self.filters, after = self.after, limit = self.max }
         local rows = {}
         for _, e in pairs(__indexed) do
           local keep = e.collection == collection and (self.owner == nil or e.did == self.owner)
@@ -479,6 +479,17 @@ s.security = { { email = "security@example.com", pgp = string.rep("k", 100000), 
     expect(out.security).toEqual([{ email: "security@example.com" }]);
   });
 
+  it("answers at most 20 authors and 20 security contacts from a row stored before the bound", () => {
+    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
+      setup: `local s = __indexed["${SIDECAR_URI}"].record
+s.authors, s.security = {}, {}
+for i = 1, 500 do s.authors[i] = { name = "a" .. i } s.security[i] = { email = "s" .. i } end`,
+    });
+    expect(out.authors).toHaveLength(20);
+    expect(out.authors[19]).toEqual({ name: "a20" });
+    expect(out.security).toHaveLength(20);
+  });
+
   it("answers ProjectNotFound for a sidecar whose project is not indexed", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: `__indexed["${PROJECT_URI}"] = nil` });
     expect(out.error).toBe("ProjectNotFound");
@@ -547,14 +558,24 @@ describe("searchProjects", () => {
   });
 
   it("does not let rows outside the registry's plugins take a capped slot", () => {
-    // Strangers' state rows and plain software.release projects (no sidecar)
-    // that match q, each indexed before probe's rows.
+    // Strangers' state rows, and sidecars with no project behind them (the
+    // project indexer stores a project only while its sidecar is live), that
+    // match q, each indexed before probe's rows.
     const crowd = [1, 2, 3]
       .map(
         (i) => `
-      __put("${at(EVE, "at.happyproto.registry.projectState", "x")}${"${i}"}", nil, {
-        did = "${EVE}", name = "probe${"${i}"}", publication = { name = "Probe ${"${i}"}" } }, "2026-01-01T00:00:0${"${i}"}Z")
-      __put("${at(EVE, "software.release.project", "probe")}${"${i}"}", "bafyeve", { name = "probe${"${i}"}" }, "2026-01-01T00:00:0${"${i}"}Z")`,
+      __put("${at(EVE, "at.happyproto.registry.projectState", `${DID}:probe${i}`)}", nil, {
+        did = "${DID}", name = "probe${i}", publication = { name = "Probe ${i}" } }, "2026-01-01T00:00:0${i}Z")
+      __put("${at(EVE, "at.happyproto.registry.project", `probe${i}`)}", "bafyeve", {
+        project = "${at(EVE, "software.release.project", `probe${i}`)}",
+        publication = { uri = "${at(EVE, "site.standard.publication", `probe${i}`)}", cid = "bafyeve" },
+        pluginType = "interpreter", authors = { { name = "Eve" } }, security = { { email = "e@example.com" } },
+      }, "2026-01-01T00:00:0${i}Z")
+      __put("${at(EVE, "at.happyproto.registry.project", `old${i}`)}", "bafyeve", {
+        project = "${at(EVE, "software.release.project", `old${i}`)}",
+        publication = { uri = "${at(EVE, "site.standard.publication", `old${i}`)}", cid = "bafyeve" },
+        pluginType = "library", authors = { { name = "Eve" } }, security = { { email = "e@example.com" } },
+      }, "2026-01-01T00:00:0${i}Z")`,
       )
       .join("\n");
     const { out } = query(SEARCH, `{ q = "probe", limit = 1 }`, { setup: crowd });
@@ -563,8 +584,8 @@ describe("searchProjects", () => {
     expect(byName.out.projects.map((p: any) => p.name)).toEqual(["old"]);
   });
 
-  it("matches q only against the project name in a sidecar's project", () => {
-    // Every sidecar's project uri contains "release" and the publisher's DID.
+  it("matches q only against a project's name", () => {
+    // Every project's uri contains "release" and the publisher's DID.
     expect(query(SEARCH, `{ q = "release", includeRetired = true }`).out.projects).toEqual({});
     expect(query(SEARCH, `{ q = "plc", includeRetired = true }`).out.projects).toEqual({});
   });
@@ -590,6 +611,10 @@ describe("searchProjects", () => {
     const { out } = query(SEARCH, `{ includeRetired = true }`, { setup: sidecars });
     expect(out.projects.map((p: any) => p.name)).toEqual(["old", "probe"]);
     expect(query(SEARCH, `{ q = "spam" }`, { setup: sidecars }).out.projects).toEqual({});
+    // Nor do they take a slot: a page of two is the two real projects.
+    const page = query(SEARCH, `{ limit = 2, includeRetired = true }`, { setup: sidecars }).out;
+    expect(page.projects.map((p: any) => p.name)).toEqual(["old", "probe"]);
+    expect(page.cursor).toBeUndefined();
   });
 
   it("matches % and _ in q literally", () => {
@@ -600,6 +625,24 @@ describe("searchProjects", () => {
     const named = `__indexed["${PROJECT_STATE_URI}"].record.publication.name = "100% Pr_be"`;
     expect(query(SEARCH, `{ q = "0% pr_b" }`, { setup: named }).out.projects.map((p: any) => p.name)).toEqual(["probe"]);
     expect(query(SEARCH, `{ q = "0%_" }`, { setup: named }).out.projects).toEqual({});
+  });
+
+  it("reads wider when q holds a LIKE character, so wildcard-only matches don't push true ones out", () => {
+    // Five of the registry's own state rows, indexed before probe's, whose
+    // names match "100_ Probe" but not "100% Probe".
+    const fuzz = [1, 2, 3, 4, 5]
+      .map((i) => `__put("${at(HP, "at.happyproto.registry.projectState", `${DID}:fuzz${i}`)}", nil, {
+  did = "${DID}", name = "fuzz${i}", publication = { name = "100x Probe" } }, "2026-01-01T00:00:0${i}Z")`)
+      .join("\n");
+    const named = `__indexed["${PROJECT_STATE_URI}"].record.publication.name = "100% Probe"`;
+    const { out, calls } = query(SEARCH, `{ q = "100% Probe", limit = 1 }`, { setup: fuzz + "\n" + named });
+    expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+    const reads = (cs: any[]) =>
+      cs.filter((c) => c.fn === "records" && /projectState|release\.project$/.test(c.collection)).map((c) => c.limit);
+    expect(reads(calls)).toEqual([100, 100]);
+    // Without a LIKE character each match reads only the requested size.
+    const plain = query(SEARCH, `{ q = "Probe", limit = 1 }`, { setup: fuzz });
+    expect(reads(plain.calls)).toEqual([1, 1]);
   });
 
   it("floors a fractional limit and keeps it within 1 to 100", () => {

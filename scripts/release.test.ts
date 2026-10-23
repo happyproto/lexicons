@@ -347,6 +347,12 @@ describe("sidecar_problem", () => {
     expect(await edit(`r.authors = { { name = "T", url = ${at(2049)} } }`)).toMatch(/authors\[1\]\.url is longer than 2048/);
     expect(await edit(`r.security = { { url = ${at(2049)} } }`)).toMatch(/security\[1\]\.url is longer than 2048/);
   });
+  it("refuses more than 20 authors or 20 security contacts", async () => {
+    expect(await edit(`r.authors = {} for i = 1, 20 do r.authors[i] = { name = "a" .. i } end`)).toBeNull();
+    expect(await edit(`r.authors = {} for i = 1, 21 do r.authors[i] = { name = "a" .. i } end`)).toMatch(/authors lists more than 20/);
+    expect(await edit(`r.security = {} for i = 1, 20 do r.security[i] = { email = "s" .. i } end`)).toBeNull();
+    expect(await edit(`r.security = {} for i = 1, 21 do r.security[i] = { email = "s" .. i } end`)).toMatch(/security lists more than 20/);
+  });
   it("refuses a publication cid that is not shaped like a CID", async () => {
     for (const cid of [`"x"`, `"bafy-not-a-cid"`, `"BAFYREI"`, `"b" .. string.rep("a", 128)`, `""`, `7`]) {
       expect(await edit(`r.publication.cid = ${cid}`)).toMatch(/publication\.cid/);

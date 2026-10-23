@@ -6,16 +6,18 @@
 --
 -- Two paths. With `q`, display names and project names are matched and the
 -- answer is capped at `limit`, with no cursor, since it merges two queries.
--- Without it every sidecar is paged, newest first. Filters run on the page,
--- so a filtered page can hold fewer than `limit` projects and still carry a
--- cursor.
+-- Without it every software.release.project row is paged, newest first.
 --
--- Both matches are scoped so only plugins can fill the cap: display names
--- come from the registry's own state rows, and project names from sidecars,
--- which exist only for plugins. The index's ranked substring search can be
--- scoped to neither, so a stranger's rows could take every slot. A sidecar
--- whose project is not indexed is no plugin, so project_view answers nothing
--- for it on either path.
+-- Both paths read only rows a stranger cannot make on their own: display
+-- names come from the registry's own state rows, and projects are stored
+-- only while a live plugin sidecar exists, and only once both are written.
+-- Paging sidecars instead would let an account that writes nothing but
+-- sidecars fill every page every instance walks. The index's ranked
+-- substring search can be scoped to neither, so it is not used.
+--
+-- A project row carries no plugin type, so `pluginType`, like `retired`, is
+-- applied to the page after it is read: a filtered page can hold fewer than
+-- `limit` projects and still carry a cursor.
 
 local db = require("happyview.db")
 
@@ -37,8 +39,14 @@ local function contains(text, q)
   return type(text) == "string" and text:lower():find(q:lower(), 1, true) ~= nil
 end
 
+--- How many rows a match reads when `q` holds a LIKE character: the
+--- wildcard it becomes matches more than `q` does, and what only it matched
+--- must not push true matches out of a page of `limit`.
+local WIDE = 100
+
 --- `(did, name)` pairs whose display name or project name contains `q`,
---- ignoring case, the display names first, each project once.
+--- ignoring case, the display names first, each project once, at most
+--- `limit` from each.
 local function matches(our_did, q, limit)
   local found, seen = {}, {}
   local function add(did, name)
@@ -46,23 +54,33 @@ local function matches(our_did, q, limit)
     if is_did(did) and is_project_name(name) and not seen[key] then
       seen[key] = true
       found[#found + 1] = { did = did, name = name }
+      return true
     end
+    return false
   end
   local body = like_body(q)
+  local read = q:find("[%%_\\]") and WIDE or limit
+
+  local taken = 0
   local by_display = db.records(PROJECT_STATE):did(our_did)
-    :where("publication.name", "ilike", "%" .. body .. "%"):limit(limit):run() or {}
+    :where("publication.name", "ilike", "%" .. body .. "%"):limit(read):run() or {}
   for _, e in ipairs(by_display.records or {}) do
     local r = e.record
-    if type(r) == "table" and type(r.publication) == "table" and contains(r.publication.name, q) then
-      add(r.did, r.name)
+    if taken < limit and type(r) == "table" and type(r.publication) == "table"
+      and contains(r.publication.name, q) and add(r.did, r.name) then
+      taken = taken + 1
     end
   end
-  -- A sidecar has no name field, but the project it must point at ends in
-  -- the name, so `q` is matched against that key alone.
-  local by_name = db.records(SIDECAR)
-    :where("project", "ilike", "%/" .. PROJECT .. "/%" .. body .. "%"):limit(limit):run() or {}
+
+  taken = 0
+  -- A project's name is its record key, and the indexer stores only a
+  -- record whose `name` is its key.
+  local by_name = db.records(PROJECT):where("name", "ilike", "%" .. body .. "%"):limit(read):run() or {}
   for _, e in ipairs(by_name.records or {}) do
-    if contains(e.rkey, q) then add(e.did, e.rkey) end
+    if taken < limit and type(e.record) == "table" and e.record.name == e.rkey
+      and contains(e.rkey, q) and add(e.did, e.rkey) then
+      taken = taken + 1
+    end
   end
   return found
 end
@@ -82,8 +100,7 @@ function handle(input, ctx)
   if searching then
     candidates = matches(our_did, q, limit)
   else
-    local query = db.records(SIDECAR):sort("indexed_at", "desc"):limit(limit)
-    if plugin_type then query = query:where("pluginType", "=", plugin_type) end
+    local query = db.records(PROJECT):sort("indexed_at", "desc"):limit(limit)
     if cursor then query = query:cursor(cursor) end
     local page = query:run() or {}
     for _, e in ipairs(page.records or {}) do
