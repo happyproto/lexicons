@@ -181,6 +181,34 @@ describe("artifact_problem", () => {
   it("counts an unassigned code point in a combining block as its own grapheme", async () => {
     expect(await problem(alt(`string.rep("\u{20F1}", 1000)`))).toMatch(/alt/);
   });
+  // Each is at most 3000 bytes, and more than 300 graphemes however a joiner
+  // is read, so a counter that lets a joiner swallow them is caught here.
+  for (const [label, unit] of [
+    ["a, ZWJ, emoji", "a\\u{200D}\\u{1F600}"],
+    ["a, ZWJ, sun", "a\\u{200D}\\u{2600}"],
+    ["ZWJ, emoji", "\\u{200D}\\u{1F600}"],
+    ["ZWJ, ZWJ, emoji", "\\u{200D}\\u{200D}\\u{1F600}"],
+    ["ZWJ, VS16, sun", "\\u{200D}\\u{FE0F}\\u{2600}"],
+  ]) {
+    it(`refuses 300 of ${label} as an alt`, async () => {
+      expect(await lua(`return #string.rep("${unit}", 300) <= 3000`)).toBe(true);
+      expect(await problem(alt(`string.rep("${unit}", 300)`))).toMatch(/alt is longer than 300 characters/);
+    });
+  }
+  it("counts emoji, ZWJ, a as two", async () => {
+    expect(await lua(`return graphemes(string.rep("\\u{1F600}\\u{200D}a", 300))`)).toBe(600);
+  });
+  it("counts a family as one", async () => {
+    expect(await lua(`return {
+      graphemes("\\u{1F468}\\u{200D}\\u{1F469}\\u{200D}\\u{1F467}\\u{200D}\\u{1F466}"),
+      graphemes("\\u{1F469}\\u{200D}\\u{2764}\\u{FE0F}\\u{200D}\\u{1F48B}\\u{200D}\\u{1F468}"),
+      graphemes("\\u{1F44D}\\u{1F3FD}"),
+    }`)).toEqual([1, 1, 1]);
+  });
+  it("does not join a chain longer than any real emoji sequence", async () => {
+    expect(await lua(`return graphemes(string.rep("\\u{1F600}\\u{200D}", 8) .. "\\u{1F600}")`)).toBeGreaterThan(1);
+  });
+
   it("still fuses an emoji joined to an emoji", async () => {
     // Family: man, ZWJ, woman, ZWJ, girl. One grapheme, 18 bytes, 166 of them.
     expect(await problem(alt(`string.rep("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 166)`))).toBeNull();
@@ -190,6 +218,11 @@ describe("artifact_problem", () => {
     expect(await problem(`package = ${blob("application/wasm", 1234)}, banner = { image = ${blob("image/png", 2000)}, width = 1200.0, height = 400.0 },`))
       .toBeNull();
     expect(await lua(`local a = ${artifact()} a.package.size = 1234.0 return artifact_problem(a)`)).toBeNull();
+  });
+  it("refuses a size or dimension that is not finite", async () => {
+    expect(await lua(`local a = ${artifact()} a.package.size = math.huge return artifact_problem(a)`)).toMatch(/package/);
+    expect(await lua(`local a = ${artifact()} a.package.size = 0/0 return artifact_problem(a)`)).toMatch(/package/);
+    expect(await lua(`local a = ${artifact()} a.banner.width = math.huge return artifact_problem(a)`)).toMatch(/banner\.width/);
   });
   it("refuses a fractional or negative size or dimension", async () => {
     expect(await lua(`local a = ${artifact()} a.package.size = 12.5 return artifact_problem(a)`)).toMatch(/package/);
@@ -276,6 +309,9 @@ describe("sidecar_problem", () => {
   it("refuses an author or contact url that is not a web link", async () => {
     expect(await edit(`r.authors = { { name = "T", url = "javascript:alert(1)" } }`)).toMatch(/authors\[1\]\.url/);
     expect(await edit(`r.security = { { url = "ftp://x" } }`)).toMatch(/security\[1\]\.url/);
+    expect(await edit(`r.security = { { url = "https://" } }`)).toMatch(/security\[1\]\.url/);
+    expect(await edit(`r.security = { { url = "https:///path" } }`)).toMatch(/security\[1\]\.url/);
+    expect(await edit(`r.security = { { url = "https:// x" } }`)).toMatch(/security\[1\]\.url/);
     expect(await edit(`r.authors = { { name = "T", url = "http://x" } } r.security = { { url = "https://x/sec" } }`)).toBeNull();
   });
   it("refuses a security contact with neither url nor email", async () => {

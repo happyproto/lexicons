@@ -732,9 +732,7 @@ local function extends(cp)
     or cp == 0x200D
 end
 
--- Emoji a zero-width joiner can fuse into the one before it. Anything else
--- after a joiner starts a grapheme of its own, so a run of joiners cannot
--- hide text from the count.
+-- Emoji a zero-width joiner can fuse into the emoji before it.
 local function pictographic(cp)
   return (cp >= 0x1F000 and cp <= 0x1FAFF)
     or (cp >= 0x2600 and cp <= 0x27BF)
@@ -742,18 +740,38 @@ local function pictographic(cp)
     or (cp >= 0x2300 and cp <= 0x23FF)
 end
 
+-- The most emoji one real ZWJ sequence joins, as in a family of four or a
+-- kiss. Joining more would let one long chain pass as a single character.
+local MAX_JOINED = 4
+
 --- An approximate grapheme count, or nil for a string that is not UTF-8.
+---
+--- An emoji fuses into the cluster before it only across a joiner that
+--- follows that cluster's emoji directly (UAX #29 rule GB11), and only when
+--- that emoji began its cluster cleanly, not straight after a joiner that
+--- joined nothing. Without that, `a`, ZWJ, emoji repeated -- or a chain that
+--- opens with a stray joiner -- would count as a single character however
+--- long it ran. A joiner or mark with nothing before it counts on its own.
 local function graphemes(s)
   if not utf8.len(s) then return nil end
-  local count, joined = 0, false
+  local count = 0
+  local started = false   -- a cluster is open
+  local joinable = false  -- its base is an emoji that can take a joiner
+  local joined = 0        -- emoji in it so far
+  local after_zwj = false -- the previous code point was a joiner
   for _, cp in utf8.codes(s) do
-    if joined and pictographic(cp) then
-      joined = false
-    elseif not extends(cp) then
-      joined = false
+    if after_zwj and joinable and joined < MAX_JOINED and pictographic(cp) then
+      joined = joined + 1
+      after_zwj = false
+    elseif started and extends(cp) then
+      after_zwj = cp == 0x200D
+    else
       count = count + 1
+      started = true
+      joinable = pictographic(cp) and not after_zwj
+      joined = joinable and 1 or 0
+      after_zwj = cp == 0x200D
     end
-    if cp == 0x200D then joined = true end
   end
   return count
 end
@@ -776,9 +794,10 @@ end
 --- A whole number of at least `min`. The host's JSON bridge may hand an
 --- integral number over as a float, which is still the same count.
 local function is_count(x, min)
-  local whole = math.type(x) == "integer"
-    or (math.type(x) == "float" and x == math.floor(x))
-  return whole and x >= min
+  if math.type(x) == "integer" then return x >= min end
+  return math.type(x) == "float"
+    and x == x and x ~= math.huge and x ~= -math.huge
+    and x == math.floor(x) and x >= min
 end
 
 --- A Lua sequence and nothing else, so a map passed where the lexicon wants
@@ -824,7 +843,7 @@ end
 --- A web link a dashboard can render as one. Anything else, `javascript:`
 --- above all, is refused rather than handed to a page as an href.
 local function is_web_url(s)
-  return type(s) == "string" and (s:sub(1, 8) == "https://" or s:sub(1, 7) == "http://")
+  return type(s) == "string" and s:match("^https?://[^/ \t\r\n\f\v]+") ~= nil
 end
 
 local function image_problem(img, field)
