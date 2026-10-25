@@ -1362,7 +1362,7 @@ local function byte_length(body)
   if type(body) == "string" then return #body end
   if type(body) == "table" and type(body["$bytes"]) == "string" then
     local digits = #(body["$bytes"]:gsub("=+$", ""))
-    return digits * 6 // 8
+    return math.floor(digits * 6 / 8)
   end
   return nil
 end
@@ -1670,10 +1670,10 @@ local function iso_seconds(s)
   if not y then return nil end
   y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
   if mo <= 2 then y = y - 1 end
-  local era = y // 400
+  local era = math.floor(y / 400)
   local yoe = y - era * 400
-  local doy = (153 * ((mo + 9) % 12) + 2) // 5 + d - 1
-  local days = era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+  local doy = math.floor((153 * ((mo + 9) % 12) + 2) / 5) + d - 1
+  local days = era * 146097 + yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy - 719468
   return days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(sec)
 end
 
