@@ -1,0 +1,112 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.plugin.v1",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "A HappyView plugin, as one entry in a software.release.manifest's `artifacts`. It carries the module and its manifest.json as blobs, so they are verified by their CIDs, and the manifest's facts in the signed record, so a consent screen renders without downloading the module. Those facts are not trusted: the loader checks them against the module itself and refuses a plugin that misstates what it does. The registry refuses a manifest whose artifact breaks a rule stated here, including the ones a lexicon cannot express.",
+      "required": ["package", "manifest", "pluginType", "apiVersion", "capabilities", "license", "sections"],
+      "properties": {
+        "package": {
+          "type": "blob",
+          "accept": ["application/wasm"],
+          "maxSize": 16777216,
+          "description": "The WASM module."
+        },
+        "manifest": {
+          "type": "blob",
+          "accept": ["application/json"],
+          "maxSize": 1000000,
+          "description": "The module's manifest.json. A module stored as a blob has no directory beside it to hold a sibling file, so this is what says how to load it."
+        },
+        "banner": {
+          "type": "ref",
+          "ref": "#image",
+          "description": "A wide image shown at the top of the plugin's page."
+        },
+        "screenshots": {
+          "type": "array",
+          "maxLength": 8,
+          "items": { "type": "ref", "ref": "#image" }
+        },
+        "pluginType": {
+          "type": "string",
+          "knownValues": ["auth", "library", "interpreter"],
+          "description": "What the plugin is. Any other value is refused."
+        },
+        "apiVersion": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The plugin API version the module targets. Its major version must be 2 or later."
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "What the module may do. The loader checks it against the module's imports, so a plugin cannot import what this does not cover.",
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "namespace": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Required for a library: the name scripts load it by, which is unique across a HappyView's installed plugins."
+        },
+        "languageId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Required for an interpreter: the script type it runs."
+        },
+        "fileExtensions": {
+          "type": "array",
+          "minLength": 1,
+          "maxLength": 8,
+          "description": "Required for an interpreter: the file extensions of the scripts it runs, without the dot. Each is 1 to 16 lowercase letters or digits, none is `json`, and none repeats.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 16 }
+        },
+        "allowedHosts": {
+          "type": "array",
+          "description": "Hosts the module's outbound requests may reach.",
+          "items": { "type": "string", "maxLength": 256 }
+        },
+        "requires": {
+          "type": "unknown",
+          "description": "Dependencies, as a map a lexicon cannot type. Each key is `env:<name>`, such as `env:happyview`, or the at-uri of a software.release.project; each value is a Cargo version requirement, such as `>=3.0.0` or `^1.0`, without `||`."
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "An SPDX expression, or `proprietary`."
+        },
+        "sections": { "type": "ref", "ref": "#sections" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "description": "A presentation image. SVG is not accepted, because it can carry script and renders in an operator's dashboard.",
+      "required": ["image", "width", "height"],
+      "properties": {
+        "image": {
+          "type": "blob",
+          "accept": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
+          "maxSize": 1000000
+        },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "alt": {
+          "type": "string",
+          "maxGraphemes": 300,
+          "maxLength": 3000,
+          "description": "A description of the image for people who cannot see it."
+        }
+      }
+    },
+    "sections": {
+      "type": "object",
+      "description": "Long-form CommonMark shown on the plugin's page. It is rendered as untrusted input, with raw HTML stripped.",
+      "required": ["description"],
+      "properties": {
+        "description": { "type": "string", "maxGraphemes": 2000, "maxLength": 20000 },
+        "installation": { "type": "string", "maxGraphemes": 2000, "maxLength": 20000 },
+        "security": { "type": "string", "maxGraphemes": 2000, "maxLength": 20000 }
+      }
+    }
+  }
+}

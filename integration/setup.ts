@@ -252,19 +252,27 @@ async function walk(dir: string, ext: string): Promise<string[]> {
 }
 
 /**
- * Deploy lexicons/**, lua/** and jobs/** through the admin API, with the
+ * Deploy lexicons/**, vendor/lexicons/** and lua/** (scripts and, under
+ * lua/jobs/, jobs) through the admin API, with the
  * calls happyview-actions/deploy makes: POST /admin/lexicons, then POST
  * /admin/scripts with the trigger it derives from the paired lexicon's type.
  */
 async function deploy(apiKey: string): Promise<void> {
   const headers = { authorization: `Bearer ${apiKey}`, "content-type": "application/json" };
-  const scripts = await walk("lua", ".lua");
+  const jobFiles = await walk("lua/jobs", ".lua");
+  const scripts = (await walk("lua", ".lua")).filter((file) => !jobFiles.includes(file));
   if (scripts.length === 0) {
     throw new Error("lua/ is empty or missing. Run `bun run gen` before the integration tests.");
   }
 
   const types = new Map<string, string>();
-  for (const file of await walk("lexicons", ".json")) {
+  // The vendored lexicons are deployed so the registry can index them; only
+  // the workflow's lexicon-publish step ever decides what gets published.
+  const lexiconFiles = [
+    ...(await walk("lexicons", ".json")),
+    ...(await walk("vendor/lexicons", ".json")),
+  ];
+  for (const file of lexiconFiles) {
     const lexicon = JSON.parse(await readFile(file, "utf8"));
     types.set(lexicon.id, lexicon.defs?.main?.type);
     await expectOk(
@@ -294,8 +302,8 @@ async function deploy(apiKey: string): Promise<void> {
       );
     }
   }
-  for (const file of await walk("jobs", ".lua")) {
-    const type = relative("jobs", file).replace(/\.lua$/, "").split("/").join(".");
+  for (const file of jobFiles) {
+    const type = relative("lua/jobs", file).replace(/\.lua$/, "").split("/").join(".");
     triggers.push([`job.run:${type}`, file]);
   }
 

@@ -1,0 +1,180 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.putProject",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create or update a plugin project in the caller's repo. The first call writes the site.standard.publication, the at.happyproto.registry.project and the software.release.project, in that order, so each is indexed after what it depends on. Later calls update the publication and the at.happyproto.registry.project only; the project record itself is never changed.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "name",
+            "publication",
+            "project"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+            },
+            "publication": {
+              "type": "ref",
+              "ref": "#publication"
+            },
+            "project": {
+              "type": "ref",
+              "ref": "#project"
+            },
+            "swapCid": {
+              "type": "string",
+              "format": "cid",
+              "description": "Update only if the caller's at.happyproto.registry.project record still has this CID, so a concurrent update is not silently overwritten."
+            },
+            "validateOnly": {
+              "type": "boolean",
+              "default": false,
+              "description": "Check the input against every rule the registry applies, and write nothing. Works without authentication, but only a signed-in call is also checked against the caller's existing records."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "valid"
+          ],
+          "properties": {
+            "valid": {
+              "type": "boolean",
+              "description": "Always true; invalid input is an error, not a result."
+            },
+            "created": {
+              "type": "boolean",
+              "description": "True when this call created the project. Absent when validateOnly was set."
+            },
+            "project": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The software.release.project. Absent when validateOnly was set."
+            },
+            "publication": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The site.standard.publication. Absent when validateOnly was set."
+            },
+            "sidecar": {
+              "type": "ref",
+              "ref": "at.happyproto.registry.defs#ref",
+              "description": "The at.happyproto.registry.project. Absent when validateOnly was set."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured. An operator problem, not a caller's."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
+        },
+        {
+          "name": "Upstream",
+          "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
+        },
+        {
+          "name": "InvalidSwap",
+          "description": "The caller's at.happyproto.registry.project record no longer has the CID given in swapCid."
+        }
+      ]
+    },
+    "publication": {
+      "type": "object",
+      "description": "What the registry writes to the project's site.standard.publication.",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxGraphemes": 64,
+          "maxLength": 640,
+          "description": "The plugin's display name."
+        },
+        "description": {
+          "type": "string",
+          "maxGraphemes": 300,
+          "maxLength": 3000
+        },
+        "icon": {
+          "type": "blob",
+          "accept": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "image/avif"
+          ],
+          "maxSize": 1000000,
+          "description": "A blob already uploaded to the caller's repo: a PNG, JPEG, WebP, GIF or AVIF image, the raster types the registry copies and serves. SVG is refused, since it can carry script."
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "What the registry writes to the project's at.happyproto.registry.project.",
+      "required": [
+        "pluginType",
+        "authors",
+        "security"
+      ],
+      "properties": {
+        "pluginType": {
+          "type": "string",
+          "knownValues": [
+            "auth",
+            "library",
+            "interpreter"
+          ]
+        },
+        "keywords": {
+          "type": "array",
+          "maxLength": 20,
+          "items": {
+            "type": "string",
+            "maxGraphemes": 32,
+            "maxLength": 320
+          }
+        },
+        "authors": {
+          "type": "array",
+          "minLength": 1,
+          "items": {
+            "type": "ref",
+            "ref": "at.happyproto.registry.project#author"
+          }
+        },
+        "security": {
+          "type": "array",
+          "minLength": 1,
+          "items": {
+            "type": "ref",
+            "ref": "at.happyproto.registry.project#contact"
+          }
+        }
+      }
+    }
+  }
+}

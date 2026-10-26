@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "software.release.status",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An append-only lifecycle statement about a version or project. State changes are expressed by superseding records, never by editing or deleting prior ones; current state is the latest live same-DID status record for a subject, and absence means active. Yank means do-not-newly-adopt, never ceases-to-exist. The documented norm is yank, don't delete; retraction is the testimonied last resort for mistakes — a retracted status written in the same commit as its subject's deletion, so the removal itself stays in append-only history.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "subject",
+          "status"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The software.release.version or software.release.project this statement is about. Must be same-DID."
+          },
+          "status": {
+            "type": "string",
+            "knownValues": [
+              "yanked",
+              "active",
+              "deprecated",
+              "archived",
+              "retracted"
+            ],
+            "maxLength": 64,
+            "description": "Lifecycle state. yanked: do not newly adopt (explicit-version access keeps working, channel resolution never answers with it, updaters fail static). active: supersedes a prior state (unyank). deprecated: still valid for resolution, always surfaced with a warning. archived: for project subjects. retracted: testimony that the subject was deliberately deleted by the key-holder — written in the same commit as the deletion, its subject intentionally dangling thereafter. Records with unrecognized values are ignored for state derivation."
+          },
+          "kind": {
+            "type": "string",
+            "knownValues": [
+              "security",
+              "broken",
+              "superseded"
+            ],
+            "maxLength": 64,
+            "description": "Optional machine-facing reason category. Open vocabulary."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "Optional human-facing explanation."
+          }
+        }
+      }
+    }
+  }
+}

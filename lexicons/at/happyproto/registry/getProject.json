@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.getProject",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One plugin, by publisher and name.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "actor",
+          "name"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The publisher, as a DID or a handle. A handle is accepted only when it and its DID point at each other."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The project's name, which is the record key of its software.release.project: 1 to 64 lowercase letters, digits and interior hyphens."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "at.happyproto.registry.defs#projectView"
+        }
+      },
+      "errors": [
+        {
+          "name": "ProjectNotFound",
+          "description": "No project of that name is indexed for that publisher."
+        },
+        {
+          "name": "ActorNotFound",
+          "description": "actor is neither a DID nor a handle that resolves to one."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured, so it cannot read its own state. An operator problem, not a caller's."
+        }
+      ]
+    }
+  }
+}

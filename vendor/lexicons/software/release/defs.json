@@ -1,0 +1,80 @@
+{
+  "lexicon": 1,
+  "id": "software.release.defs",
+  "defs": {
+    "gitRepository": {
+      "type": "object",
+      "description": "A project's Git source location, independent of any particular forge. This describes development sources rather than a pinned release input.",
+      "required": [
+        "repository"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "description": "Cloneable repository URI, such as an HTTPS or ssh:// clone URI, not an arbitrary forge page. Git's scp-like shorthand is not a URI."
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative directory using slash separators. No leading or trailing slash, backslashes, empty segments, or dot or dot-dot segments. Omit for the repository root."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Fully qualified Git ref, such as refs/heads/main. Must satisfy Git ref syntax. May move over time."
+        }
+      }
+    },
+    "gitRevision": {
+      "type": "object",
+      "description": "A pinned Git source input for a release. The commit is authoritative; an optional ref supplies context only.",
+      "required": [
+        "repository",
+        "commit"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "description": "Cloneable repository URI, not an arbitrary forge page. Git's scp-like shorthand is not a URI."
+        },
+        "commit": {
+          "type": "ref",
+          "ref": "#gitCommit"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Fully qualified Git ref, such as refs/tags/v1.2.3. Must satisfy Git ref syntax. This is descriptive context and never overrides the pinned commit."
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative directory using slash separators. No leading or trailing slash, backslashes, empty segments, or dot or dot-dot segments. Omit for the repository root."
+        }
+      }
+    },
+    "gitCommit": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "digest"
+      ],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "knownValues": [
+            "sha1",
+            "sha256"
+          ],
+          "minLength": 1,
+          "description": "Git object hash algorithm. Consumers must report unsupported algorithms rather than treating the input as verified."
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full lowercase hexadecimal commit object ID, never abbreviated. Exactly 40 characters for sha1 or 64 for sha256. This hashes the Git commit object, not the source archive bytes."
+        }
+      }
+    }
+  }
+}

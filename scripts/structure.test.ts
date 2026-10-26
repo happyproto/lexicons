@@ -40,11 +40,24 @@ async function generated(dir = "lua"): Promise<string[]> {
 }
 
 /**
- * Everything that deploys as a script: the generated lua/, and jobs/, which
- * deploys as it is written (job.run:<path>), with no prelude to generate.
+ * Everything that deploys as a script. Jobs are generated too (lua/jobs/), so
+ * the syntax and helper checks see them with their prelude inlined.
  */
 async function deployed(): Promise<string[]> {
-  return [...(await generated()), ...(await walk("jobs", ".lua"))];
+  return generated();
+}
+
+/** The hand-written scripts, under every source root that exists. */
+async function sources(): Promise<string[]> {
+  const out: string[] = [];
+  for (const root of ["src/at", "src/software"]) {
+    try {
+      out.push(...(await walk(root, ".lua")));
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException)?.code !== "ENOENT") throw cause;
+    }
+  }
+  return out;
 }
 
 const PRELUDE_PATH = "src/shared/prelude.lua";
@@ -54,10 +67,15 @@ function nsidPath(script: string): string {
   return relative("src", script).replace(/\.lua$/, "");
 }
 
+/** Our own lexicons first, then the upstream ones deployed but never published. */
+const LEXICON_ROOTS = ["lexicons", "vendor/lexicons"];
+
 async function lexiconFor(script: string): Promise<any | null> {
-  const path = join("lexicons", `${nsidPath(script)}.json`);
-  if (!(await Bun.file(path).exists())) return null;
-  return JSON.parse(await readFile(path, "utf8"));
+  for (const root of LEXICON_ROOTS) {
+    const path = join(root, `${nsidPath(script)}.json`);
+    if (await Bun.file(path).exists()) return JSON.parse(await readFile(path, "utf8"));
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +150,6 @@ const UNGATED: Record<string, string> = {
  * *endpoint* directory is still refused until someone picks its gate.
  */
 const UNGATED_DIRS: Record<string, string> = {
-  plugin: "record-index handlers; a firehose event has no caller to gate",
   registry: "public reads; any instance resolves a plugin without an account here",
 };
 
@@ -163,6 +180,9 @@ const GATE_FOR_DIR: Record<string, Gate> = {
  * an offence.
  */
 export function requiredGate(path: string): Gate | "none" | "unmapped" {
+  // The software.release scripts are record indexers, which have no caller to
+  // gate, so the whole root is ungated rather than listed directory by directory.
+  if (/^(src|lua)\/software\//.test(path)) return "none";
   const match = path.match(/(?:^|\/)(at\/happyproto\/([^/]+)\/[^/]+?)(?:\.lua)?$/);
   if (!match) return "unmapped";
   if (UNGATED[match[1]]) return "none";
@@ -419,6 +439,10 @@ describe("each rule flags a bad fixture", () => {
     ).not.toEqual([]);
   });
 
+  test("the software root takes no gate", () => {
+    expect(requiredGate("src/software/release/project.lua")).toBe("none");
+  });
+
   test("every directory is gated unless the script is allowlisted", () => {
     const open = "function handle(input, ctx)\n  return {}\nend\n";
     expect(requiredGate("src/at/happyproto/fleet/getX.lua")).toBe("gate_admin");
@@ -540,9 +564,25 @@ describe("each rule flags a bad fixture", () => {
   });
 });
 
+describe("lexiconFor", () => {
+  test("finds a paired lexicon under vendor/lexicons", async () => {
+    const lexicon = await lexiconFor("src/software/release/project.lua");
+    expect(lexicon?.id).toBe("software.release.project");
+  });
+
+  test("finds one under lexicons/", async () => {
+    const lexicon = await lexiconFor("src/at/happyproto/actor/getProfile.lua");
+    expect(lexicon?.id).toBe("at.happyproto.actor.getProfile");
+  });
+
+  test("a script with no lexicon in either root has none", async () => {
+    expect(await lexiconFor("src/software/release/nothing.lua")).toBeNull();
+  });
+});
+
 describe("every script is deployable", () => {
   test("has a paired lexicon", async () => {
-    const scripts = await walk("src/at", ".lua");
+    const scripts = await sources();
     expect(scripts.length).toBeGreaterThan(0);
 
     const missing: string[] = [];
@@ -557,7 +597,7 @@ describe("every script is deployable", () => {
   });
 
   test("declares a prelude directive", async () => {
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       expect(await readFile(script, "utf8")).toMatch(/^--\s*@prelude\s+/m);
     }
   });
@@ -572,7 +612,7 @@ describe("every script is deployable", () => {
     expect(helpers.length).toBeGreaterThan(0);
 
     const offenders: string[] = [];
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const text = await readFile(script, "utf8");
       for (const helper of helpers) {
         if (text.includes(`local function ${helper}(`)) offenders.push(`${script}: ${helper}`);
@@ -583,7 +623,7 @@ describe("every script is deployable", () => {
 
   test("the first statement of every staff and customer handler is its gate", async () => {
     const offenders: string[] = [];
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const text = await readFile(script, "utf8");
       for (const o of gateOffences(script, text)) offenders.push(`${script}: ${o}`);
     }
@@ -592,7 +632,7 @@ describe("every script is deployable", () => {
 
   test("provisioner writes come only from procedures, with an idempotency key", async () => {
     const offenders: string[] = [];
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
@@ -603,7 +643,7 @@ describe("every script is deployable", () => {
 
   test("no customer endpoint queries ClickHouse", async () => {
     const offenders: string[] = [];
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const text = await readFile(script, "utf8");
       for (const o of clickhouseOffences(script, text)) offenders.push(`${script}: ${o}`);
     }
@@ -614,7 +654,7 @@ describe("every script is deployable", () => {
     const prelude = await readFile(PRELUDE_PATH, "utf8");
     const passthrough = [...passthroughCodes(prelude), ...remapCodes(prelude)];
     const offenders: string[] = [];
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
@@ -652,7 +692,7 @@ describe("every script is deployable", () => {
     // report itself as unwrapped.
     const offenders: string[] = [];
 
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const nsid = nsidPath(script);
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
@@ -685,7 +725,7 @@ describe("every script is deployable", () => {
     // The one way a caller value reaches a query is query(ctx, sql, params),
     // which emits ClickHouse param_<name> arguments. Concatenating `input.x`
     // (or a `params.x` built from it) into SQL text is an injection.
-    for (const script of await walk("src/at", ".lua")) {
+    for (const script of await sources()) {
       const text = await readFile(script, "utf8");
       expect(text).not.toMatch(/\.\.\s*(params|input)\./);
       expect(text).not.toMatch(/string\.format\([^)]*(params|input)\./);
@@ -778,5 +818,19 @@ describe("every generated script defines the helpers it calls", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("the integration stack", () => {
+  test("stops HappyView from starting when the Caddy CA cannot be installed", async () => {
+    // Without it, a missing CA would surface only as TLS failures inside the
+    // registry's jobs, far from the cause.
+    const compose = await readFile("integration/compose.yml", "utf8");
+    const script = compose.slice(compose.indexOf("entrypoint:"), compose.indexOf("exec /entrypoint.sh"));
+    const lines = script.split("\n").map((l) => l.trim());
+    const strict = lines.indexOf("set -e");
+    expect(strict).toBeGreaterThan(-1);
+    expect(strict).toBeLessThan(lines.findIndex((l) => l.startsWith("cp /caddy-data/")));
+    expect(lines.findIndex((l) => l.startsWith("update-ca-certificates"))).toBeGreaterThan(strict);
   });
 });

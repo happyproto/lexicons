@@ -1,0 +1,8 @@
+# The PDS's DID documents name https://pds.localhost, its configured hostname,
+# so the registry's jobs reach it there, through this, as a production
+# registry reaches a publisher's PDS over TLS. The certificate comes from
+# Caddy's own CA, which the happyview service installs before it starts.
+pds.localhost {
+	tls internal
+	reverse_proxy pds:3000
+}

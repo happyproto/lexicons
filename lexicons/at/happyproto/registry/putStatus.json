@@ -1,0 +1,114 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.registry.putStatus",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add a software.release.status record about one of the caller's projects or versions. Statuses are never edited or deleted: to cancel one, add another with status `withdrawn` that names it in `withdraws`.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "subject",
+            "status"
+          ],
+          "properties": {
+            "subject": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The caller's software.release.project or software.release.version the status is about."
+            },
+            "status": {
+              "type": "string",
+              "maxLength": 64,
+              "knownValues": [
+                "endOfDevelopment",
+                "endOfSupport",
+                "supersededBy",
+                "endOfDistribution",
+                "endOfLife",
+                "withdrawn"
+              ],
+              "description": "An ECMA-428 event type. `endOfDevelopment`, `endOfSupport` and `supersededBy` deprecate the subject; `endOfDistribution` makes it unavailable; `endOfLife` retires it; `withdrawn` cancels the status named in `withdraws`."
+            },
+            "kind": {
+              "type": "string",
+              "maxLength": 64,
+              "knownValues": [
+                "security",
+                "broken",
+                "superseded"
+              ],
+              "description": "Why, as a category a client can act on."
+            },
+            "reason": {
+              "type": "string",
+              "maxGraphemes": 300,
+              "maxLength": 3000,
+              "description": "Why, in words shown to operators."
+            },
+            "supersededBy": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Required when status is `supersededBy`: the version of the same project to use instead."
+            },
+            "withdraws": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "Required when status is `withdrawn`: the caller's software.release.status record to cancel."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "uri",
+            "cid"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The software.release.status written."
+            },
+            "cid": {
+              "type": "string",
+              "format": "cid"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "The caller's identity could not be determined, so there is no repo to write to."
+        },
+        {
+          "name": "NotConfigured",
+          "description": "The registry has no identity configured. An operator problem, not a caller's."
+        },
+        {
+          "name": "InvalidRecord",
+          "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
+        },
+        {
+          "name": "Upstream",
+          "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
+        },
+        {
+          "name": "SubjectNotFound",
+          "description": "The subject, or the status named in withdraws, is not an indexed record of the caller's."
+        },
+        {
+          "name": "InvalidStatus",
+          "description": "The status is missing a field it requires, such as supersededBy or withdraws, or names one that is not valid."
+        }
+      ]
+    }
+  }
+}
