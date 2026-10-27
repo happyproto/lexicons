@@ -75,17 +75,17 @@ function handle(input, ctx)
     if type(t.last_hour) == "table" then
       last = {
         hour = t.last_hour.hour,
-        cpuUsec = t.last_hour.cpu_usec,
-        memAvgBytes = t.last_hour.mem_avg_bytes,
-        egressBytes = t.last_hour.egress_bytes,
+        cpuUsec = only(t.last_hour.cpu_usec, "number"),
+        memAvgBytes = only(t.last_hour.mem_avg_bytes, "number"),
+        egressBytes = only(t.last_hour.egress_bytes, "number"),
       }
     end
     tenants[#tenants + 1] = {
       id = t.id,
       slug = t.slug,
       plan = t.plan,
-      collectionCount = t.collections,
-      recordsVisible = t.records_visible,
+      collectionCount = only(t.collections, "number"),
+      recordsVisible = only(t.records_visible, "number"),
       diskBytes = only(t.disk_bytes, "number"),
       seats = only(t.seats, "number"),
       apiClients = only(t.api_clients, "number"),

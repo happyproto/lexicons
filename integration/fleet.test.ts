@@ -427,6 +427,32 @@ describe("fleet capacity and tenant usage, proxied from the provisioner", () => 
     });
   });
 
+  test("getCapacity tolerates a tenant with null figures", async () => {
+    await provisioner.script("GET", "/v1/admin/capacity", 200, {
+      latest: null,
+      trend: [],
+      collections: [],
+      tenants: [
+        {
+          id: TENANT,
+          slug: "alpha",
+          plan: "pro",
+          collections: null,
+          records_visible: null,
+          disk_bytes: null,
+          seats: null,
+          api_clients: null,
+          last_hour: { hour: "2026-10-27T10:00:00Z", cpu_usec: null, mem_avg_bytes: null, egress_bytes: null },
+          gaps_7d: 0,
+        },
+      ],
+    });
+    const out = await ok(fleet("getCapacity"), "staff");
+    expect(out.tenants).toEqual([
+      { id: TENANT, slug: "alpha", plan: "pro", lastHour: { hour: "2026-10-27T10:00:00Z" }, gaps7d: 0 },
+    ]);
+  });
+
   test("getCapacity with nothing stored yet keeps empty arrays", async () => {
     await provisioner.script("GET", "/v1/admin/capacity", 200, { latest: null, trend: [], collections: [], tenants: [] });
     expect(await ok(fleet("getCapacity"), "staff")).toEqual({ trend: [], collections: [], tenants: [] });
