@@ -364,6 +364,7 @@ local PASSTHROUGH = {
 local REMAP = {
   IdempotencyKeyInFlight = { "OperationInProgress", "This request is already in progress. Try again shortly." },
   UnknownPlan = { "InvalidRequest" },
+  InvalidRange = { "InvalidRequest" },
   InvalidVersion = { "InvalidRequest" },
   NoChange = { "InvalidRequest" },
   EmptyUpdate = { "InvalidRequest" },

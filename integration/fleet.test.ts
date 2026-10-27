@@ -11,7 +11,7 @@
  * integers. Timestamps are ISO 8601, which is what the lexicons demand.
  */
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { clickhouse } from "./fakes";
+import { clickhouse, provisioner } from "./fakes";
 import { setVariable, stack } from "./setup";
 import { call, fails, ok } from "./xrpc";
 
@@ -23,11 +23,14 @@ beforeEach(async () => {
   await clickhouse.reset();
 });
 
+const TENANT = "11111111-1111-4111-8111-111111111111";
+
 const fleet = (name: string) => `at.happyproto.fleet.${name}`;
 
 const FLEET = [
   "getAdoption",
   "getBenchmarks",
+  "getCapacity",
   "getCostShape",
   "getGrowth",
   "getHostMix",
@@ -36,6 +39,7 @@ const FLEET = [
   "getResets",
   "getRetention",
   "getSignals",
+  "getTenantUsage",
   "getVersions",
   "listInstances",
 ];
@@ -43,7 +47,12 @@ const FLEET = [
 describe("every fleet endpoint refuses anyone outside the admin space", () => {
   for (const name of FLEET) {
     test(name, async () => {
-      const params = name === "getBenchmarks" ? { instance: "inst-1" } : undefined;
+      const params =
+        name === "getBenchmarks"
+          ? { instance: "inst-1" }
+          : name === "getTenantUsage"
+            ? { tenant: TENANT }
+            : undefined;
       await fails(fleet(name), "outsider", "Forbidden", { params });
       // Being a customer does not make someone staff.
       await fails(fleet(name), "customer", "Forbidden", { params });
@@ -348,5 +357,182 @@ describe("actor.getProfile", () => {
     });
     expect(reply.body).not.toHaveProperty("isMember");
     expect(reply.body).not.toHaveProperty("isCustomer");
+  });
+});
+
+describe("fleet capacity and tenant usage, proxied from the provisioner", () => {
+  beforeEach(async () => {
+    const { accounts } = await stack();
+    await provisioner.reset();
+    await provisioner.state({ staff: [accounts.staff.did], tenants: [{ id: TENANT }] });
+  });
+
+  test("getCapacity renames to camelCase and keeps arrays", async () => {
+    await provisioner.script("GET", "/v1/admin/capacity", 200, {
+      latest: {
+        hour: "2026-10-27T10:00:00Z",
+        records: 10,
+        records_bytes: 20,
+        records_index_bytes: 30,
+        overlay_bytes: 40,
+        feed_bytes: 50,
+        database_bytes: 60,
+        disk_capacity_bytes: 700,
+        disk_free_bytes: null,
+        secret: "x",
+      },
+      trend: [{ day: "2026-10-26", database_bytes: 55, records: 9 }],
+      collections: [{ nsid: "app.example.thing", records: 4, subscribers: 2, crawl: null, configured: true }],
+      tenants: [
+        {
+          id: TENANT,
+          slug: "alpha",
+          plan: "pro",
+          collections: 1,
+          records_visible: 4,
+          disk_bytes: null,
+          seats: 3,
+          api_clients: null,
+          last_hour: { hour: "2026-10-27T10:00:00Z", cpu_usec: 1500000, mem_avg_bytes: 100, egress_bytes: 7 },
+          gaps_7d: 2,
+        },
+      ],
+    });
+    const out = await ok(fleet("getCapacity"), "staff");
+    expect(out).toEqual({
+      latest: {
+        hour: "2026-10-27T10:00:00Z",
+        records: 10,
+        recordsBytes: 20,
+        recordsIndexBytes: 30,
+        overlayBytes: 40,
+        feedBytes: 50,
+        databaseBytes: 60,
+        diskCapacityBytes: 700,
+      },
+      trend: [{ day: "2026-10-26", databaseBytes: 55, records: 9 }],
+      collections: [{ nsid: "app.example.thing", records: 4, subscribers: 2, configured: true }],
+      tenants: [
+        {
+          id: TENANT,
+          slug: "alpha",
+          plan: "pro",
+          collectionCount: 1,
+          recordsVisible: 4,
+          seats: 3,
+          lastHour: { hour: "2026-10-27T10:00:00Z", cpuUsec: 1500000, memAvgBytes: 100, egressBytes: 7 },
+          gaps7d: 2,
+        },
+      ],
+    });
+  });
+
+  test("getCapacity with nothing stored yet keeps empty arrays", async () => {
+    await provisioner.script("GET", "/v1/admin/capacity", 200, { latest: null, trend: [], collections: [], tenants: [] });
+    expect(await ok(fleet("getCapacity"), "staff")).toEqual({ trend: [], collections: [], tenants: [] });
+  });
+
+  test("getCapacity passes the range through", async () => {
+    await ok(fleet("getCapacity"), "staff", {
+      params: { from: "2026-10-01T00:00:00Z", to: "2026-10-27T00:00:00Z" },
+    });
+    const sent = (await provisioner.requests()).find((r: any) => r.path === "/v1/admin/capacity");
+    expect(sent.query).toEqual({ from: "2026-10-01T00:00:00Z", to: "2026-10-27T00:00:00Z" });
+  });
+
+  test("getTenantUsage renames hourly rows and gaps", async () => {
+    await provisioner.script("GET", "/v1/admin/usage", 200, {
+      tenant: TENANT,
+      grain: "hour",
+      rows: [
+        {
+          hour: "2026-10-27T09:00:00Z",
+          running_seconds: 3600,
+          cpu_usec: 1,
+          mem_byte_seconds: 2,
+          mem_peak_bytes: 3,
+          egress_bytes: 4,
+          ingress_bytes: 5,
+          disk_avg_bytes: null,
+          disk_peak_bytes: 6,
+          seats: null,
+          api_clients: 1,
+          partial: false,
+        },
+      ],
+      gaps: [{ hour: "2026-10-27T08:00:00Z", reason: "missing" }],
+    });
+    const out = await ok(fleet("getTenantUsage"), "staff", { params: { tenant: TENANT } });
+    expect(out).toEqual({
+      tenant: TENANT,
+      grain: "hour",
+      rows: [
+        {
+          hour: "2026-10-27T09:00:00Z",
+          runningSeconds: 3600,
+          cpuUsec: 1,
+          memByteSeconds: 2,
+          memPeakBytes: 3,
+          egressBytes: 4,
+          ingressBytes: 5,
+          diskPeakBytes: 6,
+          apiClients: 1,
+          partial: false,
+        },
+      ],
+      gaps: [{ hour: "2026-10-27T08:00:00Z", reason: "missing" }],
+    });
+  });
+
+  test("getTenantUsage at day grain, with empty arrays", async () => {
+    await provisioner.script("GET", "/v1/admin/usage", 200, {
+      tenant: TENANT,
+      grain: "day",
+      rows: [
+        {
+          day: "2026-10-26",
+          running_seconds: 86400,
+          cpu_usec: 1,
+          mem_byte_seconds: 2,
+          mem_peak_bytes: 3,
+          egress_bytes: 4,
+          ingress_bytes: 5,
+          disk_avg_bytes: 8,
+          disk_peak_bytes: 9,
+          seats: 2,
+          api_clients: 0,
+          partial: true,
+        },
+      ],
+      gaps: [],
+    });
+    const out = await ok(fleet("getTenantUsage"), "staff", { params: { tenant: TENANT, grain: "day" } });
+    expect(out.grain).toBe("day");
+    expect(out.rows[0]).toMatchObject({ day: "2026-10-26", diskAvgBytes: 8, seats: 2, apiClients: 0, partial: true });
+    expect(out.gaps).toEqual([]);
+    const sent = (await provisioner.requests()).find((r: any) => r.path === "/v1/admin/usage");
+    expect(sent.query).toEqual({ tenant: TENANT, grain: "day" });
+  });
+
+  test("a provisioner 403 is Forbidden and a 500 is Upstream", async () => {
+    for (const [name, params] of [
+      ["getCapacity", undefined],
+      ["getTenantUsage", { tenant: TENANT }],
+    ] as const) {
+      const path = name === "getCapacity" ? "/v1/admin/capacity" : "/v1/admin/usage";
+      await provisioner.script("GET", path, 403, { error: "Forbidden", message: "staff only" });
+      await fails(fleet(name), "staff", "Forbidden", { params });
+      await provisioner.script("GET", path, 500, { error: "Internal", message: "boom" });
+      await fails(fleet(name), "staff", "Upstream", { params });
+    }
+  });
+
+  test("an unknown tenant is NotFound and a bad range or grain is InvalidRequest", async () => {
+    await provisioner.script("GET", "/v1/admin/usage", 404, { error: "NotFound", message: "no such tenant" });
+    await fails(fleet("getTenantUsage"), "staff", "NotFound", { params: { tenant: TENANT } });
+    await provisioner.script("GET", "/v1/admin/usage", 400, { error: "InvalidRange", message: "bad range" });
+    await fails(fleet("getTenantUsage"), "staff", "InvalidRequest", { params: { tenant: TENANT } });
+    await provisioner.script("GET", "/v1/admin/capacity", 400, { error: "InvalidRange", message: "bad range" });
+    await fails(fleet("getCapacity"), "staff", "InvalidRequest");
   });
 });

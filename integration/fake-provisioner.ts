@@ -296,6 +296,21 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return reply(200, { hosts: [...state.hosts].sort((a, b) => a.name.localeCompare(b.name)).map(hostUsage) });
   }
 
+  if (req.method === "GET" && resource === "admin" && parts.length === 3) {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    const bad = (m: string) => error(400, "InvalidRange", m);
+    if (id === "capacity") {
+      return reply(200, { latest: null, trend: [], collections: [], tenants: [] });
+    }
+    if (id === "usage") {
+      const grain = url.searchParams.get("grain") ?? "hour";
+      if (grain !== "hour" && grain !== "day") return bad("`grain` must be `hour` or `day`");
+      const asked = url.searchParams.get("tenant");
+      if (!state.tenants.some((t) => t.id === asked)) return error(404, "NotFound", "no such tenant");
+      return reply(200, { tenant: asked, grain, rows: [], gaps: [] });
+    }
+  }
+
   if (req.method === "GET" && resource === "operations" && parts.length === 3) {
     const op = state.operations.find((o) => o.id === id);
     const tenant = op && state.tenants.find((t) => t.id === op.tenant_id);

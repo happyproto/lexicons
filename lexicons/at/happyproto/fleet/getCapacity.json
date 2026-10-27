@@ -1,0 +1,250 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getCapacity",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Store capacity: the latest totals, a daily trend, per-collection counts and what each tenant holds. Proxied from the provisioner. Admin only.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Start of the range. Defaults to 30 days before `to`."
+          },
+          "to": {
+            "type": "string",
+            "format": "datetime",
+            "description": "End of the range. Defaults to now."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "trend",
+            "collections",
+            "tenants"
+          ],
+          "properties": {
+            "latest": {
+              "type": "ref",
+              "ref": "#totals"
+            },
+            "trend": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#trendPoint"
+              }
+            },
+            "collections": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#collection"
+              }
+            },
+            "tenants": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#tenant"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The provisioner refused the range or grain, for example a range that runs backwards or is too long."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner could not complete the request."
+        }
+      ]
+    },
+    "totals": {
+      "type": "object",
+      "description": "The newest hourly snapshot of the shared store. Absent before the first one.",
+      "required": [
+        "hour"
+      ],
+      "properties": {
+        "hour": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "records": {
+          "type": "integer"
+        },
+        "recordsBytes": {
+          "type": "integer"
+        },
+        "recordsIndexBytes": {
+          "type": "integer"
+        },
+        "overlayBytes": {
+          "type": "integer"
+        },
+        "feedBytes": {
+          "type": "integer"
+        },
+        "databaseBytes": {
+          "type": "integer"
+        },
+        "diskCapacityBytes": {
+          "type": "integer"
+        },
+        "diskFreeBytes": {
+          "type": "integer"
+        }
+      }
+    },
+    "trendPoint": {
+      "type": "object",
+      "required": [
+        "day"
+      ],
+      "properties": {
+        "day": {
+          "type": "string",
+          "description": "UTC date, YYYY-MM-DD."
+        },
+        "databaseBytes": {
+          "type": "integer"
+        },
+        "records": {
+          "type": "integer"
+        }
+      }
+    },
+    "collection": {
+      "type": "object",
+      "required": [
+        "nsid"
+      ],
+      "properties": {
+        "nsid": {
+          "type": "string"
+        },
+        "records": {
+          "type": "integer"
+        },
+        "subscribers": {
+          "type": "integer"
+        },
+        "crawl": {
+          "type": "string"
+        },
+        "configured": {
+          "type": "boolean"
+        }
+      }
+    },
+    "tenantLastHour": {
+      "type": "object",
+      "required": [
+        "hour"
+      ],
+      "properties": {
+        "hour": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "cpuUsec": {
+          "type": "integer",
+          "description": "CPU time used in the hour, in microseconds."
+        },
+        "memAvgBytes": {
+          "type": "integer"
+        },
+        "egressBytes": {
+          "type": "integer"
+        }
+      }
+    },
+    "tenant": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "collectionCount": {
+          "type": "integer"
+        },
+        "recordsVisible": {
+          "type": "integer"
+        },
+        "diskBytes": {
+          "type": "integer"
+        },
+        "seats": {
+          "type": "integer"
+        },
+        "apiClients": {
+          "type": "integer"
+        },
+        "lastHour": {
+          "type": "ref",
+          "ref": "#tenantLastHour"
+        },
+        "gaps7d": {
+          "type": "integer",
+          "description": "Hours with no usage report in the last 7 days."
+        }
+      }
+    }
+  }
+}
