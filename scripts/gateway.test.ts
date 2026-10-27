@@ -27,7 +27,7 @@ const PROJECT_URI = at(DID, "software.release.project", "probe");
 const SIDECAR_URI = at(DID, "at.happyproto.registry.project", "probe");
 const PUBLICATION_URI = at(DID, "site.standard.publication", "probe");
 const MANIFEST_URI = at(DID, "software.release.manifest", "3kmanifest");
-const VERSION_URI = at(DID, "software.release.version", "probe:1.0.0");
+const VERSION_URI = at(DID, "software.release.version", "probe.1.0.0");
 const STATUS_URI = at(DID, "software.release.status", "3kstatus");
 const PROJECT_STATE_URI = at(HP, "at.happyproto.registry.projectState", `${DID}:probe`);
 const STATE_URI = at(HP, "at.happyproto.registry.versionState", `${DID}:probe:1.0.0`);
@@ -97,7 +97,7 @@ put("${VERSION_URI}", "bafyversion", {
 })
 put("${at(EVE, "software.release.project", "probe")}", "bafyeveproject", { name = "probe" })
 put("${at(EVE, "at.happyproto.registry.project", "probe")}", "bafyevesidecar", { pluginType = "interpreter" })
-put("${at(EVE, "software.release.version", "probe:1.0.0")}", "bafyeveversion", { version = "1.0.0" })
+put("${at(EVE, "software.release.version", "probe.1.0.0")}", "bafyeveversion", { version = "1.0.0" })
 put("${PROJECT_STATE_URI}", nil, {
   did = "${DID}", name = "probe",
   publication = { uri = "${PUBLICATION_URI}", cid = "bafypub", name = "Probe", url = "https://x" },
@@ -460,7 +460,7 @@ describe("publishRelease", () => {
       },
     });
     expect(doc.body.publishedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
-    expect(version.rkey).toBe("probe:1.1.0");
+    expect(version.rkey).toBe("probe.1.1.0");
     expect(version.body).toEqual({
       $type: "software.release.version",
       project: PROJECT_URI,
@@ -468,11 +468,11 @@ describe("publishRelease", () => {
       manifest: r.out.manifest,
       changelog: r.out.changelog.uri,
     });
-    expect(channel.uri).toBe(at(DID, "software.release.channel", "probe:beta"));
+    expect(channel.uri).toBe(at(DID, "software.release.channel", "probe.beta"));
     expect(channel.body).toEqual({
       $type: "software.release.channel",
       project: PROJECT_URI,
-      name: "beta",
+      channel: "beta",
       version: r.out.version,
     });
     expect(r.out.valid).toBe(true);
@@ -512,7 +512,7 @@ describe("publishRelease", () => {
     const second = r.calls.slice(r.calls.findIndex((c) => c.fn === "again"));
     expect(order(second)).toEqual(["put software.release.channel"]);
     expect(r.out.resumed).toBe(true);
-    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.1.0"));
+    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe.1.1.0"));
     expect(r.out.manifest.cid).toBe("bafysoftware.release.manifest1");
   });
 
@@ -524,8 +524,8 @@ describe("publishRelease", () => {
     expect(r.out.resumed).toBe(true);
     expect(r.out.manifest.cid).toBe("bafysoftware.release.manifest1");
     expect(r.out.changelog).toEqual({ uri: at(DID, "site.standard.document", "tid-2"), cid: "bafysite.standard.document2" });
-    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.1.0"));
-    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe:beta"));
+    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe.1.1.0"));
+    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe.beta"));
   });
 
   it("leaves the caller's artifact as it was sent", () => {
@@ -642,7 +642,7 @@ describe("promoteRelease", () => {
       "put software.release.channel",
     ]);
     const version = writes(r.calls)[1];
-    expect(version.rkey).toBe("probe:1.0.1");
+    expect(version.rkey).toBe("probe.1.0.1");
     expect(version.body).toEqual({
       $type: "software.release.version",
       project: PROJECT_URI,
@@ -652,7 +652,7 @@ describe("promoteRelease", () => {
     });
     expect(writes(r.calls)[0].body.path).toBe("/changelog/1.0.1");
     expect(writes(r.calls)[2].body.version).toEqual(r.out.version);
-    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe:latest"));
+    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe.latest"));
   });
 
   it("moves no channel without a track", () => {
@@ -677,7 +677,7 @@ describe("promoteRelease", () => {
 
   it("refuses VersionExists for a version already published on another manifest", () => {
     const r = call(PROMOTE, PROMOTE_INPUT(), {
-      setup: `__indexed["${at(DID, "software.release.version", "probe:1.0.1")}"] = { uri = "x", cid = "bafyx", indexed_at = "x",
+      setup: `__indexed["${at(DID, "software.release.version", "probe.1.0.1")}"] = { uri = "x", cid = "bafyx", indexed_at = "x",
         record = { version = "1.0.1", manifest = { uri = "${at(DID, "software.release.manifest", "3kother")}", cid = "bafyother" } } }`,
     });
     expect(r.out.error).toBe("VersionExists");
@@ -692,8 +692,8 @@ describe("promoteRelease", () => {
     expect(r.first.error).toBe("Upstream");
     expect(r.out.resumed).toBe(true);
     expect(r.out.changelog).toEqual({ uri: at(DID, "site.standard.document", "tid-1"), cid: "bafysite.standard.document1" });
-    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.0.1"));
-    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe:latest"));
+    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe.1.0.1"));
+    expect(r.out.channel.uri).toBe(at(DID, "software.release.channel", "probe.latest"));
     const fresh = call(PROMOTE, PROMOTE_INPUT());
     expect(fresh.out.resumed).toBeUndefined();
   });
@@ -720,7 +720,7 @@ describe("promoteRelease", () => {
     expect(r.first.error).toBe("Upstream");
     const second = r.calls.slice(r.calls.findIndex((c) => c.fn === "again"));
     expect(order(second)).toEqual(["put software.release.channel"]);
-    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe:1.0.1"));
+    expect(r.out.version.uri).toBe(at(DID, "software.release.version", "probe.1.0.1"));
   });
 
   it("refuses NotInstallable when moving a channel while the project is unavailable", () => {
@@ -760,13 +760,13 @@ describe("putStatus", () => {
   });
 
   it("refuses a subject of another DID as SubjectNotFound", () => {
-    const r = call(PUT_STATUS, `{ subject = "${at(EVE, "software.release.version", "probe:1.0.0")}", status = "endOfLife" }`);
+    const r = call(PUT_STATUS, `{ subject = "${at(EVE, "software.release.version", "probe.1.0.0")}", status = "endOfLife" }`);
     expect(r.out.error).toBe("SubjectNotFound");
     expect(writes(r.calls)).toEqual([]);
   });
 
   it("refuses a subject that is not stored, or not a version or project", () => {
-    for (const subject of [at(DID, "software.release.version", "probe:2.0.0"), MANIFEST_URI, "https://example.com"]) {
+    for (const subject of [at(DID, "software.release.version", "probe.2.0.0"), MANIFEST_URI, "https://example.com"]) {
       const r = call(PUT_STATUS, `{ subject = "${subject}", status = "endOfLife" }`);
       expect(r.out.error).toBe("SubjectNotFound");
     }

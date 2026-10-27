@@ -157,8 +157,8 @@ them, copies their bytes and serves them to HappyView and hpy.
 | `at.happyproto.registry.project` | `<name>` | the sidecar that makes the project a HappyView plugin: its plugin type, keywords, authors, security contacts, and a strongRef to its publication |
 | `site.standard.publication` | `<name>` | display name, description, link and icon |
 | `software.release.manifest` | TID | carries exactly one `at.happyproto.plugin.v1` artifact: the `.wasm` package and `manifest.json` as blobs, banner and screenshots, and the plugin's facts |
-| `software.release.version` | `<name>:<version>` | pins a manifest by CID; may link a `site.standard.document` changelog |
-| `software.release.channel` | `<name>:<channel>` | `latest`, `beta` or `alpha`, pinning a version by CID |
+| `software.release.version` | `<name>.<version>` | pins a manifest by CID; may link a `site.standard.document` changelog |
+| `software.release.channel` | `<name>.<channel>` | `latest`, `beta` or `alpha`, pinning a version by CID |
 | `software.release.status` | TID | a lifecycle event about a version or the project |
 
 Only a project with a valid sidecar is indexed: any other `software.release.*`

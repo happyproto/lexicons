@@ -93,7 +93,7 @@ function handle(input, ctx)
     -- A version never changes once published. One already there with this
     -- very artifact is an earlier call of this one that failed part-way, and
     -- only its channel is left to move.
-    version_row = db.get(uri_of(caller, VERSION, name .. ":" .. version))
+    version_row = db.get(uri_of(caller, VERSION, release_rkey(name, version)))
     if version_row then
       local ref = (version_row.record or {}).manifest
       local manifest = type(ref) == "table" and type(ref.uri) == "string" and db.get(ref.uri) or nil
@@ -170,14 +170,14 @@ function handle(input, ctx)
       version = version,
       manifest = { uri = out.manifest.uri, cid = out.manifest.cid },
       changelog = out.changelog and out.changelog.uri or nil,
-    }, { rkey = name .. ":" .. version })
+    }, { rkey = release_rkey(name, version) })
     if not out.version then return refused("version", err) end
   end
 
-  out.channel, err = caller_write("put", uri_of(caller, CHANNEL, name .. ":" .. track), {
+  out.channel, err = caller_write("put", uri_of(caller, CHANNEL, release_rkey(name, track)), {
     ["$type"] = CHANNEL,
     project = project_uri,
-    name = track,
+    channel = track,
     version = { uri = out.version.uri, cid = out.version.cid },
   }, {})
   if not out.channel then return refused("channel", err) end

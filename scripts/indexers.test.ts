@@ -27,9 +27,9 @@ const SIDECAR_URI = at(DID, "at.happyproto.registry.project", "probe");
 const MANIFEST_URI = at(DID, "software.release.manifest", "3kmanifest");
 const OTHER_MANIFEST_URI = at(DID, "software.release.manifest", "3kother");
 const EVE_MANIFEST_URI = at(EVE, "software.release.manifest", "3keve");
-const VERSION_URI = at(DID, "software.release.version", "probe:1.0.0");
-const OTHER_VERSION_URI = at(DID, "software.release.version", "other:1.0.0");
-const EVE_VERSION_URI = at(EVE, "software.release.version", "probe:1.0.0");
+const VERSION_URI = at(DID, "software.release.version", "probe.1.0.0");
+const OTHER_VERSION_URI = at(DID, "software.release.version", "other.1.0.0");
+const EVE_VERSION_URI = at(EVE, "software.release.version", "probe.1.0.0");
 const STATUS_URI = at(DID, "software.release.status", "3kstatus");
 const STATE_URI = (rkey: string) => at(HP, "at.happyproto.registry.versionState", rkey);
 
@@ -207,8 +207,8 @@ describe("every index script", () => {
     ["sidecar", SIDECAR_SCRIPT, { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") }, unindex(SIDECAR_URI)],
     ["project", PROJECT_SCRIPT, { collection: "software.release.project", rkey: "probe", record: `{ name = "probe" }` }, unindex(PROJECT_URI)],
     ["manifest", MANIFEST_SCRIPT, { collection: "software.release.manifest", rkey: "3knew", record: manifest() }],
-    ["version", VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe:1.1.0", record: versionRecord({ version: "1.1.0" }) }],
-    ["channel", CHANNEL_SCRIPT, { collection: "software.release.channel", rkey: "probe:latest", record: `{ project = "${PROJECT_URI}", name = "latest", version = { uri = "${VERSION_URI}", cid = "bafyversion" } }` }],
+    ["version", VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe.1.1.0", record: versionRecord({ version: "1.1.0" }) }],
+    ["channel", CHANNEL_SCRIPT, { collection: "software.release.channel", rkey: "probe.latest", record: `{ project = "${PROJECT_URI}", channel = "latest", version = { uri = "${VERSION_URI}", cid = "bafyversion" } }` }],
     ["status", STATUS_SCRIPT, { collection: "software.release.status", rkey: "3knew", record: `{ subject = "${VERSION_URI}", status = "endOfLife" }` }],
   ];
   for (const [name, script, event, setup = ""] of scripts) {
@@ -478,7 +478,7 @@ describe("software.release.manifest", () => {
 });
 
 describe("software.release.version", () => {
-  const event = { collection: "software.release.version", rkey: "probe:1.1.0", record: versionRecord({ version: "1.1.0" }) };
+  const event = { collection: "software.release.version", rkey: "probe.1.1.0", record: versionRecord({ version: "1.1.0" }) };
   const NEW_STATE = `${DID}:probe:1.1.0`;
 
   it("stores it, starts its state pending and enqueues the copy", () => {
@@ -494,7 +494,7 @@ describe("software.release.version", () => {
           did: DID,
           name: "probe",
           version: "1.1.0",
-          uri: at(DID, "software.release.version", "probe:1.1.0"),
+          uri: at(DID, "software.release.version", "probe.1.1.0"),
           manifestUri: MANIFEST_URI,
           manifestCid: "bafymanifest",
           availability: "pending",
@@ -563,7 +563,7 @@ describe("software.release.version", () => {
     expect(jobs(calls)).toEqual([]);
   });
 
-  for (const rkey of ["probe", "probe:1.1.0:x", "Probe:1.1.0", "probe:v1.1.0"]) {
+  for (const rkey of ["probe", "probe:1.1.0", "probe.1.1.0:x", "Probe.1.1.0", "probe.v1.1.0", ".1.1.0", "probe."]) {
     it(`skips the key ${rkey}`, () => {
       const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey });
       expect(out).toBeNull();
@@ -609,7 +609,7 @@ describe("software.release.version", () => {
 
   it("keeps the first record on update and marks it suspect", () => {
     const record = versionRecord({ manifestUri: OTHER_MANIFEST_URI, manifestCid: "bafyother" });
-    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe:1.0.0", action: "update", record });
+    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe.1.0.0", action: "update", record });
     expect(out).toBeNull();
     expect(jobs(calls)).toEqual([]);
     expect(writes(calls)).toEqual([
@@ -622,7 +622,7 @@ describe("software.release.version", () => {
   });
 
   it("skips a replayed create quietly", () => {
-    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe:1.0.0", record: versionRecord() });
+    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe.1.0.0", record: versionRecord() });
     expect(out).toBeNull();
     expect(writes(calls)).toEqual([]);
     expect(jobs(calls)).toEqual([]);
@@ -630,14 +630,14 @@ describe("software.release.version", () => {
 
   it("treats a different create at a stored key as a rewrite", () => {
     const record = versionRecord({ extra: `changelog = "https://example.com",` });
-    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe:1.0.0", record });
+    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe.1.0.0", record });
     expect(out).toBeNull();
     expect(writes(calls).map((w) => w.body.suspect)).toEqual([true]);
     expect(jobs(calls)).toEqual([]);
   });
 
   it("marks its state deleted at source on delete, and keeps the row", () => {
-    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe:1.0.0", action: "delete", record: undefined });
+    const { out, calls } = index(VERSION_SCRIPT, { ...event, rkey: "probe.1.0.0", action: "delete", record: undefined });
     expect(out).toBeNull();
     expect(writes(calls)).toEqual([
       expect.objectContaining({
@@ -650,14 +650,14 @@ describe("software.release.version", () => {
 
 describe("software.release.channel", () => {
   const channel = ({ name = "latest", project = PROJECT_URI, uri = VERSION_URI, cid = "bafyversion" } = {}) =>
-    `{ project = "${project}", name = "${name}", version = { uri = "${uri}", cid = "${cid}" } }`;
-  const event = { collection: "software.release.channel", rkey: "probe:latest", record: channel() };
+    `{ project = "${project}", channel = "${name}", version = { uri = "${uri}", cid = "${cid}" } }`;
+  const event = { collection: "software.release.channel", rkey: "probe.latest", record: channel() };
 
   it("stores an update, because channels move", () => {
     expect(index(CHANNEL_SCRIPT, { ...event, action: "update" }).out).toBe(true);
   });
 
-  const CHANNEL_URI = at(DID, "software.release.channel", "probe:latest");
+  const CHANNEL_URI = at(DID, "software.release.channel", "probe.latest");
   const stored = `__indexed["${CHANNEL_URI}"] = { uri = "${CHANNEL_URI}", cid = "bafychannel", record = ${channel()} }`;
 
   it("marks a deleted channel on the project's state, keeping the row and the state's other fields", () => {
@@ -708,12 +708,18 @@ describe("software.release.channel", () => {
     expect(index(CHANNEL_SCRIPT, event, { setup: noSidecar(DID, "probe") }).out).toBeNull();
   });
 
-  it("skips one whose name is not its key's", () => {
+  it("skips one whose channel is not its key's", () => {
     expect(index(CHANNEL_SCRIPT, { ...event, record: channel({ name: "beta" }) }).out).toBeNull();
   });
 
-  it("skips a key that is not name:channel", () => {
+  it("skips one that names its channel in the old name field", () => {
+    const record = `{ project = "${PROJECT_URI}", name = "latest", version = { uri = "${VERSION_URI}", cid = "bafyversion" } }`;
+    expect(index(CHANNEL_SCRIPT, { ...event, record }).out).toBeNull();
+  });
+
+  it("skips a key that is not name.channel", () => {
     expect(index(CHANNEL_SCRIPT, { ...event, rkey: "probe" }).out).toBeNull();
+    expect(index(CHANNEL_SCRIPT, { ...event, rkey: "probe:latest" }).out).toBeNull();
   });
 
   it("skips one whose project is not its key's", () => {
@@ -723,7 +729,7 @@ describe("software.release.channel", () => {
   const refused: [string, Parameters<typeof channel>[0]][] = [
     ["a version of another DID", { uri: EVE_VERSION_URI, cid: "bafyeveversion" }],
     ["a version of another project", { uri: OTHER_VERSION_URI, cid: "bafyversion2" }],
-    ["a version not indexed", { uri: at(DID, "software.release.version", "probe:9.9.9") }],
+    ["a version not indexed", { uri: at(DID, "software.release.version", "probe.9.9.9") }],
     ["a version at another CID", { cid: "bafystale" }],
     ["a record that is not a version", { uri: MANIFEST_URI, cid: "bafymanifest" }],
   ];
@@ -759,7 +765,7 @@ describe("software.release.status", () => {
 
   for (const [what, subject] of [
     ["of another DID", EVE_VERSION_URI],
-    ["not indexed", at(DID, "software.release.version", "probe:9.9.9")],
+    ["not indexed", at(DID, "software.release.version", "probe.9.9.9")],
     ["that is neither a version nor a project", MANIFEST_URI],
     ["that is not an at-uri", "https://example.com"],
   ]) {
@@ -856,7 +862,7 @@ describe("the echo of a record the gateway wrote", () => {
     [
       "version",
       VERSION_SCRIPT,
-      { collection: "software.release.version", rkey: "probe:1.0.0", record: versionRecord() },
+      { collection: "software.release.version", rkey: "probe.1.0.0", record: versionRecord() },
       VERSION_URI,
       (calls) => expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.copy-version"]),
     ],
@@ -881,7 +887,7 @@ describe("the echo of a record the gateway wrote", () => {
 
   it("version: a mirrored row that differs from the echo is still a rewrite", () => {
     const record = versionRecord({ extra: `changelog = "https://example.com/changes",` });
-    const { out, calls } = index(VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe:1.0.0", record }, {
+    const { out, calls } = index(VERSION_SCRIPT, { collection: "software.release.version", rkey: "probe.1.0.0", record }, {
       setup: mirrored(VERSION_URI),
     });
     expect(out).toBeNull();

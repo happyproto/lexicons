@@ -20,7 +20,7 @@ const ENCODED_DID = "did%3Aplc%3Apub";
 
 const at = (did: string, collection: string, rkey: string) => `at://${did}/${collection}/${rkey}`;
 const MANIFEST_URI = at(DID, "software.release.manifest", "3kmanifest");
-const VERSION_URI = at(DID, "software.release.version", "probe:1.0.0");
+const VERSION_URI = at(DID, "software.release.version", "probe.1.0.0");
 const SIDECAR_URI = at(DID, "at.happyproto.registry.project", "probe");
 const PUBLICATION_URI = at(DID, "site.standard.publication", "probe");
 const DOCUMENT_URI = at(DID, "site.standard.document", "3kchangelog");

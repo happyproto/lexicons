@@ -2,7 +2,7 @@
 --
 -- record.index:software.release.version
 --
--- Indexes a version of a plugin project: `<name>:<version>`, naming its own
+-- Indexes a version of a plugin project: `<name>.<version>`, naming its own
 -- project and pinning, by CID, a stored manifest of that same project in the
 -- same repo. The CID is checked against the stored row, which is the only CID
 -- the registry holds, so a version can only vouch for the manifest bytes the
@@ -31,7 +31,7 @@ function handle(input, ctx)
   local did, uri, r = input.did, input.uri, input.record
   local name, version = split_rkey(input.rkey)
   if not name or not is_release_version(version) then
-    log.info("registry: version key is not <name>:<version>", { did = did, rkey = input.rkey })
+    log.info("registry: version key is not <name>.<version>", { did = did, rkey = input.rkey })
     return nil
   end
 
