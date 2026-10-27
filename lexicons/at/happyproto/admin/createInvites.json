@@ -1,0 +1,102 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.createInvites",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Invite customers: mint one single-use customers-space invite per address, each expiring after expiresInDays, and record which address each went to, so a redeemed invite pairs the address with the account. Redeemed with actor.acceptInvite. Staff only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "emails",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "emails": {
+              "type": "array",
+              "minLength": 1,
+              "maxLength": 50,
+              "items": {
+                "type": "string",
+                "maxLength": 254
+              }
+            },
+            "expiresInDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 14
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID, new for each attempt; a retry reuses it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "invites"
+          ],
+          "properties": {
+            "invites": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#invite"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or may not invite to the customers space: only its creator or a HappyView super user may."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "emails is not 1 to 50 distinct addresses, expiresInDays is not a whole number from 1 to 30, or idempotencyKey is not a UUID."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "A request with this idempotencyKey is still running."
+        },
+        {
+          "name": "Upstream",
+          "description": "The customers space is not configured, an invite could not be made, or the addresses could not be recorded. Nothing is returned then: an invite whose address is not recorded is never handed out, and simply expires."
+        }
+      ]
+    },
+    "invite": {
+      "type": "object",
+      "required": [
+        "email",
+        "token",
+        "expiresAt"
+      ],
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string",
+          "description": "The secret the invitee redeems. Shown once: HappyView and the provisioner keep only its hash."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}
