@@ -4,31 +4,31 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "A mutable named pointer to a version. Resolve the manifest through the referenced version. The record key is '{projectName}:{channelName}', making uniqueness per (project, name) mechanical and enabling AppView-free resolution. Channel names follow the project-name grammar (lowercase alphanumerics, interior hyphens, no dots). The project name cannot contain colons, but the rkey must contain exactly one colon. Valid only when same-DID with the referenced project and version.",
+      "description": "A mutable named pointer to a version. Resolve the manifest through the referenced version. The record key is '{projectName}.{channelName}', making uniqueness per (project, name) mechanical and enabling AppView-free resolution. Channel names follow the project-name grammar (lowercase alphanumerics, interior hyphens, no dots). Valid only when same-DID with the referenced project and version.",
       "key": "any",
       "record": {
         "type": "object",
         "required": [
           "project",
-          "name",
+          "channel",
           "version"
         ],
         "properties": {
           "project": {
             "type": "string",
             "format": "at-uri",
-            "description": "The software.release.project this pointer belongs to. MUST be same-DID."
+            "description": "The software.release.project this pointer belongs to. Must be same-DID."
           },
-          "name": {
+          "channel": {
             "type": "string",
             "minLength": 1,
             "maxLength": 64,
-            "description": "Channel name (e.g. latest, next). Follows the project-name grammar. MUST match the record rkey after the colon."
+            "description": "Channel name (e.g. latest, next). Follows the project-name grammar. MUST match the record rkey after the first dot."
           },
           "version": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef#main",
-            "description": "Strong reference to the software.release.version this channel currently points to. MUST belong to the same project."
+            "description": "Strong reference to the software.release.version this channel currently points to. Must belong to the same project."
           }
         }
       }

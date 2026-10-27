@@ -57,7 +57,7 @@ function handle(input, ctx)
     )
   end
 
-  local from_row = db.get(uri_of(caller, VERSION, name .. ":" .. from))
+  local from_row = db.get(uri_of(caller, VERSION, release_rkey(name, from)))
   local manifest = from_row and (from_row.record or {}).manifest
   if type(manifest) ~= "table" or type(manifest.uri) ~= "string" or type(manifest.cid) ~= "string" then
     return failure("VersionNotFound", "fromVersion is not an indexed version of your project")
@@ -73,7 +73,7 @@ function handle(input, ctx)
 
   -- A version never changes once published. One already on this manifest is
   -- an earlier call of this one that failed part-way.
-  local existing = db.get(uri_of(caller, VERSION, name .. ":" .. version))
+  local existing = db.get(uri_of(caller, VERSION, release_rkey(name, version)))
   if existing and not same_ref((existing.record or {}).manifest, manifest) then
     return failure("VersionExists", "that version is already published; publish a new one")
   end
@@ -121,15 +121,15 @@ function handle(input, ctx)
       version = version,
       manifest = manifest,
       changelog = out.changelog and out.changelog.uri or nil,
-    }, { rkey = name .. ":" .. version })
+    }, { rkey = release_rkey(name, version) })
     if not out.version then return refused("version", err) end
   end
 
   if track then
-    out.channel, err = caller_write("put", uri_of(caller, CHANNEL, name .. ":" .. track), {
+    out.channel, err = caller_write("put", uri_of(caller, CHANNEL, release_rkey(name, track)), {
       ["$type"] = CHANNEL,
       project = project_uri,
-      name = track,
+      channel = track,
       version = { uri = out.version.uri, cid = out.version.cid },
     }, {})
     if not out.channel then return refused("channel", err) end

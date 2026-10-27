@@ -346,8 +346,8 @@ describe("the registry indexes a software.release plugin end to end", () => {
     });
 
     versionRecord = { project: projectUri(), version: "1.0.0", manifest, changelog: document.uri };
-    version = await publish(publisher, VERSION, versionRecord, `${NAME}:1.0.0`);
-    await publish(publisher, CHANNEL, { project: projectUri(), name: "latest", version }, `${NAME}:latest`);
+    version = await publish(publisher, VERSION, versionRecord, `${NAME}.1.0.0`);
+    await publish(publisher, CHANNEL, { project: projectUri(), channel: "latest", version }, `${NAME}.latest`);
 
     // The blob sizes and the banner's sides reach the indexer through the
     // host's JSON bridge, so there being a version at all says they passed
@@ -468,7 +468,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
     await emitCommit({
       did,
       collection: VERSION,
-      rkey: `${NAME}:1.0.0`,
+      rkey: `${NAME}.1.0.0`,
       record: { $type: VERSION, ...versionRecord },
       cid: version.cid,
     });
@@ -538,19 +538,19 @@ describe("the registry indexes a software.release plugin end to end", () => {
     // state and start its copy.
     const record = { $type: VERSION, project: projectUri(), version: "1.1.0", manifest };
     const cid = await recordCid(record);
-    const uri = `at://${did}/${VERSION}/${NAME}:1.1.0`;
+    const uri = `at://${did}/${VERSION}/${NAME}.1.1.0`;
     const db = new pg.Client(DB_URL);
     await db.connect();
     try {
       await db.query(
         `INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, indexed_at, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)`,
-        [uri, did, VERSION, `${NAME}:1.1.0`, JSON.stringify(record), cid],
+        [uri, did, VERSION, `${NAME}.1.1.0`, JSON.stringify(record), cid],
       );
       // Mirrored only: no state, so nothing to serve yet.
       await fails(`${REGISTRY}.getVersion`, null, "VersionNotFound", { params: versionParams("1.1.0") });
 
-      await emitCommit({ did, collection: VERSION, rkey: `${NAME}:1.1.0`, record, cid });
+      await emitCommit({ did, collection: VERSION, rkey: `${NAME}.1.1.0`, record, cid });
       const view = await eventually(
         async () => {
           const body = await read("getVersion", versionParams("1.1.0"));
@@ -575,7 +575,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
       project: strangerProject,
       artifacts: [artifact],
     });
-    await emitOnly(stranger.did, VERSION, `${NAME}:1.0.0`, {
+    await emitOnly(stranger.did, VERSION, `${NAME}.1.0.0`, {
       project: strangerProject,
       version: "1.0.0",
       manifest: strangerManifest,
@@ -689,7 +689,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
         await ok(`${REGISTRY}.promoteRelease`, "happyproto", {
           input: { name: NAME, fromVersion: "1.0.0", version: "1.1.0" },
         }),
-      ).toEqual({ resumed: true, version: { uri: `at://${did}/${VERSION}/${NAME}:1.1.0`, cid: expect.any(String) } });
+      ).toEqual({ resumed: true, version: { uri: `at://${did}/${VERSION}/${NAME}.1.1.0`, cid: expect.any(String) } });
 
       // 0.9.0 is on another manifest, so promoting onto it would rewrite it.
       const otherManifest = await publish(publisher, MANIFEST, {
@@ -700,7 +700,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
         publisher,
         VERSION,
         { project: projectUri(), version: "0.9.0", manifest: otherManifest },
-        `${NAME}:0.9.0`,
+        `${NAME}.0.9.0`,
       );
       await eventually(
         async () => (await read("getVersion", versionParams("0.9.0")))?.version === "0.9.0",

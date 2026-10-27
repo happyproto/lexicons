@@ -90,17 +90,25 @@ describe("name, version and channel grammar", () => {
 });
 
 describe("record keys and uris", () => {
-  it("splits a key on its one colon", async () => {
-    expect(await lua(`return { split_rkey("happyview-lua:1.2.0") }`)).toEqual(["happyview-lua", "1.2.0"]);
+  it("splits a key at its first dot", async () => {
+    expect(await lua(`return { split_rkey("happyview-lua.1.2.0-alpha.4") }`)).toEqual(["happyview-lua", "1.2.0-alpha.4"]);
+    expect(await lua(`return { split_rkey("happyview-lua.latest") }`)).toEqual(["happyview-lua", "latest"]);
   });
-  it("refuses a key without exactly one colon", async () => {
-    expect(await lua(`return { split_rkey("a") == nil, split_rkey("a:b:c") == nil, split_rkey(":b") == nil, split_rkey("a:") == nil }`))
+  it("refuses a key without a name and a rest around a dot", async () => {
+    expect(await lua(`return { split_rkey("a") == nil, split_rkey(".b") == nil, split_rkey("a.") == nil, split_rkey("A.b") == nil }`))
       .toEqual([true, true, true, true]);
+  });
+  it("refuses a colon key from before the dot scheme", async () => {
+    expect(await lua(`return { split_rkey("happyview-lua:1.0.0-alpha.4") == nil, split_rkey("a:b") == nil }`))
+      .toEqual([true, true]);
+  });
+  it("builds a key from a name and a rest", async () => {
+    expect(await lua(`return release_rkey("happyview-lua", "1.2.0")`)).toBe("happyview-lua.1.2.0");
   });
   it("builds and parses an at-uri", async () => {
     expect(await lua(`return uri_of("${DID}", PROJECT, "x")`)).toBe(`at://${DID}/software.release.project/x`);
-    expect(await lua(`return { parse_uri("at://${DID}/software.release.version/x:1.0.0") }`))
-      .toEqual([DID, "software.release.version", "x:1.0.0"]);
+    expect(await lua(`return { parse_uri("at://${DID}/software.release.version/x.1.0.0") }`))
+      .toEqual([DID, "software.release.version", "x.1.0.0"]);
     expect(await lua(`return { parse_uri("at://handle.test/a.b/c") == nil, parse_uri("https://x/a/b") == nil }`))
       .toEqual([true, true]);
   });

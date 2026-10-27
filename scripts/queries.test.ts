@@ -32,8 +32,8 @@ const SIDECAR_URI = at(DID, "at.happyproto.registry.project", "probe");
 const PUBLICATION_URI = at(DID, "site.standard.publication", "probe");
 const MANIFEST_1 = at(DID, "software.release.manifest", "3kmanifest1");
 const MANIFEST_2 = at(DID, "software.release.manifest", "3kmanifest2");
-const VERSION_1 = at(DID, "software.release.version", "probe:1.0.0");
-const VERSION_2 = at(DID, "software.release.version", "probe:1.1.0-beta.1");
+const VERSION_1 = at(DID, "software.release.version", "probe.1.0.0");
+const VERSION_2 = at(DID, "software.release.version", "probe.1.1.0-beta.1");
 const DOCUMENT_URI = at(DID, "site.standard.document", "3kchangelog");
 const OLD_PROJECT_URI = at(DID, "software.release.project", "old");
 const state = (rkey: string) => at(HP, "at.happyproto.registry.versionState", `${DID}:${rkey}`);
@@ -154,12 +154,12 @@ put("${state("probe:1.1.0-beta.1")}", nil, {
   },
   failed = { manifest = "the PDS answered 500" },
 })
-put("${at(DID, "software.release.channel", "probe:latest")}", "bafylatest", {
-  ["$type"] = "software.release.channel", project = "${PROJECT_URI}", name = "latest",
+put("${at(DID, "software.release.channel", "probe.latest")}", "bafylatest", {
+  ["$type"] = "software.release.channel", project = "${PROJECT_URI}", channel = "latest",
   version = { uri = "${VERSION_1}", cid = "bafyversionone" },
 })
-put("${at(DID, "software.release.channel", "probe:beta")}", "bafybeta", {
-  ["$type"] = "software.release.channel", project = "${PROJECT_URI}", name = "beta",
+put("${at(DID, "software.release.channel", "probe.beta")}", "bafybeta", {
+  ["$type"] = "software.release.channel", project = "${PROJECT_URI}", channel = "beta",
   version = { uri = "${VERSION_2}", cid = "bafyversiontwo" },
 })
 put("${at(DID, "software.release.status", "3kstatus1")}", "bafystatus1", {
@@ -416,7 +416,7 @@ describe("getProject", () => {
 
   it("has no banner when latest's version has none", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
-      setup: `__indexed["${at(DID, "software.release.channel", "probe:latest")}"] = nil`,
+      setup: `__indexed["${at(DID, "software.release.channel", "probe.latest")}"] = nil`,
     });
     expect(out.banner).toBeUndefined();
     expect(Object.keys(out.channels)).toEqual(["beta"]);
@@ -424,7 +424,7 @@ describe("getProject", () => {
 
   it("keys channels by their record key and leaves out one whose name disagrees", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
-      setup: `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.name = "alpha"`,
+      setup: `__indexed["${at(DID, "software.release.channel", "probe.beta")}"].record.channel = "alpha"`,
     });
     expect(Object.keys(out.channels)).toEqual(["latest"]);
   });
@@ -816,7 +816,7 @@ describe("listVersions", () => {
       `__indexed["${VERSION_2}"].record.changelog = "${at(DID, "site.standard.document", "3kdoc2")}"`,
       `__put("${at(HP, "at.happyproto.registry.changelogCache", `${DID}:probe:1.1.0-beta.1`)}", nil, {
         uri = "${at(DID, "site.standard.document", "3kdoc2")}", title = "t", markdown = "two", fetchedAt = "2026-01-01T00:00:00Z" })`,
-      `__put("${at(DID, "software.release.version", "probe:1.2.0")}", "bafyversionthree", {
+      `__put("${at(DID, "software.release.version", "probe.1.2.0")}", "bafyversionthree", {
         project = "${PROJECT_URI}", version = "1.2.0", manifest = { uri = "${MANIFEST_1}", cid = "bafymanifestone" },
         changelog = "${at(DID, "site.standard.document", "3kdoc3")}" })`,
       `__put("${state("probe:1.2.0")}", nil, { did = "${DID}", name = "probe", version = "1.2.0",
@@ -861,7 +861,7 @@ describe("resolveChannel", () => {
   });
 
   it("answers ChannelNotFound for a channel record whose name disagrees with its key", () => {
-    const setup = `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.name = "alpha"`;
+    const setup = `__indexed["${at(DID, "software.release.channel", "probe.beta")}"].record.channel = "alpha"`;
     expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "beta" }`, { setup }).out.error).toBe("ChannelNotFound");
     expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "alpha" }`, { setup }).out.error).toBe("ChannelNotFound");
   });
@@ -886,7 +886,7 @@ describe("resolveChannel", () => {
     // A channel pointing outside its project is never answered as that project's.
     expect(
       query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "beta" }`, {
-        setup: `__indexed["${at(DID, "software.release.channel", "probe:beta")}"].record.version.uri = "${at(DID, "software.release.version", "old:1.0.0")}"`,
+        setup: `__indexed["${at(DID, "software.release.channel", "probe.beta")}"].record.version.uri = "${at(DID, "software.release.version", "old.1.0.0")}"`,
       }).out.error,
     ).toBe("VersionNotFound");
   });

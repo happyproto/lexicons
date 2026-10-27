@@ -2,7 +2,7 @@
 --
 -- record.index:software.release.channel
 --
--- Indexes a channel of a plugin project: `<name>:<channel>`, naming its own
+-- Indexes a channel of a plugin project: `<name>.<channel>`, naming its own
 -- project and pinning, by CID, a stored version of that same project in the
 -- same repo. Channels move, so an update is indexed like a create, under the
 -- same checks.
@@ -37,7 +37,7 @@ function handle(input, ctx)
   end
 
   if not name or not is_channel_name(channel) or type(r) ~= "table"
-    or r.name ~= channel or r.project ~= uri_of(did, PROJECT, name) then
+    or r.channel ~= channel or r.project ~= uri_of(did, PROJECT, name) then
     log.info("registry: channel does not match its key", { did = did, rkey = input.rkey })
     return nil
   end

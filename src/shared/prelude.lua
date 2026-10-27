@@ -621,13 +621,21 @@ local function is_channel_name(s)
   return is_project_name(s)
 end
 
---- `<name>:<rest>` with exactly one colon and a valid name, or nil. The rest
---- is left to the caller, which knows whether it is a version or a channel.
+--- `<name>.<rest>` split at the first dot, with a valid name, or nil. A name
+--- has no dots and a version may, so the first dot is the only boundary. The
+--- rest is left to the caller, which knows whether it is a version or a
+--- channel. A key from before the dot scheme (`<name>:<rest>`) has no valid
+--- name before its first dot, so it does not split.
 local function split_rkey(rkey)
   if type(rkey) ~= "string" then return nil end
-  local name, rest = rkey:match("^([^:]+):([^:]+)$")
+  local name, rest = rkey:match("^([^.]+)%.(.+)$")
   if not name or not is_project_name(name) then return nil end
   return name, rest
+end
+
+--- The record key of a version or channel of project `name`.
+local function release_rkey(name, rest)
+  return name .. "." .. rest
 end
 
 local function uri_of(did, collection, rkey)
@@ -1641,7 +1649,7 @@ end
 --- Whether a channel may point at a version of the caller's project: the
 --- version's lifecycle from its own statuses and the project's.
 local function release_lifecycle(did, name, version)
-  local own = version and statuses_about(did, uri_of(did, VERSION, name .. ":" .. version)) or {}
+  local own = version and statuses_about(did, uri_of(did, VERSION, release_rkey(name, version))) or {}
   return lifecycle(own, statuses_about(did, uri_of(did, PROJECT, name)))
 end
 
@@ -1754,7 +1762,7 @@ end
 local function version_view(our_did, did, name, version, opts)
   opts = opts or {}
   local db = require("happyview.db")
-  local uri = uri_of(did, VERSION, name .. ":" .. version)
+  local uri = uri_of(did, VERSION, release_rkey(name, version))
   local row = db.get(uri)
   local state = version_state(our_did, did, name, version)
   if not row or type(row.record) ~= "table" or not state then return nil end
@@ -1853,9 +1861,9 @@ local function project_view(our_did, did, name, handle)
   for _, row in ipairs(page.records or {}) do
     local r = row.record
     -- Keyed by the record key, as resolveChannel looks a channel up; a record
-    -- whose own name disagrees with its key is not answered as either.
+    -- whose own channel disagrees with its key is not answered as either.
     local channel_project, channel = split_rkey(row.rkey)
-    local ref = type(r) == "table" and channel_project == name and r.name == channel and r.version
+    local ref = type(r) == "table" and channel_project == name and r.channel == channel and r.version
     local version_did, collection, rkey
     if type(ref) == "table" then version_did, collection, rkey = parse_uri(ref.uri) end
     local version_name, version = split_rkey(rkey)

@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "An immutable named pointer to a manifest. The record key is '{projectName}:{version}', making uniqueness per (project, version) mechanical and enabling AppView-free resolution. Version strings follow the project-name grammar (lowercase alphanumerics, interior hyphens) but allow dots. The version string cannot contain colons, but the rkey must contain exactly one colon. Valid only when same-DID with the referenced project, and only when target references a manifest of that same project.",
+      "description": "An immutable named pointer to a manifest. The record key is '{projectName}.{version}', making uniqueness per (project, version) mechanical and enabling AppView-free resolution. Version strings follow the project-name grammar (lowercase alphanumerics, interior hyphens) but allow dots. Target is never expected to be updated. Valid only when same-DID with the referenced project, and only when target references a manifest of that same project.",
       "key": "any",
       "record": {
         "type": "object",
@@ -22,7 +22,7 @@
           "version": {
             "type": "string",
             "maxLength": 64,
-            "description": "Version string (e.g. v1.0.0, 2026.10.13). Follows the project-name grammar, minus colons. MUST match the record rkey after the colon."
+            "description": "Version string (e.g. v1.0.0, 2026.10.13). Follows the project-name grammar, minus colons. Should match the record rkey after the first dot."
           },
           "changelog": {
             "type": "string",
@@ -32,7 +32,7 @@
           "manifest": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef#main",
-            "description": "Strong reference to the software.release.manifest this version stamps. MUST belong to the same project."
+            "description": "Strong reference to the software.release.manifest this version stamps. Must belong to the same project."
           }
         }
       }
