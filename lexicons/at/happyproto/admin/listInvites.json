@@ -1,0 +1,89 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.listInvites",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every customer invite, newest first: the address it went to, whether it is pending, expired or redeemed, and by which account. Staff only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "invites"
+          ],
+          "properties": {
+            "invites": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#invite"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner could not be reached, or refused."
+        }
+      ]
+    },
+    "invite": {
+      "type": "object",
+      "required": [
+        "id",
+        "email",
+        "status",
+        "createdBy",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "expired",
+            "redeemed"
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "did"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "redeemedDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "redeemedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

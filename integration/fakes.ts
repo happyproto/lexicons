@@ -29,6 +29,7 @@ export const provisioner = {
     staff?: string[];
     instanceLimit?: number;
     entitlementMode?: "invite" | "staff";
+    invites?: any[];
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>

@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.acceptInvite",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Redeem an invite from admin.createInvites: the caller joins the customers space with read access, and the address the invite went to is paired with the caller's account. Redeeming as an account that is already a customer succeeds and spends nothing. Any signed-in account may call this; the token is the authority.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "token",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "token": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID, new for each attempt; a retry reuses it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "isCustomer",
+            "joined"
+          ],
+          "properties": {
+            "isCustomer": {
+              "type": "boolean",
+              "description": "Always true on success."
+            },
+            "joined": {
+              "type": "boolean",
+              "description": "Whether this call made the caller a customer. False when they already were, in which case the invite was not spent."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "token is missing or malformed, or idempotencyKey is not a UUID."
+        },
+        {
+          "name": "InvalidInvite",
+          "description": "No invite has this token, or it is not an invite to the customers space."
+        },
+        {
+          "name": "InviteUsed",
+          "description": "The invite has already been redeemed, or was revoked."
+        },
+        {
+          "name": "InviteExpired",
+          "description": "The invite has expired."
+        },
+        {
+          "name": "Upstream",
+          "description": "The customers space is not configured, or the invite could not be redeemed."
+        }
+      ]
+    }
+  }
+}

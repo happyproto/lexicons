@@ -14,7 +14,8 @@
  *
  * Control routes, all under /__:
  *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
- *                    entitlementMode? }. entitlementMode is "invite" (the
+ *                    entitlementMode?, invites? }. invites are rows as the
+ *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
  *                    change) or "staff" (entitlement.rs today: only staff may,
  *                    everyone else gets 403 NotEntitled).
@@ -78,7 +79,17 @@ function fresh() {
     staff: [] as string[],
     instanceLimit: 3,
     entitlementMode: "invite" as "invite" | "staff",
+    invites: [] as Json[],
   };
+}
+
+const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+
+/** An invite as api/invites.rs serialises it: never its token hash. */
+function inviteRow(i: Json): Json {
+  const { token_hash: _, ...row } = i;
+  const status = i.redeemed_did ? "redeemed" : Date.parse(i.expires_at) <= Date.now() ? "expired" : "pending";
+  return { ...row, status };
 }
 
 function reply(status: number, body: Json): Response {
@@ -289,6 +300,56 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const current =
       "current_operation" in tenant ? tenant.current_operation : activeOperation(tenant.id);
     return reply(200, { tenant: tenantRow(tenant), current_operation: current });
+  }
+
+  if (resource === "invites" && parts.length === 2 && (req.method === "GET" || req.method === "POST")) {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    if (req.method === "GET") return reply(200, { invites: [...state.invites].reverse().map(inviteRow) });
+    const batch = body?.invites;
+    if (!Array.isArray(batch) || batch.length < 1 || batch.length > 50) {
+      return error(400, "InvalidInvite", "invites must hold 1 to 50 invites");
+    }
+    const rows: Json[] = [];
+    for (const i of batch) {
+      if (typeof i?.email !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(i.email.trim())) {
+        return error(400, "InvalidInvite", "email must be an email address");
+      }
+      if (typeof i.token !== "string" || !/^[0-9a-f]{1,128}$/i.test(i.token)) {
+        return error(400, "InvalidInvite", "token must be an invite token");
+      }
+      const hash = sha256(i.token);
+      if (state.invites.some((x) => x.token_hash === hash) || rows.some((x) => x.token_hash === hash)) {
+        return error(409, "InviteExists", "an invite in this batch is already recorded");
+      }
+      rows.push({
+        id: crypto.randomUUID(),
+        email: i.email.trim().toLowerCase(),
+        token_hash: hash,
+        created_by: actor,
+        created_at: new Date().toISOString(),
+        expires_at: i.expires_at,
+        redeemed_did: null,
+        redeemed_at: null,
+      });
+    }
+    state.invites.push(...rows);
+    return reply(201, { invites: rows.map(inviteRow) });
+  }
+
+  if (req.method === "POST" && resource === "invites" && id === "redeem" && parts.length === 3) {
+    if (typeof body?.token !== "string" || !/^[0-9a-f]{1,128}$/i.test(body.token)) {
+      return error(400, "InvalidInvite", "token must be an invite token");
+    }
+    const invite = state.invites.find((x) => x.token_hash === sha256(body.token));
+    if (!invite) return error(404, "NotFound", "no invite has this token");
+    if (invite.redeemed_did && invite.redeemed_did !== actor) {
+      return error(409, "InviteUsed", "this invite was redeemed by another account");
+    }
+    if (!invite.redeemed_did) {
+      invite.redeemed_did = actor;
+      invite.redeemed_at = new Date().toISOString();
+    }
+    return reply(200, { invite: { id: invite.id, redeemed_at: invite.redeemed_at } });
   }
 
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {
