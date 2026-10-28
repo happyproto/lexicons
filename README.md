@@ -15,7 +15,6 @@ Everything is discovered by directory layout. There is no manifest.
 | Directory          | Pattern     | Becomes                                                  |
 | ------------------ | ----------- | -------------------------------------------------------- |
 | `lexicons/`        | `**/*.json` | uploaded and published lexicons (NSID from the `id` field) |
-| `accounts/<handle>/` | `**/*.json` | published to another account's repo, never uploaded (see [Other accounts](#other-accounts)) |
 | `vendor/lexicons/` | `**/*.json` | uploaded, never published (see [Vendored lexicons](#vendored-lexicons)) |
 | `lua/`             | `**/*.lua`  | `xrpc.query` / `xrpc.procedure` / `record.index`         |
 | `lua/jobs/`        | `*.lua`     | `job.run:<type>`, generated from `jobs/`                 |
@@ -271,27 +270,29 @@ request's dry run.
 
 ### Other accounts
 
-Some lexicons belong to an authority HappyProto doesn't own, so they're
-published to that authority's account instead. Each one has a directory under
-`accounts/`, an entry in `scripts/publishing.ts`, and a matching entry in the
-Deploy workflow's `publish-lexicons` matrix and in the pull request plan:
+Some lexicons in `lexicons/` belong to an authority HappyProto doesn't own, so
+they're published to that authority's account instead. Each account has an
+entry in `scripts/publishing.ts`, and a matching entry in the Deploy workflow's
+`publish-lexicons` matrix and in the pull request plan. Each run of
+lexicon-publish selects its share with `include` or `exclude`:
 
-| Directory | NSIDs | Account | Secret |
+| NSIDs | Account | Selected by | Secret |
 | --- | --- | --- | --- |
-| `lexicons/` | `at.happyproto.*` | `@happyproto.at` | `LEXICON_APP_PASSWORD` |
-| `accounts/happyview.dev/` | `dev.happyview.*` | `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`) | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` |
+| everything else (`at.happyproto.*`) | `@happyproto.at` | `exclude: dev.happyview` | `LEXICON_APP_PASSWORD` |
+| `dev.happyview.*` | `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`) | `include: dev.happyview` | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` |
 
-These directories aren't uploaded to HappyView; they're only published. The
-tests keep every NSID in its own account's directory and the workflow in step
-with the table. If anything slips past, lexicon-publish refuses any directory
-whose `_lexicon` DNS names a different account. Permission sets are also
+They're all deployed to HappyView like any other lexicon. The tests check that
+every lexicon is published to exactly one account, its owner, and keep the
+workflow in step with the table. If anything slips past, lexicon-publish
+refuses any selected NSID whose `_lexicon` DNS names a different account. Permission sets are also
 checked against the [permission spec](https://atproto.com/specs/permission#permission-sets)
 before they're published, because a PDS silently ignores a permission it
 can't read.
 
 To add an account, create an app password on it and save it as a repo secret.
 Then add the account to `scripts/publishing.ts`, to the workflow matrix and to
-the plan, and add its `_lexicon` TXT records.
+the plan, add its namespace to HappyProto's `exclude`, and add its `_lexicon`
+TXT records.
 
 `prune` is deliberately **off**. With it on, deleting a file here deletes the
 live lexicon or script — and for a record-type lexicon that also orphans

@@ -99,8 +99,7 @@ jobs:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
           api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
           # vendor/lexicons are upstream's: deployed so the registry can index
-          # them, but never published. accounts/ is the reverse: other
-          # accounts' lexicons, published but never deployed here.
+          # them, but lexicon-publish below reads only lexicons/.
           lexicons: |
             lexicons/**/*.json
             vendor/lexicons/**/*.json
@@ -117,12 +116,12 @@ jobs:
       - uses: happyproto/actions/lexicon-publish@v1
         with:
           identifier: happyproto.at
-          lexicons-dir: lexicons
+          exclude: dev.happyview
           dry-run: "true"
       - uses: happyproto/actions/lexicon-publish@v1
         with:
           identifier: did:plc:qneu5uamqs6cug7sjobbaexm
-          lexicons-dir: accounts/happyview.dev
+          include: dev.happyview
           dry-run: "true"
 
   deploy:
@@ -150,8 +149,7 @@ jobs:
           happyview-url: ${{ vars.HAPPYVIEW_URL }}
           api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
           # vendor/lexicons are upstream's: deployed so the registry can index
-          # them, but never published. accounts/ is the reverse: other
-          # accounts' lexicons, published but never deployed here.
+          # them, but lexicon-publish below reads only lexicons/.
           lexicons: |
             lexicons/**/*.json
             vendor/lexicons/**/*.json
@@ -187,10 +185,10 @@ jobs:
   # deploy, so the instance never serves a schema the network has not seen
   # published.
   #
-  # One entry per account, mirroring scripts/publishing.ts. Each publishes only
-  # its own directory with its own app password, and lexicon-publish refuses a
-  # directory whose DNS names another account, so no lexicon can land in the
-  # wrong repo.
+  # One entry per account, mirroring scripts/publishing.ts. Each selects its
+  # own share of lexicons/ with include and exclude and publishes it with its
+  # own app password. lexicon-publish also refuses any selected NSID whose DNS
+  # names another account, so no lexicon can land in the wrong repo.
   publish-lexicons:
     name: Publish lexicons (${{ matrix.account }})
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -198,6 +196,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     strategy:
+      # The prefixes are named so they can't be mistaken for the matrix's own
+      # include and exclude keys.
+      #
       # One account's failure, such as an expired app password, must not
       # stop the other's publish.
       fail-fast: false
@@ -205,16 +206,19 @@ jobs:
         include:
           - account: happyproto.at
             identifier: happyproto.at
-            dir: lexicons
+            include-prefixes: ""
+            exclude-prefixes: dev.happyview
             secret: LEXICON_APP_PASSWORD
           - account: happyview.dev
             identifier: did:plc:qneu5uamqs6cug7sjobbaexm
-            dir: accounts/happyview.dev
+            include-prefixes: dev.happyview
+            exclude-prefixes: ""
             secret: HAPPYVIEW_DEV_LEXICON_APP_PASSWORD
     steps:
       - uses: actions/checkout@v7
       - uses: happyproto/actions/lexicon-publish@v1
         with:
           identifier: ${{ matrix.identifier }}
-          lexicons-dir: ${{ matrix.dir }}
+          include: ${{ matrix.include-prefixes }}
+          exclude: ${{ matrix.exclude-prefixes }}
           password: ${{ secrets[matrix.secret] }}

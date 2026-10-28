@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Lexicons } from "@atproto/lexicon";
-import { DESTINATIONS } from "./publishing";
 
 async function walk(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -15,7 +14,7 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
-const ROOTS = [...DESTINATIONS.map((d) => d.dir), "vendor/lexicons"];
+const ROOTS = ["lexicons", "vendor/lexicons"];
 
 async function lexiconFiles(): Promise<string[]> {
   return (await Promise.all(ROOTS.map(walk))).flat().sort();

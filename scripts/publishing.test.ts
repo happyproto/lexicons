@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { DESTINATIONS, destinationFor, lexiconFiles } from "./publishing";
+import { DESTINATIONS, filters, lexiconFiles, owner, publishes } from "./publishing";
 
 async function ids(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -9,6 +9,8 @@ async function ids(dir: string): Promise<string[]> {
   }
   return out;
 }
+
+const [HAPPYPROTO, HAPPYVIEW] = DESTINATIONS;
 
 type Step = { uses?: string; with?: Record<string, string> };
 type Job = { steps: Step[]; strategy?: { matrix: { include: Record<string, string>[] } } };
@@ -28,77 +30,78 @@ describe("publish destinations", () => {
     }
   });
 
-  test("routes each namespace to its account", () => {
-    expect(destinationFor("at.happyproto.registry.project")?.account).toBe("happyproto.at");
-    expect(destinationFor("dev.happyview.adminFull")?.account).toBe("happyview.dev");
-    expect(destinationFor("dev.happyviewer.thing")).toBeUndefined();
-    expect(destinationFor("software.release.project")).toBeUndefined();
+  test("dev.happyview goes only to happyview.dev", () => {
+    expect(publishes(HAPPYVIEW, "dev.happyview.adminFull")).toBe(true);
+    expect(publishes(HAPPYPROTO, "dev.happyview.adminFull")).toBe(false);
   });
 
-  // lexicon-publish refuses a directory where any authority's _lexicon DNS
-  // names another account, so a misplaced file would fail the whole publish.
-  test("every lexicon sits in its own account's directory", async () => {
-    const misplaced: string[] = [];
-    for (const d of DESTINATIONS) {
-      for (const id of await ids(d.dir)) {
-        if (destinationFor(id) !== d) misplaced.push(`${d.dir}: ${id}`);
+  test("at.happyproto never goes to happyview.dev", () => {
+    expect(publishes(HAPPYPROTO, "at.happyproto.registry.project")).toBe(true);
+    expect(publishes(HAPPYVIEW, "at.happyproto.registry.project")).toBe(false);
+  });
+
+  // lexicon-publish matches prefixes by whole segments, and so must the test.
+  test("a namespace matches whole segments", () => {
+    expect(owner("dev.happyviewer.thing")).toBeUndefined();
+    expect(publishes(HAPPYVIEW, "dev.happyviewer.thing")).toBe(false);
+  });
+
+  test("every lexicon has an owner and is published to it alone", async () => {
+    const wrong: string[] = [];
+    for (const id of await ids("lexicons")) {
+      const to = DESTINATIONS.filter((d) => publishes(d, id)).map((d) => d.account);
+      if (to.length !== 1 || to[0] !== owner(id)?.account) {
+        wrong.push(`${id}: owner ${owner(id)?.account}, published to [${to.join(", ")}]`);
       }
     }
-    expect(misplaced).toEqual([]);
+    expect(wrong).toEqual([]);
   });
 
   // vendor/ is upstream's and never published, so it must not hold a copy of
   // a lexicon one of these accounts publishes.
-  test("vendored lexicons belong to no destination", async () => {
-    const claimed = (await ids("vendor/lexicons")).filter((id) => destinationFor(id));
-    expect(claimed).toEqual([]);
+  test("vendored lexicons belong to no account", async () => {
+    expect((await ids("vendor/lexicons")).filter((id) => owner(id))).toEqual([]);
   });
 });
 
 describe("deploy workflow", () => {
-  test("publishes each destination with its own password", async () => {
+  test("publishes each account with its filters and its own password", async () => {
     const job = (await workflow())["publish-lexicons"];
     expect(job.strategy?.matrix.include).toEqual(
-      DESTINATIONS.map((d) => ({
-        account: d.account,
-        identifier: d.identifier,
-        dir: d.dir,
-        secret: d.secret,
-      })),
+      DESTINATIONS.map((d) => {
+        const { include, exclude } = filters(d);
+        return {
+          account: d.account,
+          identifier: d.identifier,
+          "include-prefixes": include,
+          "exclude-prefixes": exclude,
+          secret: d.secret,
+        };
+      }),
     );
     const step = job.steps.find((s) => s.uses?.startsWith("happyproto/actions/lexicon-publish@"));
     expect(step?.with).toEqual({
       identifier: "${{ matrix.identifier }}",
-      "lexicons-dir": "${{ matrix.dir }}",
+      include: "${{ matrix.include-prefixes }}",
+      exclude: "${{ matrix.exclude-prefixes }}",
       password: "${{ secrets[matrix.secret] }}",
     });
   });
 
-  test("the pull request plan dry-runs every destination", async () => {
+  test("the pull request plan dry-runs every account", async () => {
     const steps = (await workflow()).plan.steps.filter((s) =>
       s.uses?.startsWith("happyproto/actions/lexicon-publish@"),
     );
     expect(steps.map((s) => s.with)).toEqual(
-      DESTINATIONS.map((d) => ({
-        identifier: d.identifier,
-        "lexicons-dir": d.dir,
-        "dry-run": "true",
-      })),
+      DESTINATIONS.map((d) => {
+        const { include, exclude } = filters(d);
+        return {
+          identifier: d.identifier,
+          ...(include && { include }),
+          ...(exclude && { exclude }),
+          "dry-run": "true",
+        };
+      }),
     );
-  });
-
-  // HappyView indexes what it's given. Another account's lexicons are not
-  // the instance's to serve, so only lexicons/ and vendor/ go to it.
-  test("deploys only HappyProto's and vendored lexicons to HappyView", async () => {
-    const jobs = await workflow();
-    for (const name of ["plan", "deploy"]) {
-      const step = jobs[name].steps.find((s) =>
-        s.uses?.startsWith("gamesgamesgamesgamesgames/happyview-actions/deploy@"),
-      );
-      expect(step?.with?.lexicons.trim().split("\n")).toEqual([
-        "lexicons/**/*.json",
-        "vendor/lexicons/**/*.json",
-      ]);
-    }
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { permissionSetProblems } from "./permissionSet";
-import { DESTINATIONS, lexiconFiles } from "./publishing";
+import { lexiconFiles } from "./publishing";
 
 const RPC = {
   type: "permission",
@@ -67,11 +67,9 @@ describe("permissionSetProblems", () => {
 describe("published permission sets", () => {
   test("every permission set follows the spec", async () => {
     const problems: string[] = [];
-    for (const { dir } of DESTINATIONS) {
-      for (const file of await lexiconFiles(dir)) {
-        const doc = JSON.parse(await readFile(file, "utf8"));
-        problems.push(...permissionSetProblems(doc).map((p) => `${file}: ${p}`));
-      }
+    for (const file of await lexiconFiles("lexicons")) {
+      const doc = JSON.parse(await readFile(file, "utf8"));
+      problems.push(...permissionSetProblems(doc).map((p) => `${file}: ${p}`));
     }
     expect(problems).toEqual([]);
   });
@@ -80,7 +78,7 @@ describe("published permission sets", () => {
   // set has to keep granting it whatever else it grows to include.
   test("dev.happyview.adminFull grants dev.happyview.admin.manage", async () => {
     const doc = JSON.parse(
-      await readFile("accounts/happyview.dev/dev/happyview/adminFull.json", "utf8"),
+      await readFile("lexicons/dev/happyview/adminFull.json", "utf8"),
     );
     const lxms = doc.defs.main.permissions.flatMap((p: { lxm?: string[] }) => p.lxm ?? []);
     expect(lxms).toContain("dev.happyview.admin.manage");
