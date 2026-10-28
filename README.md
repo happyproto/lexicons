@@ -15,6 +15,7 @@ Everything is discovered by directory layout. There is no manifest.
 | Directory          | Pattern     | Becomes                                                  |
 | ------------------ | ----------- | -------------------------------------------------------- |
 | `lexicons/`        | `**/*.json` | uploaded and published lexicons (NSID from the `id` field) |
+| `accounts/<handle>/` | `**/*.json` | published to another account's repo, never uploaded (see [Other accounts](#other-accounts)) |
 | `vendor/lexicons/` | `**/*.json` | uploaded, never published (see [Vendored lexicons](#vendored-lexicons)) |
 | `lua/`             | `**/*.lua`  | `xrpc.query` / `xrpc.procedure` / `record.index`         |
 | `lua/jobs/`        | `*.lua`     | `job.run:<type>`, generated from `jobs/`                 |
@@ -240,13 +241,14 @@ lexicon.
 Push to `main` deploys. Pull requests lint and then dry-run, so a review shows
 what a merge would actually replace rather than only that the files parse.
 
-Three things must be configured on the repo:
+Four things must be configured on the repo:
 
 | Kind | Name | Value |
 | --- | --- | --- |
 | Variable | `HAPPYVIEW_URL` | `https://api.happyproto.at` |
 | Secret | `HAPPYVIEW_API_KEY` | an `hv_` admin API key from the instance |
 | Secret | `LEXICON_APP_PASSWORD` | an app password for `@happyproto.at` |
+| Secret | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` | an app password for `@happyview.dev` |
 
 After a deploy, the lexicons are published as `com.atproto.lexicon.schema`
 records in `@happyproto.at`'s repo, with
@@ -266,6 +268,30 @@ authority needs a TXT record naming that account:
 A new authority (`at.happyproto.<new>.*`) needs its own record: the publish
 step fails until it exists, naming the record to add, and so does the pull
 request's dry run.
+
+### Other accounts
+
+Some lexicons belong to an authority HappyProto doesn't own, so they're
+published to that authority's account instead. Each one has a directory under
+`accounts/`, an entry in `scripts/publishing.ts`, and a matching entry in the
+Deploy workflow's `publish-lexicons` matrix and in the pull request plan:
+
+| Directory | NSIDs | Account | Secret |
+| --- | --- | --- | --- |
+| `lexicons/` | `at.happyproto.*` | `@happyproto.at` | `LEXICON_APP_PASSWORD` |
+| `accounts/happyview.dev/` | `dev.happyview.*` | `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`) | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` |
+
+These directories aren't uploaded to HappyView; they're only published. The
+tests keep every NSID in its own account's directory and the workflow in step
+with the table. If anything slips past, lexicon-publish refuses any directory
+whose `_lexicon` DNS names a different account. Permission sets are also
+checked against the [permission spec](https://atproto.com/specs/permission#permission-sets)
+before they're published, because a PDS silently ignores a permission it
+can't read.
+
+To add an account, create an app password on it and save it as a repo secret.
+Then add the account to `scripts/publishing.ts`, to the workflow matrix and to
+the plan, and add its `_lexicon` TXT records.
 
 `prune` is deliberately **off**. With it on, deleting a file here deletes the
 live lexicon or script — and for a record-type lexicon that also orphans
