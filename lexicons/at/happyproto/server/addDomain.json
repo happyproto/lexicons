@@ -244,7 +244,6 @@
       "type": "object",
       "required": [
         "ownership",
-        "pointing",
         "checkedAt"
       ],
       "properties": {
@@ -264,7 +263,7 @@
             "elsewhere",
             "error"
           ],
-          "description": "Whether the hostname resolves to the instance's host."
+          "description": "Whether the hostname resolves to the instance's host. Absent when the check didn't get that far, such as when the TXT record was missing."
         },
         "checkedAt": {
           "type": "string",

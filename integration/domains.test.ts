@@ -124,6 +124,19 @@ describe("server.listDomains", () => {
   });
 });
 
+test("a check that never got to the CNAME leaves pointing out", async () => {
+  await provisioner.state({
+    domains: [
+      domain(VERIFIED, "app.example.com", {
+        state: "pending",
+        checks: { ownership: "missing", pointing: null, checkedAt: "2026-10-28T12:00:00Z" },
+      }),
+    ],
+  });
+  const out = await ok(server("listDomains"), "customer", { params: { instanceId: MINE } });
+  expect(out.domains[0].checks).toEqual({ ownership: "missing", checkedAt: "2026-10-28T12:00:00Z" });
+});
+
 describe("server.addDomain", () => {
   test("adds a pending domain with its records, as the caller, with their key", async () => {
     const key = crypto.randomUUID();
