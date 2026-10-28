@@ -18,7 +18,11 @@
  *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
  *                    change) or "staff" (entitlement.rs today: only staff may,
- *                    everyone else gets 403 NotEntitled).
+ *                    everyone else gets 403 NotEntitled). customDomains turns
+ *                    the domain routes on (CUSTOM_DOMAINS_ENABLED; off by
+ *                    default, as production runs until it is switched on).
+ *                    domains are rows: the API's Domain shape plus tenant_id,
+ *                    and removed: true for one that is gone.
  *   POST /__script   queue one canned reply { method, path, status, body }; the
  *                    next request matching method and path gets it, once.
  *                    With { drop: true } instead, that request gets no reply:
@@ -80,6 +84,8 @@ function fresh() {
     instanceLimit: 3,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
+    customDomains: false,
+    domains: [] as Json[],
   };
 }
 
@@ -187,6 +193,101 @@ function entitled(staff: boolean): boolean {
 
 function notEntitled(): Response {
   return error(403, "NotEntitled", "this account cannot do that yet");
+}
+
+/** A domain row as api/domains.rs serialises it: the Domain shape alone. */
+function domainRow(d: Json): Json {
+  const { tenant_id: _, removed: __, last_verify_at: ___, ...row } = d;
+  return row;
+}
+
+/** A tenant's live domains: pending, verified or lapsed. */
+function liveDomains(tenantId: string): Json[] {
+  return state.domains.filter((d) => d.tenant_id === tenantId && !d.removed);
+}
+
+/**
+ * The /v1/tenants/:id/domains routes, with the rulings T4 settled: 404
+ * NotAvailable for non-staff while the flag is off, one live domain per
+ * instance, DELETE answering {operation} (null unless routing changed).
+ */
+function domainsRoute(req: Request, parts: string[], body: Json, actor: string, staff: boolean): Response {
+  if (!state.customDomains && !staff) {
+    return error(404, "NotAvailable", "custom domains are not available yet");
+  }
+  const [, , id, , domainId, verb] = parts;
+  const tenant = state.tenants.find((t) => t.id === id);
+  if (!tenant || !(staff || tenant.owner_did === actor) || tenant.deleted_at) {
+    return error(404, "NotFound", "instance not found");
+  }
+  const base = `${tenant.slug}.hpy.at`;
+
+  if (req.method === "GET" && parts.length === 4) {
+    const domains = liveDomains(tenant.id);
+    return reply(200, {
+      platform: { hostname: base, primary: !domains.some((d) => d.primary) },
+      domains: domains.map(domainRow),
+    });
+  }
+
+  if (req.method === "POST" && parts.length === 4) {
+    const hostname = typeof body?.hostname === "string" ? body.hostname.trim().toLowerCase() : "";
+    if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname)) {
+      return error(400, "InvalidHostname", "that is not a hostname");
+    }
+    if (["hpy.at", "happyproto.at"].some((p) => hostname === p || hostname.endsWith(`.${p}`))) {
+      return error(400, "PlatformHostname", "that hostname belongs to HappyProto");
+    }
+    const live = liveDomains(tenant.id);
+    if (live.some((d) => d.hostname === hostname)) {
+      return error(409, "DomainExists", "this instance already has that domain");
+    }
+    if (live.length >= 1) return error(409, "DomainLimit", "this instance already has a custom domain");
+    const token = crypto.randomUUID().replaceAll("-", "").slice(0, 26);
+    const now = new Date();
+    const domain = {
+      id: crypto.randomUUID(),
+      tenant_id: tenant.id,
+      hostname,
+      state: "pending",
+      primary: false,
+      records: [
+        { type: "TXT", name: `_happyproto.${hostname}`, value: `happyproto-verify=${token}` },
+        { type: "CNAME", name: hostname, value: base, alt: { type: "A", value: "2.29.59.39" } },
+      ],
+      checks: null,
+      serving: "off",
+      lapsesAt: null,
+      expiresAt: new Date(now.getTime() + 7 * 86_400_000).toISOString(),
+      createdAt: now.toISOString(),
+      verifiedAt: null,
+    };
+    state.domains.push(domain);
+    return reply(201, domainRow(domain));
+  }
+
+  const domain = state.domains.find((d) => d.id === domainId && d.tenant_id === tenant.id && !d.removed);
+  if (!domain) return error(404, "NotFound", "domain not found");
+
+  if (req.method === "POST" && parts.length === 6 && verb === "verify") {
+    if (domain.last_verify_at && Date.now() - domain.last_verify_at < 10_000) {
+      return error(429, "TooSoon", "this domain was checked moments ago");
+    }
+    domain.last_verify_at = Date.now();
+    domain.checks = { ownership: "missing", pointing: "error", checkedAt: new Date().toISOString() };
+    return reply(200, domainRow(domain));
+  }
+
+  if (req.method === "DELETE" && parts.length === 5) {
+    if (domain.primary) {
+      return error(409, "DomainIsPrimary", "make the platform subdomain primary first");
+    }
+    domain.removed = true;
+    if (domain.state !== "verified") return reply(200, { operation: null });
+    return reply(202, { operation: enqueue(tenant.id, "update", { reason: "domains" }, actor) });
+  }
+
+  return error(404, "NotFound", `the fake provisioner has no route for ${req.method} ${parts.join("/")}`);
 }
 
 /** POST /v1/tenants, tenants::create's checks in its order. */
@@ -387,6 +488,10 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
 
   if (req.method === "POST" && resource === "tenants" && parts.length === 2) {
     return createTenant(body, actor, staff);
+  }
+
+  if (resource === "tenants" && id && parts[3] === "domains") {
+    return domainsRoute(req, parts, body, actor, staff);
   }
 
   if (resource === "tenants" && id) {

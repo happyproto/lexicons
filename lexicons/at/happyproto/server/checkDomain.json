@@ -1,0 +1,276 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.checkDomain",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check a custom domain's DNS records now, rather than at the next scheduled check. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "instanceId",
+            "domainId",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "instanceId": {
+              "type": "string",
+              "description": "The instance's UUID."
+            },
+            "domainId": {
+              "type": "string",
+              "description": "The domain's UUID."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "domain"
+          ],
+          "properties": {
+            "domain": {
+              "type": "ref",
+              "ref": "#domain"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "instanceId, domainId or idempotencyKey is not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance or domain, or it is not the caller's. The cases are indistinguishable."
+        },
+        {
+          "name": "NotAvailable",
+          "description": "Custom domains are not switched on yet."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "InvalidHostname",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlatformHostname",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "DomainExists",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "DomainLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "TooSoon",
+          "description": "The domain was checked moments ago. Wait a few seconds and try again."
+        },
+        {
+          "name": "DomainIsPrimary",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    },
+    "domain": {
+      "type": "object",
+      "description": "A custom domain on one of the caller's instances.",
+      "required": [
+        "id",
+        "hostname",
+        "state",
+        "primary",
+        "records",
+        "serving",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The domain's UUID."
+        },
+        "hostname": {
+          "type": "string",
+          "description": "The hostname, lowercase, internationalized names in punycode."
+        },
+        "state": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "verified",
+            "lapsed"
+          ],
+          "description": "pending: waiting for the DNS records. verified: proven and served. lapsed: the TXT record went missing, and HappyProto stopped serving it; it recovers if the record comes back before expiresAt."
+        },
+        "primary": {
+          "type": "boolean",
+          "description": "Whether this is the instance's primary domain, the one its PUBLIC_URL follows."
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#record"
+          },
+          "description": "The DNS records the customer publishes: the TXT that proves ownership, then the CNAME that points the hostname at the instance."
+        },
+        "checks": {
+          "type": "ref",
+          "ref": "#checks",
+          "description": "The latest DNS check. Absent until the first check has run."
+        },
+        "serving": {
+          "type": "string",
+          "knownValues": [
+            "routing",
+            "issuing",
+            "live",
+            "failed",
+            "off"
+          ],
+          "description": "Whether the domain actually works: off until it is verified, issuing while its certificate is ordered, live once it serves over HTTPS."
+        },
+        "lapsesAt": {
+          "type": "string",
+          "description": "When HappyProto stops serving the domain if its TXT record stays missing. Absent while the record is present."
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "When a pending claim expires if it is never verified. Absent once verified."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "When the domain was added."
+        },
+        "verifiedAt": {
+          "type": "string",
+          "description": "When the domain was first verified."
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "type",
+        "name",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "TXT or CNAME."
+        },
+        "name": {
+          "type": "string",
+          "description": "The record's name."
+        },
+        "value": {
+          "type": "string",
+          "description": "The record's value."
+        },
+        "alt": {
+          "type": "ref",
+          "ref": "#altRecord",
+          "description": "For an apex name, which cannot hold a CNAME: the A record to publish instead. Absent when the instance's host has no public IPv4."
+        }
+      }
+    },
+    "altRecord": {
+      "type": "object",
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "A."
+        },
+        "value": {
+          "type": "string",
+          "description": "The instance host's public IPv4."
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "ownership",
+        "pointing",
+        "checkedAt"
+      ],
+      "properties": {
+        "ownership": {
+          "type": "string",
+          "knownValues": [
+            "ok",
+            "missing",
+            "error"
+          ],
+          "description": "Whether the TXT record carries this claim's token."
+        },
+        "pointing": {
+          "type": "string",
+          "knownValues": [
+            "ok",
+            "elsewhere",
+            "error"
+          ],
+          "description": "Whether the hostname resolves to the instance's host."
+        },
+        "checkedAt": {
+          "type": "string",
+          "description": "When the check ran."
+        }
+      }
+    }
+  }
+}
