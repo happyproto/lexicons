@@ -30,6 +30,10 @@ export const provisioner = {
     instanceLimit?: number;
     entitlementMode?: "invite" | "staff";
     invites?: any[];
+    /** CUSTOM_DOMAINS_ENABLED; off unless set. */
+    customDomains?: boolean;
+    /** Domain rows: the API's Domain shape plus tenant_id (and removed: true). */
+    domains?: any[];
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>

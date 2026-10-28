@@ -56,6 +56,7 @@ Each source declares which prelude blocks it needs:
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
+| `domains` | `domain_failure(status, body)`, which passes the domain routes' own codes (`DOMAIN_ERRORS`) and hands everything else to `provisioner_failure`; `public_domain(d)` | `json`, `failure`, `provisioner` |
 | `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
 | `registry` | what the gateway and the read API share: `resolve_actor`, `caller_write`, `project_view`, `version_view`, paging | `release`, `authority`, `validate`, `failure`, `json`, `urlencode` |
 

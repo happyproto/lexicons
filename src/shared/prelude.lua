@@ -542,6 +542,83 @@ local function follow_operation(op)
 end
 -- @endblock
 
+-- @block domains
+-- A tenant's custom domains, through the provisioner's /domains routes.
+
+-- Codes the provisioner's domain routes chose to say to a caller, passed
+-- through with their message. Anything else goes to provisioner_failure.
+-- NotAvailable is every domain route while custom domains are switched off,
+-- so the dashboard hides its panel rather than showing an error.
+local DOMAIN_ERRORS = {
+  InvalidHostname = true,
+  PlatformHostname = true,
+  DomainExists = true,
+  DomainLimit = true,
+  TooSoon = true,
+  DomainIsPrimary = true,
+  NotAvailable = true,
+}
+
+--- A domain route's refusal mapped to a failure table: a DOMAIN_ERRORS code
+--- with its message, otherwise whatever provisioner_failure makes of it.
+local function domain_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and DOMAIN_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "The provisioner refused the request."
+    return failure(decoded.error, message)
+  end
+  return provisioner_failure(status, decoded)
+end
+
+local function string_or_nil(v)
+  return type(v) == "string" and v or nil
+end
+
+--- The customer `domain`. Every field is listed explicitly, so a field the
+--- provisioner adds later is never passed along by accident; customers never
+--- see the token on its own, only inside the TXT record they publish.
+local function public_domain(d)
+  local records = {}
+  for _, r in ipairs(type(d.records) == "table" and d.records or {}) do
+    if type(r) == "table" then
+      local alt = nil
+      if type(r.alt) == "table" then
+        alt = { type = string_or_nil(r.alt.type), value = string_or_nil(r.alt.value) }
+      end
+      records[#records + 1] = {
+        type = string_or_nil(r.type),
+        name = string_or_nil(r.name),
+        value = string_or_nil(r.value),
+        alt = alt,
+      }
+    end
+  end
+  -- null until the first check has run.
+  local checks = nil
+  if type(d.checks) == "table" then
+    checks = {
+      ownership = string_or_nil(d.checks.ownership),
+      pointing = string_or_nil(d.checks.pointing),
+      checkedAt = string_or_nil(d.checks.checkedAt),
+    }
+  end
+  return {
+    id = d.id,
+    hostname = d.hostname,
+    state = d.state,
+    primary = d.primary == true,
+    records = json.to_array(records),
+    checks = checks,
+    serving = string_or_nil(d.serving),
+    lapsesAt = string_or_nil(d.lapsesAt),
+    expiresAt = string_or_nil(d.expiresAt),
+    createdAt = string_or_nil(d.createdAt),
+    verifiedAt = string_or_nil(d.verifiedAt),
+  }
+end
+-- @endblock
+
 -- @block release
 -- Checks for the software.release records the registry indexes and the
 -- at.happyproto records that make one a HappyView plugin.
