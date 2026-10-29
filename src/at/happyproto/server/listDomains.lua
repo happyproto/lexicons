@@ -38,5 +38,7 @@ function handle(input, ctx)
       primary = body.platform.primary == true,
     },
     domains = json.to_array(domains),
+    -- Set only while a switch of primary is in flight.
+    requestedPrimary = string_or_nil(body.requestedPrimary),
   }
 end

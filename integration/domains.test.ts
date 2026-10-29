@@ -1,6 +1,7 @@
 /**
- * The customer custom-domain endpoints -- listDomains, addDomain, checkDomain
- * and removeDomain -- on a real HappyView v3 against the fake provisioner.
+ * The customer custom-domain endpoints -- listDomains, addDomain, checkDomain,
+ * removeDomain and setPrimaryDomain -- on a real HappyView v3 against the
+ * fake provisioner.
  *
  * Every endpoint checks ownership with GET /v1/tenants/:id before it calls a
  * domain route, because the provisioner lets staff reach any tenant.
@@ -244,5 +245,99 @@ describe("server.removeDomain", () => {
     });
     const listed = await ok(server("listDomains"), "customer", { params: { instanceId: MINE } });
     expect(listed.domains.map((d: any) => d.id)).toEqual([PRIMARY]);
+  });
+});
+
+describe("server.setPrimaryDomain", () => {
+  const put = `/v1/tenants/${MINE}/primary-domain`;
+
+  test("a serving verified domain becomes the requested primary, with a job", async () => {
+    await provisioner.state({ domains: [domain(VERIFIED, "app.example.com")] });
+    const key = crypto.randomUUID();
+    const out = await ok(server("setPrimaryDomain"), "customer", {
+      input: { instanceId: MINE, hostname: "app.example.com", idempotencyKey: key },
+    });
+    expect(typeof out.jobId).toBe("string");
+    started.push(out.jobId);
+    const call = (await sent()).find((r) => r.method === "PUT");
+    expect(call?.path).toBe(put);
+    expect(call?.body).toEqual({ hostname: "app.example.com" });
+    expect(call?.headers["idempotency-key"]).toBe(key);
+    const listed = await ok(server("listDomains"), "customer", { params: { instanceId: MINE } });
+    expect(listed.requestedPrimary).toBe("app.example.com");
+    // The live primary hasn't moved until the instance restarts onto it.
+    expect(listed.platform.primary).toBe(true);
+  });
+
+  test("the hostname that is already primary answers with no job", async () => {
+    const out = await ok(server("setPrimaryDomain"), "customer", {
+      input: { instanceId: MINE, hostname: "alpha.hpy.at", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(out).toEqual({});
+  });
+
+  test("switching back to the platform subdomain is allowed", async () => {
+    await provisioner.state({ domains: [domain(PRIMARY, "app.example.com", { primary: true })] });
+    const out = await ok(server("setPrimaryDomain"), "customer", {
+      input: { instanceId: MINE, hostname: "alpha.hpy.at", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(typeof out.jobId).toBe("string");
+    started.push(out.jobId);
+  });
+
+  test("a pending domain is NotVerified", async () => {
+    await provisioner.state({ domains: [domain(VERIFIED, "app.example.com", { state: "pending", serving: "off" })] });
+    await fails(server("setPrimaryDomain"), "customer", "NotVerified", {
+      input: { instanceId: MINE, hostname: "app.example.com", idempotencyKey: crypto.randomUUID() },
+    });
+  });
+
+  test("a verified domain still issuing its certificate is CertificateNotReady", async () => {
+    await provisioner.state({ domains: [domain(VERIFIED, "app.example.com", { serving: "issuing" })] });
+    await fails(server("setPrimaryDomain"), "customer", "CertificateNotReady", {
+      input: { instanceId: MINE, hostname: "app.example.com", idempotencyKey: crypto.randomUUID() },
+    });
+  });
+
+  test("VersionTooOld passes through with its message", async () => {
+    await provisioner.script("PUT", put, 409, { error: "VersionTooOld", message: "update the instance first" });
+    const err = await fails(server("setPrimaryDomain"), "customer", "VersionTooOld", {
+      input: { instanceId: MINE, hostname: "app.example.com", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(err.body.message).toBe("update the instance first");
+  });
+
+  test("an unexplained provisioner error is Upstream", async () => {
+    await provisioner.script("PUT", put, 500, { error: "Internal", message: "SENTINEL-internal" });
+    const err = await fails(server("setPrimaryDomain"), "customer", "Upstream", {
+      input: { instanceId: MINE, hostname: "app.example.com", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(err.text).not.toContain("SENTINEL");
+  });
+
+  test("another customer's instance is NotFound, and the primary route isn't called", async () => {
+    await fails(server("setPrimaryDomain"), "customer", "NotFound", {
+      input: { instanceId: SOMEONE_ELSES, hostname: "app.example.com", idempotencyKey: crypto.randomUUID() },
+    });
+    expect((await sent()).map((r) => r.path)).toEqual([`/v1/tenants/${SOMEONE_ELSES}`]);
+  });
+
+  test("a missing hostname is InvalidRequest, and nothing is called", async () => {
+    await fails(server("setPrimaryDomain"), "customer", "InvalidRequest", {
+      input: { instanceId: MINE, hostname: "", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(await sent()).toEqual([]);
+  });
+});
+
+describe("server.removeDomain while a switch is in flight", () => {
+  test("the requested primary is DomainIsPrimary", async () => {
+    await provisioner.state({
+      domains: [domain(VERIFIED, "app.example.com")],
+      tenants: [{ ...tenant(MINE, "alpha", s.accounts.customer.did), requested_primary: "app.example.com" }],
+    });
+    await fails(server("removeDomain"), "customer", "DomainIsPrimary", {
+      input: { instanceId: MINE, domainId: VERIFIED, idempotencyKey: crypto.randomUUID() },
+    });
   });
 });

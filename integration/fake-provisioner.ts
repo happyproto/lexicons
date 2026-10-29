@@ -222,12 +222,37 @@ function domainsRoute(req: Request, parts: string[], body: Json, actor: string, 
   }
   const base = `${tenant.slug}.hpy.at`;
 
-  if (req.method === "GET" && parts.length === 4) {
+  if (req.method === "GET" && parts.length === 4 && parts[3] === "domains") {
     const domains = liveDomains(tenant.id);
     return reply(200, {
       platform: { hostname: base, primary: !domains.some((d) => d.primary) },
       domains: domains.map(domainRow),
+      requestedPrimary: tenant.requested_primary ?? null,
     });
+  }
+
+  // PUT primary-domain, with T12's checks in its order. The fake has no
+  // versions, so VersionTooOld is scripted where a test needs it.
+  if (req.method === "PUT" && parts.length === 4 && parts[3] === "primary-domain") {
+    const hostname = typeof body?.hostname === "string" ? body.hostname.trim().toLowerCase() : "";
+    if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname)) {
+      return error(400, "InvalidHostname", "that is not a hostname");
+    }
+    const live = liveDomains(tenant.id);
+    const current = tenant.requested_primary ?? live.find((d) => d.primary)?.hostname ?? base;
+    if (hostname !== base) {
+      const domain = live.find((d) => d.hostname === hostname);
+      if (!domain || domain.state !== "verified") {
+        return error(409, "NotVerified", "that is not a verified domain of this instance");
+      }
+      if (domain.serving !== "live") {
+        return error(409, "CertificateNotReady", "that domain is not serving over HTTPS yet");
+      }
+    }
+    if (hostname === current) return reply(200, { operation: null });
+    const livePrimary = live.find((d) => d.primary)?.hostname ?? base;
+    tenant.requested_primary = hostname === livePrimary ? null : hostname;
+    return reply(202, { operation: enqueue(tenant.id, "update", { reason: "primary-domain" }, actor) });
   }
 
   if (req.method === "POST" && parts.length === 4) {
@@ -279,7 +304,7 @@ function domainsRoute(req: Request, parts: string[], body: Json, actor: string, 
   }
 
   if (req.method === "DELETE" && parts.length === 5) {
-    if (domain.primary) {
+    if (domain.primary || domain.hostname === tenant.requested_primary) {
       return error(409, "DomainIsPrimary", "make the platform subdomain primary first");
     }
     domain.removed = true;
@@ -490,7 +515,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return createTenant(body, actor, staff);
   }
 
-  if (resource === "tenants" && id && parts[3] === "domains") {
+  if (resource === "tenants" && id && (parts[3] === "domains" || parts[3] === "primary-domain")) {
     return domainsRoute(req, parts, body, actor, staff);
   }
 

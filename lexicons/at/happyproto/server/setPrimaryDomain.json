@@ -1,0 +1,134 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.setPrimaryDomain",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Make a domain the primary of one of the caller's instances: a verified custom domain that is serving, or the platform subdomain. The instance restarts onto it. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "instanceId",
+            "hostname",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "instanceId": {
+              "type": "string",
+              "description": "The instance's UUID."
+            },
+            "hostname": {
+              "type": "string",
+              "description": "The verified custom domain, or the instance's own <slug>.hpy.at."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "description": "The background job following the switch, when there was one. Absent when the hostname was already the requested primary. Poll it with at.happyproto.server.getJob."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "instanceId or idempotencyKey is not a UUID, or hostname is missing or too long."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance or domain, or it is not the caller's. The cases are indistinguishable."
+        },
+        {
+          "name": "NotAvailable",
+          "description": "Custom domains are not switched on yet."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "InvalidHostname",
+          "description": "The hostname is not a valid public hostname: no scheme, port, path, wildcard or IP address."
+        },
+        {
+          "name": "PlatformHostname",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "DomainExists",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "DomainLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "TooSoon",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "DomainIsPrimary",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotVerified",
+          "description": "The hostname is not a verified domain of this instance: still pending, lapsed, or about to lapse."
+        },
+        {
+          "name": "CertificateNotReady",
+          "description": "The domain's certificate isn't issued yet, or the instance is stopped, so the domain isn't serving over HTTPS."
+        },
+        {
+          "name": "VersionTooOld",
+          "description": "The instance runs a HappyView too old to switch its primary domain safely. Update the instance first."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    }
+  }
+}
