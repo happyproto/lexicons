@@ -1,0 +1,111 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.getHostRequest",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One host request with its timeline, oldest event first. Staff only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A UUID."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "request"
+          ],
+          "properties": {
+            "request": {
+              "type": "ref",
+              "ref": "at.happyproto.admin.defs#hostRequest"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The input was malformed, or the provisioner refused it as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such host request."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotRetryable",
+          "description": "Only a failed request can be retried."
+        },
+        {
+          "name": "NotCancellable",
+          "description": "A registered or cancelled request cannot be cancelled."
+        },
+        {
+          "name": "RequestInFlight",
+          "description": "Another host request is under way."
+        },
+        {
+          "name": "ScalerNotConfigured",
+          "description": "The provisioner has no GitHub App to start workflows with."
+        },
+        {
+          "name": "HostRegistered",
+          "description": "The request's host already has a host row: retire it, or set it active and leave the request. The message says which."
+        },
+        {
+          "name": "ConfirmationMismatch",
+          "description": "confirm is not the request's host name."
+        },
+        {
+          "name": "DispatchFailed",
+          "description": "GitHub would not start the workflow. The request is unchanged."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

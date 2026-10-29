@@ -23,6 +23,9 @@
  *                    default, as production runs until it is switched on).
  *                    domains are rows: the API's Domain shape plus tenant_id,
  *                    and removed: true for one that is gone.
+ *                    autoscale is GET /v1/autoscale's answer; hostRequests
+ *                    are rows as GET /v1/host-requests/:id answers them,
+ *                    events included.
  *   POST /__script   queue one canned reply { method, path, status, body }; the
  *                    next request matching method and path gets it, once.
  *                    With { drop: true } instead, that request gets no reply:
@@ -86,7 +89,82 @@ function fresh() {
     invites: [] as Json[],
     customDomains: false,
     domains: [] as Json[],
+    autoscale: {
+      enabled: true,
+      paused: false,
+      paused_by: null,
+      paused_at: null,
+      max_hosts: 3,
+      hosts: 1,
+      in_flight: 0,
+      blocked_by: null,
+      cost_eur: "13.10",
+      thresholds: { free_memory_mb: 2048, free_disk_gb: 50, sustain_secs: 600, cooldown_secs: 21600 },
+      low_since: null,
+      cooldown_until: null,
+      current: { free_memory_mb: 3072, free_disk_gb: 120 },
+    } as Json,
+    hostRequests: [] as Json[],
   };
+}
+
+/**
+ * The autoscaler's staff routes, as api/autoscale.rs answers them: the
+ * overview and its pause toggle, and host requests with their timelines.
+ * Retry and cancel apply the real state rules, not the workflows behind them.
+ */
+function scalerRoute(req: Request, url: URL, parts: string[], body: Json, actor: string): Response {
+  const [, resource, id, verb] = parts;
+  if (resource === "autoscale" && parts.length === 2) {
+    if (req.method === "GET") return reply(200, state.autoscale);
+    if (req.method === "PATCH") {
+      if (typeof body?.paused !== "boolean") return error(422, "InvalidBody", "paused must be a boolean");
+      const a = state.autoscale;
+      if (a.paused !== body.paused) {
+        a.paused = body.paused;
+        a.paused_by = body.paused ? actor : null;
+        a.paused_at = body.paused ? new Date().toISOString() : null;
+      }
+      return reply(200, a);
+    }
+  }
+  if (resource !== "host-requests") return error(404, "NotFound", "no such route");
+
+  const summary = ({ events: _, ...r }: Json) => r;
+  if (req.method === "GET" && parts.length === 2) {
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      return error(400, "InvalidQuery", "limit must be from 1 to 200");
+    }
+    const newest = [...state.hostRequests].sort(
+      (a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id),
+    );
+    const before = url.searchParams.get("before");
+    const from = before === null ? 0 : newest.findIndex((r) => r.id === before) + 1;
+    const page = before !== null && from === 0 ? [] : newest.slice(from, from + limit);
+    return reply(200, { requests: page.map(summary) });
+  }
+
+  const r = state.hostRequests.find((x) => x.id === id);
+  if (!r) return error(404, "NotFound", "host request not found");
+  const at = new Date().toISOString();
+  if (req.method === "GET" && parts.length === 3) return reply(200, { request: r });
+  if (req.method === "POST" && verb === "retry") {
+    if (r.state !== "failed") return error(409, "NotRetryable", "only a failed request can be retried");
+    r.events.push({ at, kind: "retried", message: `Retried by ${actor}`, detail: { actor_did: actor, previous_error: r.error } });
+    Object.assign(r, { state: "requested", error: null, current_step: null, finished_at: null, dispatched_at: at, updated_at: at });
+    return reply(200, { request: r });
+  }
+  if (req.method === "POST" && verb === "cancel") {
+    if (r.state === "registered" || r.state === "cancelled") {
+      return error(409, "NotCancellable", `${r.name} is ${r.state}`);
+    }
+    if (body?.confirm !== r.name) return error(400, "ConfirmationMismatch", `type ${r.name} to cancel it`);
+    r.events.push({ at, kind: "cancel_requested", message: `Cancel requested by ${actor}`, detail: { actor_did: actor, from: r.state } });
+    Object.assign(r, { state: "cancelling", dispatched_at: at, updated_at: at });
+    return reply(200, { request: r });
+  }
+  return error(404, "NotFound", "no such route");
 }
 
 const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
@@ -503,6 +581,11 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       invite.redeemed_at = new Date().toISOString();
     }
     return reply(200, { invite: { id: invite.id, redeemed_at: invite.redeemed_at } });
+  }
+
+  if (resource === "autoscale" || resource === "host-requests") {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    return scalerRoute(req, url, parts, body, actor);
   }
 
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {

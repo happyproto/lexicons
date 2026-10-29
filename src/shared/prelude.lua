@@ -622,6 +622,138 @@ local function public_domain(d)
 end
 -- @endblock
 
+-- @block scaler
+-- The autoscaler and its host requests, through the provisioner's staff-only
+-- /autoscale and /host-requests routes.
+
+-- Codes those routes chose to say to staff, passed through with their
+-- message. Anything else goes to provisioner_failure.
+local SCALER_ERRORS = {
+  NotRetryable = true,
+  NotCancellable = true,
+  RequestInFlight = true,
+  ScalerNotConfigured = true,
+  HostRegistered = true,
+  ConfirmationMismatch = true,
+  DispatchFailed = true,
+}
+
+--- A scaler route's refusal mapped to a failure table: a SCALER_ERRORS code
+--- with its message, otherwise whatever provisioner_failure makes of it.
+local function scaler_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and SCALER_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "The provisioner refused the request."
+    return failure(decoded.error, message)
+  end
+  return provisioner_failure(status, decoded)
+end
+
+local function text_or_nil(v)
+  return type(v) == "string" and v or nil
+end
+
+local function number_or_nil(v)
+  return type(v) == "number" and v or nil
+end
+
+--- `{freeMemoryMb, freeDiskGb, sustainSecs, cooldownSecs}` from the
+--- provisioner's thresholds, or nil.
+local function scaler_thresholds(t)
+  if type(t) ~= "table" then return nil end
+  return {
+    freeMemoryMb = number_or_nil(t.free_memory_mb),
+    freeDiskGb = number_or_nil(t.free_disk_gb),
+    sustainSecs = number_or_nil(t.sustain_secs),
+    cooldownSecs = number_or_nil(t.cooldown_secs),
+  }
+end
+
+--- GET or PATCH /v1/autoscale's answer, in camelCase.
+local function public_autoscale(a)
+  local current = type(a.current) == "table" and a.current or {}
+  return {
+    enabled = a.enabled == true,
+    paused = a.paused == true,
+    pausedBy = text_or_nil(a.paused_by),
+    pausedAt = text_or_nil(a.paused_at),
+    maxHosts = number_or_nil(a.max_hosts),
+    hosts = number_or_nil(a.hosts),
+    inFlight = number_or_nil(a.in_flight),
+    blockedBy = text_or_nil(a.blocked_by),
+    costEur = text_or_nil(a.cost_eur),
+    thresholds = scaler_thresholds(a.thresholds),
+    lowSince = text_or_nil(a.low_since),
+    cooldownUntil = text_or_nil(a.cooldown_until),
+    current = {
+      freeMemoryMb = number_or_nil(current.free_memory_mb),
+      freeDiskGb = number_or_nil(current.free_disk_gb),
+    },
+  }
+end
+
+--- A host request, in camelCase. Its timeline comes along only when the
+--- provisioner sent one, so the list stays a summary.
+local function public_host_request(r)
+  local trigger
+  if type(r.trigger) == "table" then
+    local hosts = {}
+    for _, h in ipairs(type(r.trigger.hosts) == "table" and r.trigger.hosts or {}) do
+      if type(h) == "table" then
+        hosts[#hosts + 1] = {
+          name = text_or_nil(h.name),
+          freeMemoryMb = number_or_nil(h.free_memory_mb),
+          freeDiskGb = number_or_nil(h.free_disk_gb),
+        }
+      end
+    end
+    trigger = {
+      freeMemoryMb = number_or_nil(r.trigger.free_memory_mb),
+      freeDiskGb = number_or_nil(r.trigger.free_disk_gb),
+      lowSince = text_or_nil(r.trigger.low_since),
+      hosts = json.to_array(hosts),
+      thresholds = scaler_thresholds(r.trigger.thresholds),
+    }
+  end
+  local out = {
+    id = r.id,
+    name = r.name,
+    state = r.state,
+    trigger = trigger,
+    costEur = text_or_nil(r.cost_eur),
+    requestedBy = text_or_nil(r.requested_by),
+    workflowRunUrl = text_or_nil(r.workflow_run_url),
+    deployRunUrl = text_or_nil(r.deploy_run_url),
+    cancelRunUrl = text_or_nil(r.cancel_run_url),
+    currentStep = text_or_nil(r.current_step),
+    error = text_or_nil(r.error),
+    dispatchedAt = text_or_nil(r.dispatched_at),
+    createdAt = r.created_at,
+    updatedAt = text_or_nil(r.updated_at),
+    finishedAt = text_or_nil(r.finished_at),
+  }
+  if type(r.events) == "table" then
+    local events = {}
+    for _, e in ipairs(r.events) do
+      if type(e) == "table" then
+        -- Only the run link leaves the detail: the rest repeats the message
+        -- or names internal ids.
+        local detail = type(e.detail) == "table" and e.detail or {}
+        events[#events + 1] = {
+          at = e.at,
+          kind = e.kind,
+          message = text_or_nil(e.message),
+          runUrl = text_or_nil(detail.run_url),
+        }
+      end
+    end
+    out.events = json.to_array(events)
+  end
+  return out
+end
+-- @endblock
+
 -- @block release
 -- Checks for the software.release records the registry indexes and the
 -- at.happyproto records that make one a HappyView plugin.
