@@ -329,14 +329,26 @@ export function domainCodes(prelude: string): string[] {
 }
 
 /**
+ * The codes scaler_failure passes through on top of provisioner_failure's,
+ * read from the prelude's SCALER_ERRORS table.
+ */
+export function scalerCodes(prelude: string): string[] {
+  const table = prelude.match(/local SCALER_ERRORS\s*=\s*\{([\s\S]*?)\}/);
+  if (!table) throw new Error("prelude: no SCALER_ERRORS table in the scaler block");
+  return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*true/g)].map((m) => m[1]);
+}
+
+/**
  * Every error name a source can return. `passthrough` is everything
  * provisioner_failure can answer besides Upstream: the PASSTHROUGH codes and
- * the REMAP targets. `domain` is what domain_failure adds to those.
+ * the REMAP targets. `domain` is what domain_failure adds to those, and
+ * `scaler` what scaler_failure adds.
  */
 export function errorsReturned(
   text: string,
   passthrough: string[],
   domain: string[] = [],
+  scaler: string[] = [],
 ): Set<string> {
   const code = stripLua(text, true);
   const bare = stripLua(text);
@@ -351,12 +363,15 @@ export function errorsReturned(
   // gate_owner refuses everyone it refuses, signed-out callers included, as
   // Forbidden.
   if (/(^|[^\w.])gate_owner\s*\(/.test(bare)) names.add("Forbidden");
-  if (/(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure)\s*\(/.test(bare)) {
+  if (/(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure|scaler_failure)\s*\(/.test(bare)) {
     for (const name of passthrough) names.add(name);
     names.add("Upstream");
   }
   if (/(^|[^\w.])domain_failure\s*\(/.test(bare)) {
     for (const name of domain) names.add(name);
+  }
+  if (/(^|[^\w.])scaler_failure\s*\(/.test(bare)) {
+    for (const name of scaler) names.add(name);
   }
   // owned_tenant also refuses another owner's tenant itself.
   if (/(^|[^\w.])owned_tenant\s*\(/.test(bare)) names.add("NotFound");
@@ -369,11 +384,12 @@ export function undeclaredErrorOffences(
   text: string,
   passthrough: string[],
   domain: string[] = [],
+  scaler: string[] = [],
 ): string[] {
   const declared = new Set<string>(
     (lexicon?.defs?.main?.errors ?? []).map((e: { name: string }) => e.name),
   );
-  return [...errorsReturned(text, passthrough, domain)]
+  return [...errorsReturned(text, passthrough, domain, scaler)]
     .filter((name) => !declared.has(name))
     .sort()
     .map((name) => `can return ${name}, which the lexicon does not declare`);
@@ -588,6 +604,23 @@ describe("each rule flags a bad fixture", () => {
     ).toEqual([]);
   });
 
+  test("scaler_failure can return the scaler codes and whatever provisioner_failure can", () => {
+    const lexicon = { defs: { main: { errors: [{ name: "Upstream" }, { name: "SlugTaken" }] } } };
+    expect(
+      undeclaredErrorOffences(lexicon, "return scaler_failure(s, b)\n", ["SlugTaken"], [], ["NotRetryable"]),
+    ).toEqual(["can return NotRetryable, which the lexicon does not declare"]);
+    // Nor does domain_failure answer a scaler code.
+    expect(
+      undeclaredErrorOffences(lexicon, "return domain_failure(s, b)\n", ["SlugTaken"], [], ["NotRetryable"]),
+    ).toEqual([]);
+  });
+
+  test("the scaler codes are read from the prelude", () => {
+    expect(
+      scalerCodes("local SCALER_ERRORS = {\n  NotRetryable = true,\n  DispatchFailed = true,\n}\n"),
+    ).toEqual(["NotRetryable", "DispatchFailed"]);
+  });
+
   test("the domain codes are read from the prelude", () => {
     expect(
       domainCodes("local DOMAIN_ERRORS = {\n  DomainLimit = true,\n  TooSoon = true,\n}\n"),
@@ -691,12 +724,13 @@ describe("every script is deployable", () => {
     const prelude = await readFile(PRELUDE_PATH, "utf8");
     const passthrough = [...passthroughCodes(prelude), ...remapCodes(prelude)];
     const domain = domainCodes(prelude);
+    const scaler = scalerCodes(prelude);
     const offenders: string[] = [];
     for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
-      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain)) {
+      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler)) {
         offenders.push(`${script}: ${o}`);
       }
     }

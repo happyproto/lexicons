@@ -1,0 +1,273 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.defs",
+  "defs": {
+    "thresholds": {
+      "type": "object",
+      "description": "When the autoscaler orders a host: free capacity across active hosts below either figure for sustainSecs, and no request in the last cooldownSecs.",
+      "properties": {
+        "freeMemoryMb": {
+          "type": "integer"
+        },
+        "freeDiskGb": {
+          "type": "integer"
+        },
+        "sustainSecs": {
+          "type": "integer"
+        },
+        "cooldownSecs": {
+          "type": "integer"
+        }
+      }
+    },
+    "freeCapacity": {
+      "type": "object",
+      "description": "Free capacity across the active hosts. An over-committed host counts as none.",
+      "properties": {
+        "freeMemoryMb": {
+          "type": "integer"
+        },
+        "freeDiskGb": {
+          "type": "integer"
+        }
+      }
+    },
+    "autoscale": {
+      "type": "object",
+      "description": "The autoscaler's settings and what it is waiting on.",
+      "required": [
+        "enabled",
+        "paused",
+        "current"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "On in the provisioner's config, with the GitHub App set up."
+        },
+        "paused": {
+          "type": "boolean",
+          "description": "Paused by staff: no new requests, though one under way carries on."
+        },
+        "pausedBy": {
+          "type": "string",
+          "format": "did",
+          "description": "The staff DID that paused it."
+        },
+        "pausedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "maxHosts": {
+          "type": "integer",
+          "description": "The most hosts it may bring the fleet to."
+        },
+        "hosts": {
+          "type": "integer",
+          "description": "Hosts that are not retired."
+        },
+        "inFlight": {
+          "type": "integer",
+          "description": "Requests under way: 0 or 1."
+        },
+        "blockedBy": {
+          "type": "string",
+          "description": "A failed request that holds off new ones until staff retry or cancel it."
+        },
+        "costEur": {
+          "type": "string",
+          "description": "What each host it orders costs a month, in euros, as a decimal string."
+        },
+        "thresholds": {
+          "type": "ref",
+          "ref": "#thresholds"
+        },
+        "lowSince": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Since when free capacity has been below a threshold. Absent while it is fine."
+        },
+        "cooldownUntil": {
+          "type": "string",
+          "format": "datetime",
+          "description": "No new request before this. Absent once it has passed."
+        },
+        "current": {
+          "type": "ref",
+          "ref": "#freeCapacity"
+        }
+      }
+    },
+    "triggerHost": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "freeMemoryMb": {
+          "type": "integer"
+        },
+        "freeDiskGb": {
+          "type": "integer"
+        }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Free capacity when the request was made, and the thresholds it was below.",
+      "properties": {
+        "freeMemoryMb": {
+          "type": "integer"
+        },
+        "freeDiskGb": {
+          "type": "integer"
+        },
+        "lowSince": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#triggerHost"
+          }
+        },
+        "thresholds": {
+          "type": "ref",
+          "ref": "#thresholds"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "description": "One line of a request's timeline.",
+      "required": [
+        "at",
+        "kind"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "requested",
+            "dispatched",
+            "step_started",
+            "step_finished",
+            "ordering",
+            "configuring",
+            "verifying",
+            "registered",
+            "failed",
+            "cancelled",
+            "retried",
+            "cancel_requested",
+            "deploy_cancelled"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "description": "What happened, in the provisioner's words."
+        },
+        "runUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "The GitHub Actions run the event came from."
+        }
+      }
+    },
+    "hostRequest": {
+      "type": "object",
+      "description": "A tenant host the autoscaler asked for.",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "name": {
+          "type": "string",
+          "description": "The host's name, like tenant-4."
+        },
+        "state": {
+          "type": "string",
+          "knownValues": [
+            "requested",
+            "ordering",
+            "configuring",
+            "verifying",
+            "registered",
+            "failed",
+            "cancelling",
+            "cancelled"
+          ]
+        },
+        "trigger": {
+          "type": "ref",
+          "ref": "#trigger"
+        },
+        "costEur": {
+          "type": "string",
+          "description": "The host's monthly cost in euros, as a decimal string."
+        },
+        "requestedBy": {
+          "type": "string",
+          "description": "system, or the staff DID."
+        },
+        "workflowRunUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "deployRunUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "cancelRunUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "currentStep": {
+          "type": "string",
+          "description": "The workflow step running now."
+        },
+        "error": {
+          "type": "string",
+          "description": "Why it failed."
+        },
+        "dispatchedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "events": {
+          "type": "array",
+          "description": "Oldest first. Only on a single request.",
+          "items": {
+            "type": "ref",
+            "ref": "#event"
+          }
+        }
+      }
+    }
+  }
+}

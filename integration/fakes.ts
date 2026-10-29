@@ -34,6 +34,10 @@ export const provisioner = {
     customDomains?: boolean;
     /** Domain rows: the API's Domain shape plus tenant_id (and removed: true). */
     domains?: any[];
+    /** GET /v1/autoscale's answer; PATCH changes paused on it. */
+    autoscale?: any;
+    /** Host requests as GET /v1/host-requests/:id answers them, events included. */
+    hostRequests?: any[];
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>
