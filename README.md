@@ -241,13 +241,14 @@ lexicon.
 Push to `main` deploys. Pull requests lint and then dry-run, so a review shows
 what a merge would actually replace rather than only that the files parse.
 
-Three things must be configured on the repo:
+Four things must be configured on the repo:
 
 | Kind | Name | Value |
 | --- | --- | --- |
 | Variable | `HAPPYVIEW_URL` | `https://api.happyproto.at` |
 | Secret | `HAPPYVIEW_API_KEY` | an `hv_` admin API key from the instance |
 | Secret | `LEXICON_APP_PASSWORD` | an app password for `@happyproto.at` |
+| Secret | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` | an app password for `@happyview.dev` |
 
 After a deploy, the lexicons are published as `com.atproto.lexicon.schema`
 records in `@happyproto.at`'s repo, with
@@ -267,6 +268,32 @@ authority needs a TXT record naming that account:
 A new authority (`at.happyproto.<new>.*`) needs its own record: the publish
 step fails until it exists, naming the record to add, and so does the pull
 request's dry run.
+
+### Other accounts
+
+Some lexicons in `lexicons/` belong to an authority HappyProto doesn't own, so
+they're published to that authority's account instead. Each account has an
+entry in `scripts/publishing.ts`, and a matching entry in the Deploy workflow's
+`publish-lexicons` matrix and in the pull request plan. Each run of
+lexicon-publish selects its share with `include` or `exclude`:
+
+| NSIDs | Account | Selected by | Secret |
+| --- | --- | --- | --- |
+| everything else (`at.happyproto.*`) | `@happyproto.at` | `exclude: dev.happyview` | `LEXICON_APP_PASSWORD` |
+| `dev.happyview.*` | `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`) | `include: dev.happyview` | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` |
+
+They're all deployed to HappyView like any other lexicon. The tests check that
+every lexicon is published to exactly one account, its owner, and keep the
+workflow in step with the table. If anything slips past, lexicon-publish
+refuses any selected NSID whose `_lexicon` DNS names a different account. Permission sets are also
+checked against the [permission spec](https://atproto.com/specs/permission#permission-sets)
+before they're published, because a PDS silently ignores a permission it
+can't read.
+
+To add an account, create an app password on it and save it as a repo secret.
+Then add the account to `scripts/publishing.ts`, to the workflow matrix and to
+the plan, add its namespace to HappyProto's `exclude`, and add its `_lexicon`
+TXT records.
 
 `prune` is deliberately **off**. With it on, deleting a file here deletes the
 live lexicon or script — and for a record-type lexicon that also orphans

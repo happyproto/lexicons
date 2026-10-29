@@ -111,10 +111,17 @@ jobs:
           jobs: lua/jobs/**/*.lua
           dry-run: "true"
       # Which schemas a merge would publish, and whether every authority's
-      # _lexicon DNS still names the account.
+      # _lexicon DNS still names the account. One step per account in
+      # scripts/publishing.ts.
       - uses: happyproto/actions/lexicon-publish@v1
         with:
           identifier: happyproto.at
+          exclude: dev.happyview
+          dry-run: "true"
+      - uses: happyproto/actions/lexicon-publish@v1
+        with:
+          identifier: did:plc:qneu5uamqs6cug7sjobbaexm
+          include: dev.happyview
           dry-run: "true"
 
   deploy:
@@ -172,19 +179,46 @@ jobs:
             echo "| errors | ${{ steps.deploy.outputs.errors }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The lexicons as com.atproto.lexicon.schema records in HappyProto's repo,
+  # The lexicons as com.atproto.lexicon.schema records in their owners' repos,
   # found through _lexicon.<authority> DNS, so a PDS that resolves lexicons
-  # can validate a registry record against them. After the deploy, so the
-  # instance never serves a schema the network has not seen published.
+  # can validate a registry record or expand a permission set. After the
+  # deploy, so the instance never serves a schema the network has not seen
+  # published.
+  #
+  # One entry per account, mirroring scripts/publishing.ts. Each selects its
+  # own share of lexicons/ with include and exclude and publishes it with its
+  # own app password. lexicon-publish also refuses any selected NSID whose DNS
+  # names another account, so no lexicon can land in the wrong repo.
   publish-lexicons:
-    name: Publish lexicons
+    name: Publish lexicons (${{ matrix.account }})
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: deploy
     runs-on: depot-ubuntu-24.04
     environment: production
+    strategy:
+      # The prefixes are named so they can't be mistaken for the matrix's own
+      # include and exclude keys.
+      #
+      # One account's failure, such as an expired app password, must not
+      # stop the other's publish.
+      fail-fast: false
+      matrix:
+        include:
+          - account: happyproto.at
+            identifier: happyproto.at
+            include-prefixes: ""
+            exclude-prefixes: dev.happyview
+            secret: LEXICON_APP_PASSWORD
+          - account: happyview.dev
+            identifier: did:plc:qneu5uamqs6cug7sjobbaexm
+            include-prefixes: dev.happyview
+            exclude-prefixes: ""
+            secret: HAPPYVIEW_DEV_LEXICON_APP_PASSWORD
     steps:
       - uses: actions/checkout@v7
       - uses: happyproto/actions/lexicon-publish@v1
         with:
-          identifier: happyproto.at
-          password: ${{ secrets.LEXICON_APP_PASSWORD }}
+          identifier: ${{ matrix.identifier }}
+          include: ${{ matrix.include-prefixes }}
+          exclude: ${{ matrix.exclude-prefixes }}
+          password: ${{ secrets[matrix.secret] }}
