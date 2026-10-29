@@ -175,7 +175,8 @@ describe("refusals", () => {
 
 describe("admin.listHosts", () => {
   test("every host, in camelCase, with its usage and nothing private", async () => {
-    const { hosts } = await ok(admin("listHosts"), "staff");
+    const { hosts, unplaceablePlans } = await ok(admin("listHosts"), "staff");
+    expect(unplaceablePlans).toEqual([]);
     expect(hosts).toEqual([
       {
         id: HOST_A,
@@ -188,6 +189,9 @@ describe("admin.listHosts", () => {
         tenantCount: 1,
         reservedMemoryMb: 512,
         reservedDiskGb: 5,
+        freeMemoryMb: 15872,
+        freeDiskGb: 195,
+        placeablePlans: ["small", "medium"],
         lastSeenAt: "2026-10-08T09:00:00Z",
       },
       {
@@ -200,6 +204,10 @@ describe("admin.listHosts", () => {
         tenantCount: 1,
         reservedMemoryMb: 1024,
         reservedDiskGb: 10,
+        freeMemoryMb: 15360,
+        freeDiskGb: 190,
+        // Draining: nothing new is placed here, whatever it has free.
+        placeablePlans: [],
       },
     ]);
     for (const field of ["private_addr", "public_ipv4", "agent_cert_fingerprint", "failed_contacts"]) {
@@ -214,9 +222,66 @@ describe("admin.listHosts", () => {
     expect(request.headers.authorization).toBe(`Bearer ${PROVISIONER_TOKEN}`);
   });
 
-  test("no hosts is an empty list", async () => {
+  test("no hosts is an empty list, and no plan can be placed", async () => {
     await provisioner.state({ hosts: [] });
-    expect(await ok(admin("listHosts"), "staff")).toEqual({ hosts: [] });
+    expect(await ok(admin("listHosts"), "staff")).toEqual({ hosts: [], unplaceablePlans: ["small", "medium"] });
+  });
+
+  test("a full host lists what no longer fits, and a deleted instance still holds its disk", async () => {
+    await provisioner.state({
+      hosts: [host(HOST_A, "host-a", { memory_mb: 1024, disk_gb: 12 })],
+      tenants: [
+        tenant(CUSTOMER_ID, "alpha", s.accounts.customer.did),
+        // Deleted, not yet purged: its memory is free again, its disk is not.
+        tenant(OTHER_ID, "gamma", SOMEONE, { plan_id: "medium", deleted_at: "2026-10-28T00:00:00Z" }),
+      ],
+    });
+    const { hosts, unplaceablePlans } = await ok(admin("listHosts"), "staff");
+    expect(hosts[0]).toMatchObject({
+      tenantCount: 1,
+      reservedMemoryMb: 512,
+      reservedDiskGb: 15,
+      freeMemoryMb: 512,
+      // Over-committed: more is reserved than the host has.
+      freeDiskGb: -3,
+      placeablePlans: [],
+    });
+    expect(unplaceablePlans).toEqual(["small", "medium"]);
+  });
+
+  test("a provisioner that reports no capacity leaves it absent", async () => {
+    await provisioner.script("GET", "/v1/hosts", 200, {
+      hosts: [
+        {
+          id: HOST_A,
+          name: "host-a",
+          state: "active",
+          memory_mb: 16384,
+          cpu_millis: 8000,
+          disk_gb: 200,
+          tenant_count: 0,
+          reserved_memory_mb: 0,
+          reserved_disk_gb: 0,
+          last_seen_at: null,
+        },
+      ],
+    });
+    const body = await ok(admin("listHosts"), "staff");
+    expect(body).toEqual({
+      hosts: [
+        {
+          id: HOST_A,
+          name: "host-a",
+          state: "active",
+          memoryMb: 16384,
+          cpuMillis: 8000,
+          diskGb: 200,
+          tenantCount: 0,
+          reservedMemoryMb: 0,
+          reservedDiskGb: 0,
+        },
+      ],
+    });
   });
 
   test("a 5xx is Upstream, and its body is never echoed", async () => {

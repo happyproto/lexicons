@@ -132,18 +132,45 @@ function compactOperation(op: Json): Json {
 /**
  * A host as hosts::list serialises it: every column, plus what its tenants
  * hold, by placement.rs's rules. Memory is held by tenants not deleted; disk
- * until a tenant is purged.
+ * until a tenant is purged. Free capacity is what is left, and can go
+ * negative; a plan fits where its memory and disk both do, on an active host.
  */
 function hostUsage(h: Json): Json {
   const plan = (t: Json) => state.plans.find((p) => p.id === t.plan_id) ?? {};
   const here = state.tenants.filter((t) => t.host_id === h.id);
   const live = here.filter((t) => !t.deleted_at);
+  const reservedMemory = live.reduce((sum, t) => sum + (plan(t).memory_mb ?? 0), 0);
+  const reservedDisk = here.filter((t) => !t.purged_at).reduce((sum, t) => sum + (plan(t).disk_gb ?? 0), 0);
+  const free = { memory: h.memory_mb - reservedMemory, disk: h.disk_gb - reservedDisk };
   return {
     ...h,
     tenant_count: live.length,
-    reserved_memory_mb: live.reduce((sum, t) => sum + (plan(t).memory_mb ?? 0), 0),
-    reserved_disk_gb: here.filter((t) => !t.purged_at).reduce((sum, t) => sum + (plan(t).disk_gb ?? 0), 0),
+    reserved_memory_mb: reservedMemory,
+    reserved_disk_gb: reservedDisk,
+    free_memory_mb: free.memory,
+    free_disk_gb: free.disk,
+    placeable_plans: h.state === "active" ? activePlans().filter((p) => fits(free, p)).map((p) => p.id) : [],
   };
+}
+
+/** Plans open for new instances, smallest first, as placement::active_plans orders them. */
+function activePlans(): Json[] {
+  return state.plans
+    .filter((p) => p.active !== false)
+    .sort((a, b) => a.memory_mb - b.memory_mb || String(a.id).localeCompare(String(b.id)));
+}
+
+const fits = (free: { memory: number; disk: number }, plan: Json) =>
+  free.memory >= plan.memory_mb && free.disk >= plan.disk_gb;
+
+/** GET /v1/hosts: every host, and the active plans no active host has room for. */
+function hostsList(): Json {
+  const hosts = [...state.hosts].sort((a, b) => a.name.localeCompare(b.name)).map(hostUsage);
+  const active = hosts.filter((h) => h.state === "active");
+  const unplaceable = activePlans()
+    .filter((p) => !active.some((h) => fits({ memory: h.free_memory_mb, disk: h.free_disk_gb }, p)))
+    .map((p) => p.id);
+  return { hosts, unplaceable_plans: unplaceable };
 }
 
 /** A new pending operation, as ops::enqueue writes it. */
@@ -455,7 +482,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
 
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {
     if (!staff) return error(403, "Forbidden", "staff only");
-    return reply(200, { hosts: [...state.hosts].sort((a, b) => a.name.localeCompare(b.name)).map(hostUsage) });
+    return reply(200, hostsList());
   }
 
   if (req.method === "GET" && resource === "admin" && parts.length === 3) {

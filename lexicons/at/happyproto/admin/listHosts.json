@@ -19,6 +19,13 @@
                 "type": "ref",
                 "ref": "#host"
               }
+            },
+            "unplaceablePlans": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Plans open for new instances that fit on no active host, smallest first. A new instance on one of these fails with NoCapacity. Absent from a provisioner that does not report it."
             }
           }
         }
@@ -120,7 +127,22 @@
         },
         "reservedDiskGb": {
           "type": "integer",
-          "description": "Disk held by the plans of instances placed here and not yet purged."
+          "description": "Disk held by the plans of instances placed here and not yet purged. A deleted instance keeps its disk through its recovery window."
+        },
+        "freeMemoryMb": {
+          "type": "integer",
+          "description": "memoryMb less reservedMemoryMb. Negative when the host is over-committed."
+        },
+        "freeDiskGb": {
+          "type": "integer",
+          "description": "diskGb less reservedDiskGb. Negative when the host is over-committed."
+        },
+        "placeablePlans": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Plans open for new instances that fit in this host's free memory and disk, smallest first. Empty unless the host is active."
         },
         "lastSeenAt": {
           "type": "string",
