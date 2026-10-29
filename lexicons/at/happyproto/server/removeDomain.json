@@ -113,6 +113,18 @@
           "description": "The domain is the instance's primary. Make the platform subdomain primary first."
         },
         {
+          "name": "NotVerified",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "CertificateNotReady",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "VersionTooOld",
+          "description": "Passed through from the provisioner."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
         }

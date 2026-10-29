@@ -557,6 +557,9 @@ local DOMAIN_ERRORS = {
   TooSoon = true,
   DomainIsPrimary = true,
   NotAvailable = true,
+  NotVerified = true,
+  CertificateNotReady = true,
+  VersionTooOld = true,
 }
 
 --- A domain route's refusal mapped to a failure table: a DOMAIN_ERRORS code

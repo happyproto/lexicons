@@ -37,6 +37,10 @@
                 "ref": "#domain"
               },
               "description": "The custom domains, at most one today."
+            },
+            "requestedPrimary": {
+              "type": "string",
+              "description": "The hostname the primary is switching to, while a switch is in flight. Absent otherwise. The primary flags keep describing the live primary until the instance has restarted onto it."
             }
           }
         }
@@ -108,6 +112,18 @@
         },
         {
           "name": "DomainIsPrimary",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotVerified",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "CertificateNotReady",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "VersionTooOld",
           "description": "Passed through from the provisioner."
         },
         {
