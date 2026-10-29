@@ -11,7 +11,7 @@ jobs:
   # that merely ought to be identical.
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -40,7 +40,7 @@ jobs:
   lint:
     name: Lint
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
@@ -64,7 +64,7 @@ jobs:
   # takes a second.
   integration:
     name: Integration
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -87,7 +87,7 @@ jobs:
     # lexicons and scripts a merge would actually replace.
     if: github.event_name == 'pull_request'
     needs: [build, lint]
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
@@ -121,7 +121,7 @@ jobs:
     name: Deploy
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [build, lint, integration]
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     environment: production
     # One deploy at a time. Two concurrent runs would race each other's
     # uploads against the same instance, and the loser would win. Scoped to
@@ -180,7 +180,7 @@ jobs:
     name: Publish lexicons
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: deploy
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     environment: production
     steps:
       - uses: actions/checkout@v7
