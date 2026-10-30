@@ -1,0 +1,94 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.syncAccount",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Record the email address on the caller's PDS account with HappyProto, read server-side from their PDS session. The dashboard calls it once after each sign-in. The address is reported only when the session was granted transition:email; without one, the last recorded address is kept. Customers and staff; anyone else gets recorded = false.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotencyKey"
+          ],
+          "properties": {
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per sign-in and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "recorded"
+          ],
+          "properties": {
+            "recorded": {
+              "type": "boolean",
+              "description": "Whether the caller has a HappyProto account to record it against: false for anyone who is neither a customer nor staff."
+            },
+            "email": {
+              "type": "string",
+              "description": "The address HappyProto now holds for the caller, if any: this sign-in's, or the last one recorded."
+            },
+            "emailConfirmed": {
+              "type": "boolean",
+              "description": "Whether the PDS reported that address as confirmed, when it said."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "idempotencyKey is missing or not a UUID, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "Forbidden",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

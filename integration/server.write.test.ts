@@ -711,6 +711,56 @@ describe("upgradeInstance", () => {
   });
 });
 
+describe("actor.syncAccount", () => {
+  const SYNC = "at.happyproto.actor.syncAccount";
+  const email = async () => (await provisioner.requests()).filter((r) => r.path === "/v1/account/email");
+
+  test("a customer's sign-in is recorded, as them, with its key", async () => {
+    const key = crypto.randomUUID();
+    const out = await ok(SYNC, "customer", { input: { idempotencyKey: key } });
+    expect(out.recorded).toBe(true);
+    const [request, ...rest] = await email();
+    expect(rest).toEqual([]);
+    expect(request.method).toBe("PUT");
+    expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
+    expect(request.headers["idempotency-key"]).toBe(key);
+    // The pinned happyview-xrpc predates session(), which reads the same as
+    // a PDS that withholds the address: a blank, which keeps the last one.
+    // The pin bump to the release with session() updates this.
+    expect(request.body).toEqual({ email: "" });
+    expect(out.email).toBeUndefined();
+  });
+
+  test("the address the provisioner holds is reported back", async () => {
+    await provisioner.state({
+      accountEmails: {
+        [s.accounts.customer.did]: { email: "kept@example.com", email_confirmed: true, email_seen_at: "2026-10-01T00:00:00Z" },
+      },
+    });
+    const out = await ok(SYNC, "customer", { input: { idempotencyKey: crypto.randomUUID() } });
+    expect(out).toEqual({ recorded: true, email: "kept@example.com", emailConfirmed: true });
+  });
+
+  test("staff are recorded too; anyone else is not, and nothing is sent", async () => {
+    expect((await ok(SYNC, "staff", { input: { idempotencyKey: crypto.randomUUID() } })).recorded).toBe(true);
+    await provisioner.reset();
+    expect(await ok(SYNC, "outsider", { input: { idempotencyKey: crypto.randomUUID() } })).toEqual({ recorded: false });
+    expect(await provisioner.requests()).toEqual([]);
+  });
+
+  test("anonymous callers and bad keys are refused before anything is sent", async () => {
+    await fails(SYNC, null, "AuthRequired", { input: { idempotencyKey: crypto.randomUUID() } });
+    await fails(SYNC, "customer", "InvalidRequest", { input: { idempotencyKey: "nope" } });
+    expect(await email()).toEqual([]);
+  });
+
+  test("a provisioner failure is Upstream, without its text", async () => {
+    await provisioner.script("PUT", "/v1/account/email", 502, { error: "Bad", message: "SENTINEL-262" });
+    const reply = await fails(SYNC, "customer", "Upstream", { input: { idempotencyKey: crypto.randomUUID() } });
+    expect(reply.text).not.toContain("SENTINEL-262");
+  });
+});
+
 describe("entitlement", () => {
   // The harness runs "invite", as production will. Under "staff", what the
   // provisioner enforces today, a customer may neither create nor change.
