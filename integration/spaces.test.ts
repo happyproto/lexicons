@@ -9,7 +9,7 @@
  * and its repeat, on spaces that test removes again.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { sessionCookie } from "./session";
+import { sessionHeaders } from "./session";
 import { HAPPYVIEW_URL, setVariable, stack, type Account, type Stack } from "./setup";
 import { call, fails, ok } from "./xrpc";
 
@@ -25,7 +25,7 @@ const uris = (did: string) => ({
 
 function headers(who: Account): Record<string, string> {
   return {
-    cookie: sessionCookie(who.did),
+    ...sessionHeaders(who.did),
     "x-client-key": s.client.key,
     "x-client-secret": s.client.secret,
     "content-type": "application/json",
