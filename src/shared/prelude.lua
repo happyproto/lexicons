@@ -360,7 +360,9 @@ local PASSTHROUGH = {
 -- IdempotencyKeyInFlight is a retry arriving while the first request with
 -- that key still runs: the same "wait and try again" as OperationInProgress.
 -- TenantDeleted reads exactly like a missing instance, as getInstance answers
--- one. NotLive is an instance whose creation has not finished.
+-- one. NotLive is an instance whose creation has not finished. NotNewer is
+-- a customer's version change to a release that is not newer than the one
+-- the instance runs: HappyView's migrations only go forward.
 local REMAP = {
   IdempotencyKeyInFlight = { "OperationInProgress", "This request is already in progress. Try again shortly." },
   UnknownPlan = { "InvalidRequest" },
@@ -371,6 +373,7 @@ local REMAP = {
   IdempotencyKeyReused = { "InvalidRequest" },
   TenantDeleted = { "NotFound", "instance not found" },
   NotLive = { "OperationInProgress", "This instance has not finished setting up yet." },
+  NotNewer = { "InvalidRequest" },
 }
 
 --- A provisioner reply mapped to a failure table.
@@ -480,8 +483,23 @@ local function instance_state(t, op)
   return "failed"
 end
 
---- The customer `instance`: `{id, slug, url, plan, version, state, createdAt,
---- operation?}`.
+--- A non-empty string, or nil.
+local function label_or_nil(v)
+  return type(v) == "string" and v ~= "" and v or nil
+end
+
+--- The newer release the provisioner offers, `{version, label?, releasedAt}`,
+--- or nil when there is none or its shape is not the provisioner's.
+local function public_available_version(a)
+  if type(a) ~= "table" or type(a.version) ~= "string" or a.version == ""
+    or type(a.released_at) ~= "string" then
+    return nil
+  end
+  return { version = a.version, label = label_or_nil(a.label), releasedAt = a.released_at }
+end
+
+--- The customer `instance`: `{id, slug, url, plan, version, versionLabel?,
+--- availableVersion?, state, createdAt, operation?}`.
 local function public_instance(t, op)
   return {
     id = t.id,
@@ -489,6 +507,8 @@ local function public_instance(t, op)
     url = t.public_url,
     plan = t.plan_id,
     version = t.happyview_version,
+    versionLabel = label_or_nil(t.version_label),
+    availableVersion = public_available_version(t.available_version),
     state = instance_state(t, op),
     createdAt = t.created_at,
     operation = public_operation(op),

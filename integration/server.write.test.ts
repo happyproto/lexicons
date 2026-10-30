@@ -37,6 +37,8 @@ function tenant(id: string, slug: string, owner: string, extra: Record<string, u
     plan_id: "small",
     host_id: "99999999-9999-4999-8999-999999999999",
     happyview_version: "3.0.0-alpha.4",
+    version_label: null,
+    available_version: null,
     public_url: `https://${slug}.happyview.app`,
     image: "ghcr.io/gamesgamesgamesgamesgames/happyview",
     routed: true,
@@ -601,6 +603,114 @@ describe("the ownership check gets no reply", () => {
   }
 });
 
+describe("upgradeInstance", () => {
+  const OFFERED = { version: "abc123def4567890abc123def4567890abc123de", label: "3.0.0-alpha.41", released_at: "2026-10-30T06:00:00Z" };
+
+  beforeEach(async () => {
+    const { customer } = s.accounts;
+    await provisioner.state({
+      tenants: [
+        tenant(RUNNING_ID, "alpha", customer.did, { version_label: "3.0.0-alpha.40", available_version: OFFERED }),
+        tenant(SOMEONE_ELSES_ID, "gamma", "did:plc:someoneelseentirely", { available_version: OFFERED }),
+      ],
+      operations: [],
+    });
+  });
+
+  test("getInstance shows the release on offer, in the customer shape", async () => {
+    const { instance } = await ok(server("getInstance"), "customer", { params: { id: RUNNING_ID } });
+    expect(instance.versionLabel).toBe("3.0.0-alpha.40");
+    expect(instance.availableVersion).toEqual({
+      version: OFFERED.version,
+      label: "3.0.0-alpha.41",
+      releasedAt: "2026-10-30T06:00:00Z",
+    });
+  });
+
+  test("calls POST /upgrade with the offered release, and follows its job", async () => {
+    const key = crypto.randomUUID();
+    const out = await ok(server("upgradeInstance"), "customer", {
+      input: { id: RUNNING_ID, version: OFFERED.version, idempotencyKey: key },
+    });
+    started.push(["customer", out.jobId]);
+    expect(Object.keys(out)).toEqual(["jobId"]);
+
+    const [check, request, ...rest] = await sent();
+    expect(rest).toEqual([]);
+    expect({ method: check.method, path: check.path }).toEqual({ method: "GET", path: `/v1/tenants/${RUNNING_ID}` });
+    expect({ method: request.method, path: request.path }).toEqual({
+      method: "POST",
+      path: `/v1/tenants/${RUNNING_ID}/upgrade`,
+    });
+    expect(request.body).toEqual({ version: OFFERED.version });
+    expect(request.headers["idempotency-key"]).toBe(key);
+    expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
+
+    const last = (await untilDone(out.jobId)).at(-1);
+    expect(last.status).toBe("completed");
+    const { instance } = await ok(server("getInstance"), "customer", { params: { id: RUNNING_ID } });
+    expect(instance.version).toBe(OFFERED.version);
+    expect(instance.versionLabel).toBe("3.0.0-alpha.41");
+    expect(instance.availableVersion).toBeUndefined();
+  }, JOB_TIMEOUT);
+
+  test("a release that is not on offer is UpgradeUnavailable, and nothing changes", async () => {
+    const reply = await fails(server("upgradeInstance"), "customer", "UpgradeUnavailable", {
+      input: { id: RUNNING_ID, version: "3.0.0-alpha.4", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe(
+      "That release is no longer on offer for this instance. Reload to see the current one.",
+    );
+    const { instance } = await ok(server("getInstance"), "customer", { params: { id: RUNNING_ID } });
+    expect(instance.version).toBe("3.0.0-alpha.4");
+  });
+
+  test("bad input is InvalidRequest, and nothing is sent", async () => {
+    const key = crypto.randomUUID();
+    for (const input of [
+      { id: RUNNING_ID, idempotencyKey: key },
+      { id: RUNNING_ID, version: "", idempotencyKey: key },
+      { id: RUNNING_ID, version: 41, idempotencyKey: key },
+      { id: "../plans", version: OFFERED.version, idempotencyKey: key },
+      { id: RUNNING_ID, version: OFFERED.version, idempotencyKey: "nope" },
+    ]) {
+      await fails(server("upgradeInstance"), "customer", "InvalidRequest", { input });
+    }
+    expect(await sent()).toEqual([]);
+  });
+
+  test("someone else's instance is NotFound, and nothing is changed", async () => {
+    await fails(server("upgradeInstance"), "customer", "NotFound", {
+      input: { id: SOMEONE_ELSES_ID, version: OFFERED.version, idempotencyKey: crypto.randomUUID() },
+    });
+    expect((await sent()).map((r) => `${r.method} ${r.path}`)).toEqual([`GET /v1/tenants/${SOMEONE_ELSES_ID}`]);
+  });
+
+  test("an upgrade already running is OperationInProgress", async () => {
+    const running = { status: "running", step: "apply" };
+    await provisioner.progress([running, running, running, { status: "succeeded" }]);
+    const first = await ok(server("upgradeInstance"), "customer", {
+      input: { id: RUNNING_ID, version: OFFERED.version, idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", first.jobId]);
+    await fails(server("upgradeInstance"), "customer", "OperationInProgress", {
+      input: { id: RUNNING_ID, version: OFFERED.version, idempotencyKey: crypto.randomUUID() },
+    });
+    await untilDone(first.jobId);
+  }, JOB_TIMEOUT);
+
+  test("updateInstance's version change to an older release is InvalidRequest, with its text", async () => {
+    await provisioner.script("PATCH", `/v1/tenants/${RUNNING_ID}`, 409, {
+      error: "NotNewer",
+      message: "that release is not newer than the one this instance runs",
+    });
+    const reply = await fails(server("updateInstance"), "customer", "InvalidRequest", {
+      input: { id: RUNNING_ID, version: "3.0.0-alpha.3", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe("that release is not newer than the one this instance runs");
+  });
+});
+
 describe("entitlement", () => {
   // The harness runs "invite", as production will. Under "staff", what the
   // provisioner enforces today, a customer may neither create nor change.
@@ -620,6 +730,12 @@ describe("entitlement", () => {
       input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
     });
   });
+
+  test("upgradeInstance is NotEntitled", async () => {
+    await fails(server("upgradeInstance"), "customer", "NotEntitled", {
+      input: { id: RUNNING_ID, version: "3.0.0-alpha.5", idempotencyKey: crypto.randomUUID() },
+    });
+  });
 });
 
 describe("refusals", () => {
@@ -629,6 +745,7 @@ describe("refusals", () => {
     ["startInstance", { id: RUNNING_ID }],
     ["stopInstance", { id: RUNNING_ID }],
     ["deleteInstance", { id: RUNNING_ID }],
+    ["upgradeInstance", { id: RUNNING_ID, version: "3.0.0-alpha.5" }],
   ];
   for (const [name, input] of inputs) {
     test(`${name} refuses non-customers before anything is sent`, async () => {

@@ -306,6 +306,39 @@ describe("instance shapes", () => {
     });
   });
 
+  it("public_instance carries the release label and the release on offer", () => {
+    const t = TENANT.replace(
+      "happyview_version = ",
+      `version_label = "3.0.0-alpha.40", available_version = {
+        version = "abc1234", label = "3.0.0-alpha.41", released_at = "2026-10-30T06:00:00Z",
+      }, happyview_version = `,
+    );
+    const { r1 } = run(`return public_instance(${t}, nil)`);
+    expect(r1.versionLabel).toBe("3.0.0-alpha.40");
+    expect(r1.availableVersion).toEqual({
+      version: "abc1234", label: "3.0.0-alpha.41", releasedAt: "2026-10-30T06:00:00Z",
+    });
+  });
+
+  it("public_instance drops an empty label and a malformed offer", () => {
+    for (const offer of [
+      'nil', '"abc1234"', '{ version = "", released_at = "x" }', '{ version = "abc1234" }',
+    ]) {
+      const t = TENANT.replace(
+        "happyview_version = ",
+        `version_label = "", available_version = ${offer}, happyview_version = `,
+      );
+      const { r1 } = run(`return public_instance(${t}, nil)`);
+      expect(r1.versionLabel).toBeUndefined();
+      expect(r1.availableVersion).toBeUndefined();
+    }
+    const t = TENANT.replace(
+      "happyview_version = ",
+      `available_version = { version = "abc1234", label = "", released_at = "x" }, happyview_version = `,
+    );
+    expect(run(`return public_instance(${t}, nil)`).r1.availableVersion).toEqual({ version: "abc1234", releasedAt: "x" });
+  });
+
   it("public_instance never carries a provisioner-internal field", () => {
     for (const op of ["nil", LIST_OP, FULL_OP]) {
       const json = JSON.stringify(run(`return public_instance(${TENANT}, ${op})`).r1);
