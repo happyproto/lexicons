@@ -424,6 +424,9 @@ function domainsRoute(req: Request, parts: string[], body: Json, actor: string, 
   return error(404, "NotFound", `the fake provisioner has no route for ${req.method} ${parts.join("/")}`);
 }
 
+/** The provisioner's terms::TERMS_VERSION. */
+const TERMS_VERSION = "beta-2026-11";
+
 /** POST /v1/tenants, tenants::create's checks in its order. */
 function createTenant(body: Json, actor: string, staff: boolean): Response {
   if (!body || typeof body !== "object") return error(400, "InvalidRequest", "body must be JSON");
@@ -431,6 +434,14 @@ function createTenant(body: Json, actor: string, staff: boolean): Response {
     return error(403, "Forbidden", "you can only create instances for yourself");
   }
   if (!entitled(staff)) return notEntitled();
+  // terms::check: an acceptance of the terms in force, with its wording.
+  const terms = body.terms;
+  if (!terms || typeof terms !== "object" || !String(terms.text ?? "").trim() || !String(terms.text_version ?? "").trim()) {
+    return error(400, "TermsRequired", "accept the beta terms to create an instance");
+  }
+  if (terms.terms_version !== TERMS_VERSION) {
+    return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
+  }
   if (!state.plans.some((p) => p.id === body.plan)) {
     return error(400, "UnknownPlan", "no such plan");
   }
