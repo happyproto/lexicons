@@ -1,0 +1,205 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getUsage",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One of the caller's instances' metered usage by hour or day, with the hours that have no report. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          },
+          "from": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Start of the range. Defaults to one day before `to` at hour grain, 30 days at day grain."
+          },
+          "to": {
+            "type": "string",
+            "format": "datetime",
+            "description": "End of the range. Defaults to now."
+          },
+          "grain": {
+            "type": "string",
+            "knownValues": [
+              "hour",
+              "day"
+            ],
+            "enum": [
+              "hour",
+              "day"
+            ],
+            "description": "Defaults to hour. Hour ranges may span 31 days, day ranges 400."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "tenant",
+            "grain",
+            "rows",
+            "gaps"
+          ],
+          "properties": {
+            "tenant": {
+              "type": "string"
+            },
+            "grain": {
+              "type": "string",
+              "knownValues": [
+                "hour",
+                "day"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#row"
+              }
+            },
+            "gaps": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#gap"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id is not a UUID, or the range is backwards, too long, or has an unknown grain."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner could not complete the request."
+        }
+      ]
+    },
+    "row": {
+      "type": "object",
+      "required": [
+        "runningSeconds",
+        "cpuUsec",
+        "memByteSeconds",
+        "memPeakBytes",
+        "egressBytes",
+        "ingressBytes",
+        "partial"
+      ],
+      "description": "One hour or day of usage, summed across the tenant's hosts. `hour` is set at hour grain and `day` at day grain.",
+      "properties": {
+        "hour": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "day": {
+          "type": "string",
+          "description": "UTC date, YYYY-MM-DD."
+        },
+        "runningSeconds": {
+          "type": "integer"
+        },
+        "cpuUsec": {
+          "type": "integer"
+        },
+        "memByteSeconds": {
+          "type": "integer"
+        },
+        "memPeakBytes": {
+          "type": "integer"
+        },
+        "egressBytes": {
+          "type": "integer"
+        },
+        "ingressBytes": {
+          "type": "integer"
+        },
+        "diskAvgBytes": {
+          "type": "integer"
+        },
+        "diskPeakBytes": {
+          "type": "integer"
+        },
+        "seats": {
+          "type": "integer"
+        },
+        "apiClients": {
+          "type": "integer"
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "Some samples for this period were missing."
+        }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "required": [
+        "hour",
+        "reason"
+      ],
+      "properties": {
+        "hour": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "missing",
+            "agent_unreachable"
+          ]
+        }
+      }
+    }
+  }
+}

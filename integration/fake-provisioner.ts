@@ -644,6 +644,15 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return createTenant(body, actor, staff);
   }
 
+  // GET /v1/tenants/:id/usage: the owner's (or staff's) read of usage/admin.
+  if (req.method === "GET" && resource === "tenants" && id && parts[3] === "usage" && parts.length === 4) {
+    const tenant = state.tenants.find((t) => t.id === id);
+    if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
+    const grain = url.searchParams.get("grain") ?? "hour";
+    if (grain !== "hour" && grain !== "day") return error(400, "InvalidRange", "`grain` must be `hour` or `day`");
+    return reply(200, { tenant: id, grain, rows: [], gaps: [] });
+  }
+
   if (resource === "tenants" && id && (parts[3] === "domains" || parts[3] === "primary-domain")) {
     return domainsRoute(req, parts, body, actor, staff);
   }
