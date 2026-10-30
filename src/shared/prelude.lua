@@ -911,6 +911,64 @@ local function public_host_request(r)
 end
 -- @endblock
 
+-- @block usage
+-- One tenant's metered usage, as the provisioner's usage routes answer it
+-- (staff /admin/usage, an owner's /tenants/:id/usage), mapped to the shape
+-- both lexicons share. Each field is listed explicitly, so a field the
+-- provisioner adds later is never passed along by accident.
+
+-- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+local function usage_only(v, kind)
+  if type(v) == kind then
+    return v
+  end
+  return nil
+end
+
+--- `{tenant, grain, rows, gaps}` from a usage route's body.
+local function public_usage(body)
+  local rows = {}
+  for _, r in ipairs(type(body.rows) == "table" and body.rows or {}) do
+    rows[#rows + 1] = {
+      hour = usage_only(r.hour, "string"),
+      day = usage_only(r.day, "string"),
+      runningSeconds = r.running_seconds,
+      cpuUsec = r.cpu_usec,
+      memByteSeconds = r.mem_byte_seconds,
+      memPeakBytes = r.mem_peak_bytes,
+      egressBytes = r.egress_bytes,
+      ingressBytes = r.ingress_bytes,
+      diskAvgBytes = usage_only(r.disk_avg_bytes, "number"),
+      diskPeakBytes = usage_only(r.disk_peak_bytes, "number"),
+      seats = usage_only(r.seats, "number"),
+      apiClients = usage_only(r.api_clients, "number"),
+      partial = r.partial,
+    }
+  end
+  local gaps = {}
+  for _, g in ipairs(type(body.gaps) == "table" and body.gaps or {}) do
+    gaps[#gaps + 1] = { hour = g.hour, reason = g.reason }
+  end
+  return {
+    tenant = body.tenant,
+    grain = body.grain,
+    rows = json.to_array(rows),
+    gaps = json.to_array(gaps),
+  }
+end
+
+--- The query string a usage read forwards: from, to and grain, when given.
+local function usage_query(input)
+  local query = {}
+  for _, key in ipairs({ "from", "to", "grain" }) do
+    if type(input[key]) == "string" and input[key] ~= "" then
+      query[#query + 1] = key .. "=" .. url_encode(input[key])
+    end
+  end
+  return query
+end
+-- @endblock
+
 -- @block release
 -- Checks for the software.release records the registry indexes and the
 -- at.happyproto records that make one a HappyView plugin.

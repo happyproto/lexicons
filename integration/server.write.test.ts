@@ -328,6 +328,42 @@ describe("the instance.operation job", () => {
     expect(last.error).toBe("Upstream: never became healthy");
   }, JOB_TIMEOUT);
 
+  test("a plan the host finds too small for the data fails as PlanTooSmall, without the step", async () => {
+    await provisioner.progress([
+      { status: "running", step: "apply" },
+      {
+        status: "failed",
+        step: "apply",
+        error_code: "QuotaBelowUsage",
+        error_message: "apply: 7 GB of data would not fit a 5 GB disk with room to spare",
+      },
+    ]);
+    const { jobId } = await ok(server("updateInstance"), "customer", {
+      input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", jobId]);
+    const last = (await untilDone(jobId)).at(-1);
+    expect(last.status).toBe("failed");
+    expect(last.error).toBe("PlanTooSmall: 7 GB of data would not fit a 5 GB disk with room to spare");
+  }, JOB_TIMEOUT);
+
+  test("a shrink the host could not measure fails as Upstream with its fixed words", async () => {
+    await provisioner.progress([
+      {
+        status: "failed",
+        step: "apply",
+        error_code: "QuotaUnverified",
+        error_message: "apply: the instance's data could not be measured, so its disk was not made smaller",
+      },
+    ]);
+    const { jobId } = await ok(server("updateInstance"), "customer", {
+      input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", jobId]);
+    const last = (await untilDone(jobId)).at(-1);
+    expect(last.error).toBe("Upstream: the instance's data could not be measured, so its disk was not made smaller");
+  }, JOB_TIMEOUT);
+
   test("any other code's raw message is replaced, and the code becomes Upstream", async () => {
     // StepFailed's text can carry a probe's error; AgentError and DnsRejected
     // carry an agent's or a DNS provider's own words.
@@ -516,6 +552,21 @@ describe("changes to an existing instance", () => {
       });
       expect([code, reply.body.message]).toEqual([code, message]);
     }
+  });
+});
+
+describe("a plan too small for the instance's data", () => {
+  test("is refused with the provisioner's words, and no job starts", async () => {
+    const words = "this instance holds about 7 GB of data, which would not fit the Small plan's 5 GB disk with room to spare; free some space or choose a larger plan";
+    await provisioner.script("PATCH", `/v1/tenants/${RUNNING_ID}`, 409, {
+      error: "PlanTooSmall",
+      message: words,
+      details: { used_bytes: 7516192768, disk_gb: 5 },
+    });
+    const reply = await fails(server("updateInstance"), "customer", "PlanTooSmall", {
+      input: { id: RUNNING_ID, plan: "small", idempotencyKey: crypto.randomUUID() },
+    });
+    expect(reply.body.message).toBe(words);
   });
 });
 
