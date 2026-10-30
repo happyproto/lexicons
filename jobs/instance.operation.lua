@@ -33,6 +33,10 @@ local DEADLINE_SECONDS = 15 * 60
 -- probe's error.
 local SAFE_MESSAGES = {
   Timeout = true, UpgradeRolledBack = true, NoCapacity = true, QuotaBelowUsage = true,
+  -- The host could not measure the instance's data, so it did not shrink the
+  -- disk: fixed agent text, shown under Upstream since it is not the owner's
+  -- to fix by choosing another plan.
+  QuotaUnverified = true,
 }
 
 -- Operation codes a customer knows under another name. The agent refusing a

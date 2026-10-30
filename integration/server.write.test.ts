@@ -347,6 +347,23 @@ describe("the instance.operation job", () => {
     expect(last.error).toBe("PlanTooSmall: 7 GB of data would not fit a 5 GB disk with room to spare");
   }, JOB_TIMEOUT);
 
+  test("a shrink the host could not measure fails as Upstream with its fixed words", async () => {
+    await provisioner.progress([
+      {
+        status: "failed",
+        step: "apply",
+        error_code: "QuotaUnverified",
+        error_message: "apply: the instance's data could not be measured, so its disk was not made smaller",
+      },
+    ]);
+    const { jobId } = await ok(server("updateInstance"), "customer", {
+      input: { id: RUNNING_ID, plan: "medium", idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", jobId]);
+    const last = (await untilDone(jobId)).at(-1);
+    expect(last.error).toBe("Upstream: the instance's data could not be measured, so its disk was not made smaller");
+  }, JOB_TIMEOUT);
+
   test("any other code's raw message is replaced, and the code becomes Upstream", async () => {
     // StepFailed's text can carry a probe's error; AgentError and DnsRejected
     // carry an agent's or a DNS provider's own words.
