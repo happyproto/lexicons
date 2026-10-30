@@ -6,10 +6,16 @@
 -- it has to come from the caller's own PDS, read server-side through their
 -- session, never from anything the client says.
 --
--- The PDS reports it only when the session was granted transition:email, and
--- may have none at all. Neither is an error: the provisioner is told there was
--- no address and keeps the last one it recorded. A HappyView or xrpc library
--- too old to read the session is the same "no address".
+-- It is read with happyview.account's email(), behind HappyView's caller:email
+-- capability, so installing that library is api.happyproto.at's consent to
+-- reading addresses. The host reads only the caller's own getSession, refuses
+-- one naming another account, and refuses a service-auth caller.
+--
+-- The PDS reports it only when the sign-in granted it (transition:email or
+-- account:email), and may have none at all. Neither is an error: the
+-- provisioner is told there was no address and keeps the last one it
+-- recorded. A missing happyview.account library, or a HappyView too old to
+-- serve it, is the same "no address".
 --
 -- Customers and staff only: anyone else has no HappyProto account to record
 -- it against, and gets recorded = false rather than an error, since the
@@ -17,28 +23,23 @@
 
 -- @prelude gate, validate, provisioner
 
-local xrpc = require("happyview.xrpc")
-
 --- The caller's address and whether the PDS says it is confirmed, or nil.
---- `xrpc.session` RAISES on any failure, and is absent from an older library,
---- so it is called under pcall and any failure reads as "no address".
-local function pds_email(ctx)
-  local ok, account = pcall(function() return xrpc.session() end)
+--- `require` raises when the library isn't installed, and `email` raises on
+--- any failure, so both run under pcall and any failure reads as "no address".
+local function pds_email()
+  local ok, address = pcall(function() return require("happyview.account").email() end)
   if not ok then
-    log.info("could not read the caller's PDS session", { error = tostring(account) })
+    log.info("could not read the caller's PDS email", { error = tostring(address) })
     return nil, nil
   end
-  -- The host already refuses a session naming another account; checked again
-  -- here because this address is what an account closure is verified against.
-  if type(account) ~= "table" or account.did ~= ctx.caller_did then
-    log.warn("the PDS session named another account", {})
+  if type(address) ~= "table" then
     return nil, nil
   end
-  local email = account.email
+  local email = address.email
   if type(email) ~= "string" or email == "" then
     return nil, nil
   end
-  local confirmed = account.email_confirmed
+  local confirmed = address.email_confirmed
   if type(confirmed) ~= "boolean" then confirmed = nil end
   return email, confirmed
 end
@@ -55,7 +56,7 @@ function handle(input, ctx)
     return { recorded = false }
   end
 
-  local email, confirmed = pds_email(ctx)
+  local email, confirmed = pds_email()
   -- A blank address is the provisioner's "none this time": an empty table
   -- could encode as a JSON array, and there is no null to send.
   local status, body = provisioner(ctx, "PUT", "/v1/account/email", {
