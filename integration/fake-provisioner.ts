@@ -444,6 +444,8 @@ function createTenant(body: Json, actor: string, staff: boolean): Response {
     plan_id: body.plan,
     host_id: "99999999-9999-4999-8999-999999999999",
     happyview_version: body.version ?? "3.0.0-alpha.4",
+    version_label: null,
+    available_version: null,
     public_url: `https://${body.slug}.happyview.app`,
     image: "ghcr.io/gamesgamesgamesgamesgames/happyview",
     routed: false,
@@ -480,6 +482,23 @@ function updateTenant(tenant: Json, body: Json, actor: string): Response {
   const operation = enqueue(tenant.id, params.version ? "upgrade" : "update", params, actor);
   if (params.plan) tenant.plan_id = plan;
   if (params.version) tenant.happyview_version = version;
+  return reply(202, { operation });
+}
+
+/**
+ * POST /v1/tenants/:id/upgrade: only to the release the tenant's
+ * available_version offers, as the provisioner refuses anything else.
+ */
+function upgradeTenant(tenant: Json, body: Json, actor: string): Response {
+  const offered = tenant.available_version;
+  if (!offered || body?.version !== offered.version) {
+    return error(409, "UpgradeUnavailable", "that release is not on offer for this instance");
+  }
+  const params = { version: { from: tenant.happyview_version, to: offered.version } };
+  const operation = enqueue(tenant.id, "upgrade", params, actor);
+  tenant.happyview_version = offered.version;
+  tenant.version_label = offered.label ?? null;
+  tenant.available_version = null;
   return reply(202, { operation });
 }
 
@@ -634,10 +653,10 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const known =
       (req.method === "PATCH" && parts.length === 3) ||
       (req.method === "DELETE" && parts.length === 3) ||
-      (req.method === "POST" && parts.length === 4 && (verb === "start" || verb === "stop"));
+      (req.method === "POST" && parts.length === 4 && (verb === "start" || verb === "stop" || verb === "upgrade"));
     if (known) {
-      // tenants::update checks entitlement before it loads the tenant.
-      if (req.method === "PATCH" && !entitled(staff)) return notEntitled();
+      // tenants::update and ::upgrade check entitlement before they load the tenant.
+      if ((req.method === "PATCH" || verb === "upgrade") && !entitled(staff)) return notEntitled();
       const tenant = state.tenants.find((t) => t.id === id);
       if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
       if (tenant.desired_state === "deleted") {
@@ -651,6 +670,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
         return error(409, "OperationInProgress", "an operation is already in progress for this instance");
       }
       if (req.method === "PATCH") return updateTenant(tenant, body, actor);
+      if (verb === "upgrade") return upgradeTenant(tenant, body, actor);
       if (req.method === "DELETE") {
         tenant.desired_state = "deleted";
         tenant.deleted_at = new Date().toISOString();

@@ -129,6 +129,15 @@
           "type": "string",
           "description": "The HappyView release it runs."
         },
+        "versionLabel": {
+          "type": "string",
+          "description": "The HappyView version the release carries, e.g. 3.0.0-alpha.41, when known."
+        },
+        "availableVersion": {
+          "type": "ref",
+          "ref": "#availableVersion",
+          "description": "A newer release, when one is on offer."
+        },
         "state": {
           "type": "string",
           "knownValues": [
@@ -188,6 +197,29 @@
         "error": {
           "type": "string",
           "description": "The provisioner's error code, when it failed."
+        }
+      }
+    },
+    "availableVersion": {
+      "type": "object",
+      "description": "A newer HappyView release the instance can upgrade to.",
+      "required": [
+        "version",
+        "releasedAt"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "The release to pass to at.happyproto.server.upgradeInstance."
+        },
+        "label": {
+          "type": "string",
+          "description": "The HappyView version the release carries, e.g. 3.0.0-alpha.41, when known."
+        },
+        "releasedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When HappyProto first offered it."
         }
       }
     }
