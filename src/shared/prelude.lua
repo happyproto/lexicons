@@ -629,6 +629,41 @@ local function public_steps(op)
   end
   return out
 end
+
+local LOG_STREAMS = { stdout = true, stderr = true }
+
+--- A page of container logs as the provisioner relays it from the host
+--- agent, which has already redacted it: `{lines, cursor?, more,
+--- oldestAvailable?, window?}`. Each line keeps `at`, `level`, `stream` and
+--- `message`; the per-line journal cursor stays behind, since the page's
+--- own cursor is the only one a caller pages with.
+local function public_log_page(page)
+  local lines = {}
+  for _, l in ipairs(type(page.lines) == "table" and page.lines or {}) do
+    if type(l) == "table" and type(l.at) == "string" and type(l.message) == "string" then
+      lines[#lines + 1] = {
+        at = l.at,
+        level = type(l.level) == "string" and l.level or nil,
+        stream = LOG_STREAMS[l.stream] and l.stream or "stdout",
+        message = l.message,
+      }
+    end
+  end
+  local window
+  if type(page.window) == "table" and type(page.window.since) == "string" then
+    window = {
+      since = page.window.since,
+      ["until"] = type(page.window["until"]) == "string" and page.window["until"] or nil,
+    }
+  end
+  return {
+    lines = lines,
+    cursor = type(page.cursor) == "string" and page.cursor or nil,
+    more = page.more == true,
+    oldestAvailable = type(page.oldest_available) == "string" and page.oldest_available or nil,
+    window = window,
+  }
+end
 -- @endblock
 
 -- @block jobs

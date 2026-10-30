@@ -463,6 +463,38 @@ describe("deployment shapes", () => {
   });
 });
 
+describe("log page shape", () => {
+  it("public_log_page keeps what a reader needs and nothing else", () => {
+    const { r1 } = run(`return public_log_page({
+      lines = {
+        { at = "2026-10-30T01:00:00Z", cursor = "s=a;i=1", level = "info", stream = "stdout", message = "up" },
+        { at = "2026-10-30T01:00:01Z", cursor = "s=a;i=2", stream = "weird", message = "no level" },
+        { at = "2026-10-30T01:00:02Z", message = 7 },
+        "not a line",
+      },
+      cursor = "s=a;i=2", more = true, oldest_available = "2026-10-01T00:00:00Z",
+      window = { since = "2026-10-29T00:00:00Z" },
+    })`);
+    expect(r1).toEqual({
+      lines: [
+        { at: "2026-10-30T01:00:00Z", level: "info", stream: "stdout", message: "up" },
+        { at: "2026-10-30T01:00:01Z", stream: "stdout", message: "no level" },
+      ],
+      cursor: "s=a;i=2",
+      more: true,
+      oldestAvailable: "2026-10-01T00:00:00Z",
+      window: { since: "2026-10-29T00:00:00Z" },
+    });
+  });
+
+  it("an empty page has no cursor, no window, and more is false", () => {
+    const { r1 } = run(`return public_log_page({ lines = {}, more = "yes" })`);
+    expect(r1.cursor).toBeUndefined();
+    expect(r1.window).toBeUndefined();
+    expect(r1.more).toBe(false);
+  });
+});
+
 describe("provisioner", () => {
   it("sends the token, the actor, the key and JSON to the configured URL", () => {
     const { r1, r2, calls } = run(`

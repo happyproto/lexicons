@@ -1,0 +1,208 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getLogs",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "A page of what one of the caller's own instances wrote, redacted on its host. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          },
+          "deploymentId": {
+            "type": "string",
+            "description": "Bound the page to this deployment's window, read from the host it ran on."
+          },
+          "since": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Narrows the window; never widens a deployment's."
+          },
+          "until": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Narrows the window; never widens a deployment's."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor a previous page returned, with the same direction."
+          },
+          "direction": {
+            "type": "string",
+            "knownValues": [
+              "backward",
+              "forward"
+            ],
+            "default": "backward",
+            "description": "backward: the newest lines before until or cursor. forward: the oldest after since or cursor."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 200
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "lines",
+            "more"
+          ],
+          "properties": {
+            "lines": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#line"
+              },
+              "description": "Oldest first, whichever way the page was read."
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Pass with the same direction for the next page. Absent when there are no lines."
+            },
+            "more": {
+              "type": "boolean",
+              "description": "Whether more lines lie beyond this page in its direction."
+            },
+            "oldestAvailable": {
+              "type": "string",
+              "format": "datetime",
+              "description": "The oldest line the host still holds, on a page read without a cursor."
+            },
+            "window": {
+              "type": "ref",
+              "ref": "#window"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "An id is not a UUID, or a time, cursor, direction or limit is malformed or out of range."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance or deployment, or either is not the caller's. These are indistinguishable."
+        },
+        {
+          "name": "NotADeployment",
+          "description": "The change started no container (a stop, a deletion or a domain-only update), so it has no logs of its own."
+        },
+        {
+          "name": "LogsUnavailable",
+          "description": "The host the logs are on is not answering, or no longer holds the instance."
+        },
+        {
+          "name": "LogsBusy",
+          "description": "Too many log reads are running for this instance or its host. Try again shortly."
+        },
+        {
+          "name": "LogsTimeout",
+          "description": "Reading the logs took too long. Narrow the time range."
+        },
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "line": {
+      "type": "object",
+      "required": [
+        "at",
+        "stream",
+        "message"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "level": {
+          "type": "string",
+          "knownValues": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "When the line says."
+        },
+        "stream": {
+          "type": "string",
+          "knownValues": [
+            "stdout",
+            "stderr"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "description": "With the instance's secrets and anything shaped like a credential replaced by [redacted]."
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "description": "The deployment's window, when deploymentId was given.",
+      "required": [
+        "since"
+      ],
+      "properties": {
+        "since": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "until": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Absent while the deployment is the newest."
+        }
+      }
+    }
+  }
+}
