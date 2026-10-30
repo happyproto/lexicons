@@ -109,6 +109,12 @@ jobs:
             lua/**/*.lua
             !lua/jobs/**
           jobs: lua/jobs/**/*.lua
+          # prune with dry-run writes nothing: it only adds a
+          # "would prune lexicon <nsid>" line per remote item this branch no
+          # longer contains. Without it a PR plan shows what a merge would
+          # replace but not what it would DELETE, which is the half that
+          # cannot be undone.
+          prune: "true"
           dry-run: "true"
       # Which schemas a merge would publish, and whether every authority's
       # _lexicon DNS still names the account. One step per account in
@@ -130,6 +136,10 @@ jobs:
     needs: [build, lint, integration]
     runs-on: depot-ubuntu-24.04
     environment: production
+    # Counted by the dry run below, read by the prune job.
+    outputs:
+      prunable-lexicons: ${{ steps.prune-plan.outputs.lexicons-pruned }}
+      prunable-scripts: ${{ steps.prune-plan.outputs.scripts-pruned }}
     # One deploy at a time. Two concurrent runs would race each other's
     # uploads against the same instance, and the loser would win. Scoped to
     # this job, so pull-request runs never queue in it: a PR can neither hold
@@ -143,6 +153,26 @@ jobs:
         with:
           name: lua
           path: lua/
+      # What a prune WOULD remove, named one per line in this step's log, and
+      # counted into this job's outputs. Writes nothing -- dry-run makes every
+      # upsert and delete a log line -- so it is safe on the deploy path and
+      # runs on every push, whether or not pruning is enabled.
+      - name: Plan what a prune would remove
+        uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
+        id: prune-plan
+        with:
+          happyview-url: ${{ vars.HAPPYVIEW_URL }}
+          api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          lexicons: |
+            lexicons/**/*.json
+            vendor/lexicons/**/*.json
+          scripts: |
+            lua/**/*.lua
+            !lua/jobs/**
+          jobs: lua/jobs/**/*.lua
+          prune: "true"
+          dry-run: "true"
+
       - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
         id: deploy
         with:
@@ -159,10 +189,11 @@ jobs:
             lua/**/*.lua
             !lua/jobs/**
           jobs: lua/jobs/**/*.lua
-          # prune is deliberately OFF. Turning it on makes a deleted file
-          # delete live lexicons and scripts, which for a record-type lexicon
-          # also orphans indexed data. Delete deliberately, by hand, until
-          # there is a reason to automate it.
+          # Still OFF here. Deleting a lexicon or script is the one deploy
+          # action that cannot be undone by pushing a fix -- for a record-type
+          # lexicon it also orphans the records indexed under it -- so it does
+          # not ride along with an ordinary deploy. The prune job below does
+          # it, once someone has read the dry run above and approved.
           prune: "false"
 
       - name: Summarise
@@ -177,6 +208,77 @@ jobs:
             echo "| jobs | ${{ steps.deploy.outputs.jobs-deployed }} |"
             echo "| labelers | ${{ steps.deploy.outputs.labelers-deployed }} |"
             echo "| errors | ${{ steps.deploy.outputs.errors }} |"
+            echo ""
+            echo "Prune would remove ${{ steps.prune-plan.outputs.lexicons-pruned }} lexicon(s) and ${{ steps.prune-plan.outputs.scripts-pruned }} script(s)."
+            echo "See the \"Plan what a prune would remove\" step's log for the names. Nothing is deleted without approving the Prune job."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Deleting what the repo no longer contains. Separate from deploy, and
+  # off unless two things are true, because this is the only irreversible
+  # step in the pipeline:
+  #
+  #   - HAPPYVIEW_ALLOW_PRUNE must be "true" as a repository variable. Merging
+  #     this workflow therefore cannot itself delete anything: an unset
+  #     variable is not "true", so the job is skipped. Unset it to disarm
+  #     pruning again without reverting the workflow.
+  #   - the production-prune environment gates the run. Give it a required
+  #     reviewer and GitHub holds the job until someone approves it, with the
+  #     dry run from the deploy job already in the log above.
+  #
+  # Both are deliberate, and the job is skipped entirely when the dry run
+  # found nothing to remove, so an ordinary deploy never asks for a click.
+  #
+  # The action upserts as well as prunes, so an approved run re-uploads the
+  # same files the deploy job just uploaded before deleting the absent ones.
+  # That is idempotent, and it keeps the prune reading one consistent view of
+  # the repo rather than a half-applied one.
+  prune:
+    name: Prune
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'push'
+      && vars.HAPPYVIEW_ALLOW_PRUNE == 'true'
+      && (needs.deploy.outputs.prunable-lexicons != '0'
+          || needs.deploy.outputs.prunable-scripts != '0')
+    needs: deploy
+    runs-on: depot-ubuntu-24.04
+    environment: production-prune
+    # Shares the deploy group: a prune awaiting approval must not run while a
+    # later push is mid-deploy, or it would delete against one repo state
+    # having been planned against another.
+    concurrency:
+      group: happyview-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lua
+          path: lua/
+      - uses: gamesgamesgamesgamesgames/happyview-actions/deploy@v1
+        id: prune
+        with:
+          happyview-url: ${{ vars.HAPPYVIEW_URL }}
+          api-key: ${{ secrets.HAPPYVIEW_API_KEY }}
+          lexicons: |
+            lexicons/**/*.json
+            vendor/lexicons/**/*.json
+          scripts: |
+            lua/**/*.lua
+            !lua/jobs/**
+          jobs: lua/jobs/**/*.lua
+          prune: "true"
+          dry-run: "false"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Pruned \`${{ vars.HAPPYVIEW_URL }}\`"
+            echo ""
+            echo "| what | count |"
+            echo "| --- | --- |"
+            echo "| lexicons deleted | ${{ steps.prune.outputs.lexicons-pruned }} |"
+            echo "| scripts deleted | ${{ steps.prune.outputs.scripts-pruned }} |"
+            echo "| errors | ${{ steps.prune.outputs.errors }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The lexicons as com.atproto.lexicon.schema records in their owners' repos,
