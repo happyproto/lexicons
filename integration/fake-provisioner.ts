@@ -85,6 +85,8 @@ function fresh() {
     hosts: [] as Json[],
     staff: [] as string[],
     instanceLimit: 3,
+    /** DID -> `{email, email_confirmed, email_seen_at}`, as accounts holds them. */
+    accountEmails: {} as Record<string, Json>,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -504,6 +506,19 @@ function upgradeTenant(tenant: Json, body: Json, actor: string): Response {
   return reply(202, { operation });
 }
 
+/** GET /v1/account's body for `actor`. */
+function accountBody(actor: string): Json {
+  const count = state.tenants.filter((t) => t.owner_did === actor && !t.deleted_at).length;
+  const recorded = state.accountEmails[actor] ?? {};
+  return {
+    instance_count: count,
+    instance_limit: state.instanceLimit,
+    email: recorded.email ?? null,
+    email_confirmed: recorded.email_confirmed ?? null,
+    email_seen_at: recorded.email_seen_at ?? null,
+  };
+}
+
 async function route(req: Request, url: URL, actor: string, body: Json): Promise<Response> {
   const staff = state.staff.includes(actor);
   const can = (owner: string) => staff || owner === actor;
@@ -515,8 +530,37 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
   }
 
   if (req.method === "GET" && resource === "account" && parts.length === 2) {
-    const count = state.tenants.filter((t) => t.owner_did === actor && !t.deleted_at).length;
-    return reply(200, { instance_count: count, instance_limit: state.instanceLimit });
+    return reply(200, accountBody(actor));
+  }
+
+  // PUT /v1/account/email: a blank or missing address keeps the last one, and
+  // an unconfirmed one never replaces a confirmed one. The reply says what is
+  // held, never the address.
+  if (req.method === "PUT" && resource === "account" && parts[2] === "email" && parts.length === 3) {
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return error(400, "InvalidEmail", "email must be an email address");
+    }
+    const held = state.accountEmails[actor];
+    const confirmed = body.email_confirmed === true;
+    if (email && (confirmed || held?.email_confirmed !== true || held.email === email)) {
+      state.accountEmails[actor] = {
+        email,
+        email_confirmed:
+          held?.email === email && held.email_confirmed === true
+            ? true
+            : typeof body.email_confirmed === "boolean"
+              ? body.email_confirmed
+              : null,
+        email_seen_at: new Date().toISOString(),
+      };
+    }
+    const now = state.accountEmails[actor];
+    return reply(200, {
+      email_recorded: Boolean(now?.email),
+      email_confirmed: now?.email_confirmed ?? null,
+      email_seen_at: now?.email_seen_at ?? null,
+    });
   }
 
   if (req.method === "GET" && resource === "slugs" && parts.length === 3) {

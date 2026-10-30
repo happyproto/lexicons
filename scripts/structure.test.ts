@@ -139,6 +139,9 @@ const UNGATED: Record<string, string> = {
   "at/happyproto/actor/getProfile": "reports membership",
   // Any signed-in caller; it checks for itself whether they are a customer.
   "at/happyproto/actor/getAccount": "signed-in only, its own check",
+  // Called for everyone after sign-in; it checks customer-or-staff itself and
+  // answers a non-member with recorded = false.
+  "at/happyproto/actor/syncAccount": "signed-in only, its own customer-or-staff check",
   // Its callers are not customers yet; the invite token is the authority.
   "at/happyproto/actor/acceptInvite": "signed-in only, the token is the authority",
 };
