@@ -41,6 +41,13 @@ function handle(input, ctx)
     plan = plan,
     version = version,
   }, input.idempotencyKey)
+  -- Mapped here rather than passed through for every method: only a plan
+  -- change can be too small for the instance's data. The message is the
+  -- provisioner's, built from the plan's name and two numbers.
+  if status == 409 and type(body) == "table" and body.error == "PlanTooSmall"
+    and type(body.message) == "string" then
+    return failure("PlanTooSmall", body.message)
+  end
   if status ~= 202 or type(body) ~= "table" then
     return provisioner_failure(status, body)
   end

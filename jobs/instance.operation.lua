@@ -31,7 +31,14 @@ local DEADLINE_SECONDS = 15 * 60
 -- Operation error codes whose messages the provisioner writes as fixed text,
 -- safe to show a customer as they are. Not StepFailed: its text can carry a
 -- probe's error.
-local SAFE_MESSAGES = { Timeout = true, UpgradeRolledBack = true, NoCapacity = true }
+local SAFE_MESSAGES = {
+  Timeout = true, UpgradeRolledBack = true, NoCapacity = true, QuotaBelowUsage = true,
+}
+
+-- Operation codes a customer knows under another name. The agent refusing a
+-- quota below the instance's data is the same answer updateInstance gives
+-- when it can tell up front.
+local CUSTOMER_NAMES = { QuotaBelowUsage = "PlanTooSmall" }
 local FALLBACK_MESSAGE = "The change could not be completed."
 
 -- The codes a customer is ever shown (the spec's error table). Any other
@@ -39,7 +46,7 @@ local FALLBACK_MESSAGE = "The change could not be completed."
 local CUSTOMER_CODES = {
   AuthRequired = true, Forbidden = true, InvalidRequest = true, InvalidSlug = true,
   SlugTaken = true, NotEntitled = true, InstanceLimit = true, NoCapacity = true,
-  OperationInProgress = true, NotFound = true, Upstream = true,
+  OperationInProgress = true, NotFound = true, Upstream = true, PlanTooSmall = true,
 }
 
 --- Raise the job's failure as "<customer code>: <message>".
@@ -100,8 +107,12 @@ function handle(input, ctx)
         if not SAFE_MESSAGES[code] or type(message) ~= "string" or message == "" then
           log.warn("operation failed", { operation = id, code = code, message = message })
           message = FALLBACK_MESSAGE
+        else
+          -- The provisioner prefixes the step that failed ("apply: ..."),
+          -- which says nothing to a customer.
+          message = message:gsub("^[%l_]+: ", "", 1)
         end
-        fail(code, message)
+        fail(CUSTOMER_NAMES[code] or code, message)
       end
     elseif type(status) == "number" and status >= 400 and status < 500 then
       -- The operation is gone or was never the creator's. Asking again will
