@@ -640,6 +640,30 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return reply(200, { operation: op });
   }
 
+  // api/operations.rs `list`: newest first, keyset on (created_at, id), a
+  // `before` from another tenant ends the list.
+  if (req.method === "GET" && resource === "tenants" && id && parts[3] === "operations" && parts.length === 4) {
+    const tenant = state.tenants.find((t) => t.id === id);
+    if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
+    const limit = Number(url.searchParams.get("limit") ?? "20");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return error(400, "InvalidRequest", "limit must be between 1 and 100");
+    }
+    const key = (o: Json) => `${o.created_at}\u0000${o.id}`;
+    const mine = state.operations
+      .filter((o) => o.tenant_id === id)
+      .sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
+    const before = url.searchParams.get("before");
+    let rest = mine;
+    if (before) {
+      const at = mine.findIndex((o) => o.id === before);
+      rest = at === -1 ? [] : mine.slice(at + 1);
+    }
+    const page = rest.slice(0, limit);
+    const cursor = rest.length > limit ? page[page.length - 1].id : null;
+    return reply(200, { operations: page, cursor });
+  }
+
   if (req.method === "POST" && resource === "tenants" && parts.length === 2) {
     return createTenant(body, actor, staff);
   }

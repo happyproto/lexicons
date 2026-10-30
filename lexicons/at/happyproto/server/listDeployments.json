@@ -1,0 +1,228 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.listDeployments",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The changes made to one of the caller's own instances, newest first, a page at a time. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor a previous page returned."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "deployments"
+          ],
+          "properties": {
+            "deployments": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#deployment"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Pass as cursor for the next page. Absent on the last page."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id is not a UUID, limit is outside 1 to 100, or cursor is not one this method returned."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "deployment": {
+      "type": "object",
+      "description": "One change to an instance: a provisioner operation. Never carries the host, a staff member's identity, or an error message not written for the owner.",
+      "required": [
+        "id",
+        "kind",
+        "isDeployment",
+        "change",
+        "requestedBy",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The change's UUID."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "create",
+            "update",
+            "upgrade",
+            "stop",
+            "start",
+            "destroy"
+          ]
+        },
+        "isDeployment": {
+          "type": "boolean",
+          "description": "Whether the change started the instance's container. Stopping, deleting, and domain-only updates are not deployments."
+        },
+        "change": {
+          "type": "ref",
+          "ref": "#change"
+        },
+        "requestedBy": {
+          "type": "string",
+          "knownValues": [
+            "owner",
+            "staff",
+            "system"
+          ],
+          "description": "Who asked: the instance's owner, HappyProto staff, or HappyProto's own reconciler."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "running",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": "ref",
+          "ref": "#error"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When a worker last picked it up."
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "description": "What the change was for.",
+      "properties": {
+        "version": {
+          "type": "ref",
+          "ref": "#fromTo",
+          "description": "The HappyView release, for an upgrade."
+        },
+        "plan": {
+          "type": "ref",
+          "ref": "#fromTo",
+          "description": "The plan, for a resize."
+        },
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "retry",
+            "drift",
+            "domains",
+            "primary",
+            "primary_forced"
+          ],
+          "description": "Why an update ran, when it was not a plan or version change."
+        }
+      }
+    },
+    "fromTo": {
+      "type": "object",
+      "description": "A value before and after the change. Either side is absent when unknown.",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "The provisioner's error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Present only for codes whose message is written for the owner."
+        }
+      }
+    }
+  }
+}

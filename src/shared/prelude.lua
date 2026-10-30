@@ -529,6 +529,108 @@ local function admin_instance(t, op, host_name)
 end
 -- @endblock
 
+-- @block deployments
+-- Provisioner operations, mapped to the deployments a customer sees. As with
+-- instances, every field is listed explicitly. Customers never see host_id,
+-- params beyond what changed, a staff member's DID, or an error message the
+-- provisioner did not write for them.
+
+-- Error codes whose message was written for the owner, as instance.operation
+-- shows them. Any other message can name hosts or internal state.
+local OWNER_MESSAGES = { Timeout = true, UpgradeRolledBack = true, NoCapacity = true }
+
+-- An update whose reason is one of these changed only routing or DNS, so the
+-- container it ran is the one already running: an event, not a deployment.
+local ROUTING_ONLY = { domains = true, primary = true, primary_forced = true }
+
+local function from_to(v)
+  if type(v) ~= "table" then return nil end
+  local from = type(v.from) == "string" and v.from or nil
+  local to = type(v.to) == "string" and v.to or nil
+  if not from and not to then return nil end
+  return { from = from, to = to }
+end
+
+--- Whether `op` (re)started the instance's container rather than only
+--- changing how it is reached or stopping it.
+local function is_deployment(op)
+  if op.kind == "create" or op.kind == "upgrade" or op.kind == "start" then return true end
+  if op.kind ~= "update" then return false end
+  local reason = type(op.params) == "table" and op.params.reason or nil
+  return not ROUTING_ONLY[reason]
+end
+
+--- "owner", "system" or "staff": who asked, without naming a staff member.
+local function requester(op, owner_did)
+  local by = op.requested_by
+  if by == owner_did then return "owner" end
+  if type(by) == "string" and by:sub(1, 7) == "system:" then return "system" end
+  return "staff"
+end
+
+--- The owner's message for a failed operation, or nil when its code's
+--- message was not written for them. `error_message` is "<step>: <text>".
+local function owner_message(op)
+  if not OWNER_MESSAGES[op.error_code] or type(op.error_message) ~= "string" then return nil end
+  return (op.error_message:gsub("^[%w_]+: ", ""))
+end
+
+--- The customer `deployment` for a provisioner operation of `owner_did`'s
+--- tenant: `{id, kind, isDeployment, change, requestedBy, status, error?,
+--- createdAt, startedAt?, finishedAt?}`.
+local function public_deployment(op, owner_did)
+  local params = type(op.params) == "table" and op.params or {}
+  local change = {
+    version = from_to(params.version),
+    plan = from_to(params.plan),
+    reason = type(params.reason) == "string" and params.reason or nil,
+  }
+  local err
+  if type(op.error_code) == "string" then
+    err = { code = op.error_code, message = owner_message(op) }
+  end
+  return {
+    id = op.id,
+    kind = op.kind,
+    isDeployment = is_deployment(op),
+    change = change,
+    requestedBy = requester(op, owner_did),
+    status = op.status,
+    error = err,
+    createdAt = op.created_at,
+    startedAt = type(op.started_at) == "string" and op.started_at or nil,
+    finishedAt = type(op.finished_at) == "string" and op.finished_at or nil,
+  }
+end
+
+--- A step's detail as text: a failed step's is the error string, and a
+--- rollback's is `{restored, reason}`, read for its reason.
+local function step_detail(detail)
+  if type(detail) == "string" then return detail end
+  if type(detail) == "table" and type(detail.reason) == "string" then return detail.reason end
+  return nil
+end
+
+--- An operation's steps, in order, as `{name, status, at, detail?}`. Detail
+--- is shown only when the operation's error code is one written for the
+--- owner, since otherwise it can name hosts or internal state.
+local function public_steps(op)
+  local out = {}
+  local shown = OWNER_MESSAGES[op.error_code] == true
+  for _, step in ipairs(type(op.steps) == "table" and op.steps or {}) do
+    if type(step) == "table" and type(step.name) == "string" then
+      out[#out + 1] = {
+        name = step.name,
+        status = step.status,
+        at = step.at,
+        detail = shown and step_detail(step.detail) or nil,
+      }
+    end
+  end
+  return out
+end
+-- @endblock
+
 -- @block jobs
 local jobs = require("happyview.jobs")
 local log = require("internal.logging")
