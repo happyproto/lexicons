@@ -1,0 +1,100 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.upgradeInstance",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Upgrade one of the caller's instances to the newer HappyView release its availableVersion offers, and start a job that follows the upgrade. The instance is offline for about 30 seconds; its database is snapshotted first, and a release that does not come up healthy is rolled back. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "id",
+            "version",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The instance's UUID."
+            },
+            "version": {
+              "type": "string",
+              "description": "The release to upgrade to: the instance's availableVersion.version, as the caller was shown it."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "jobId"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "description": "The background job following the change. Poll it with at.happyproto.server.getJob."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id or idempotencyKey is missing or not a UUID, version is missing, or the release is not newer than the one the instance runs."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner: it reserves slugs by configuration as well."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "UpgradeUnavailable",
+          "description": "The release is not the one on offer for this instance: there is none, a newer one replaced it, or the instance already runs it."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    }
+  }
+}
