@@ -59,6 +59,16 @@ export function sessionCookie(did: string): string {
 }
 
 /**
+ * The headers that sign a request in as `did`: the session cookie, and the
+ * `Sec-Fetch-Site` a browser sends from the instance's own pages. HappyView
+ * counts the cookie only on a same-origin request, and `fetch` from Node sends
+ * no fetch metadata unless told to, so without it the request is anonymous.
+ */
+export function sessionHeaders(did: string): Record<string, string> {
+  return { cookie: sessionCookie(did), "sec-fetch-site": "same-origin" };
+}
+
+/**
  * Make `did` a HappyView user, as a super user when `superUser`. The admin
  * API answers only to users in this table; a first-run instance has none, so
  * the first one goes in through the database, as HappyView's e2e does.

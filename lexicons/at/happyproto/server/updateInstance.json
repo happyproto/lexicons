@@ -86,6 +86,10 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "PlanTooSmall",
+          "description": "The instance holds more data than the chosen plan's disk would leave room for. Passed through from the provisioner with how much it holds; free some space or choose a larger plan. The change's job can also fail with this code, when the host finds it at apply time."
+        },
+        {
           "name": "OperationInProgress",
           "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
         },

@@ -1,0 +1,265 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getDeployment",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One change to one of the caller's own instances, with its steps. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id",
+          "deploymentId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          },
+          "deploymentId": {
+            "type": "string",
+            "description": "The change's UUID, as listDeployments returns it."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "deployment"
+          ],
+          "properties": {
+            "deployment": {
+              "type": "ref",
+              "ref": "#deploymentView"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id or deploymentId is not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance or change, or either is not the caller's, or the change belongs to another instance. These are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "deploymentView": {
+      "type": "object",
+      "description": "A change with its steps.",
+      "required": [
+        "id",
+        "kind",
+        "isDeployment",
+        "change",
+        "requestedBy",
+        "status",
+        "createdAt",
+        "steps"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The change's UUID."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "create",
+            "update",
+            "upgrade",
+            "stop",
+            "start",
+            "destroy"
+          ]
+        },
+        "isDeployment": {
+          "type": "boolean",
+          "description": "Whether the change started the instance's container. Stopping, deleting, and domain-only updates are not deployments."
+        },
+        "change": {
+          "type": "ref",
+          "ref": "#change"
+        },
+        "requestedBy": {
+          "type": "string",
+          "knownValues": [
+            "owner",
+            "staff",
+            "system"
+          ],
+          "description": "Who asked: the instance's owner, HappyProto staff, or HappyProto's own reconciler."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "pending",
+            "running",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": "ref",
+          "ref": "#error"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When a worker last picked it up."
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#step"
+          },
+          "description": "In the order they ran."
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "name",
+        "status",
+        "at"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "knownValues": [
+            "apply",
+            "healthy",
+            "stopped",
+            "owner",
+            "route",
+            "dns",
+            "store",
+            "domain",
+            "remove",
+            "rollback"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "at": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "detail": {
+          "type": "string",
+          "description": "Why the step failed, present only when the change's error code is one written for the owner."
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "description": "What the change was for.",
+      "properties": {
+        "version": {
+          "type": "ref",
+          "ref": "#fromTo",
+          "description": "The HappyView release, for an upgrade."
+        },
+        "plan": {
+          "type": "ref",
+          "ref": "#fromTo",
+          "description": "The plan, for a resize."
+        },
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "retry",
+            "drift",
+            "domains",
+            "primary",
+            "primary_forced"
+          ],
+          "description": "Why an update ran, when it was not a plan or version change."
+        }
+      }
+    },
+    "fromTo": {
+      "type": "object",
+      "description": "A value before and after the change. Either side is absent when unknown.",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "The provisioner's error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Present only for codes whose message is written for the owner."
+        }
+      }
+    }
+  }
+}
