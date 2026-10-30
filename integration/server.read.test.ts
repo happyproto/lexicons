@@ -345,6 +345,76 @@ describe("staff using the customer endpoints see only their own", () => {
   });
 });
 
+describe("server.getUsage", () => {
+  const usagePath = `/v1/tenants/${RUNNING_ID}/usage`;
+
+  test("reads the caller's own instance's usage, in the shared shape", async () => {
+    await provisioner.script("GET", usagePath, 200, {
+      tenant: RUNNING_ID,
+      grain: "day",
+      rows: [
+        {
+          day: "2026-10-26",
+          running_seconds: 86400,
+          cpu_usec: 1,
+          mem_byte_seconds: 2,
+          mem_peak_bytes: 3,
+          egress_bytes: 4,
+          ingress_bytes: 5,
+          disk_avg_bytes: 8,
+          disk_peak_bytes: null,
+          seats: 2,
+          api_clients: null,
+          partial: true,
+          extra: "never passed on",
+        },
+      ],
+      gaps: [{ hour: "2026-10-26T03:00:00Z", reason: "agent_unreachable" }],
+    });
+    const out = await ok(server("getUsage"), "customer", {
+      params: { id: RUNNING_ID, grain: "day", from: "2026-10-01T00:00:00Z", to: "2026-10-31T00:00:00Z" },
+    });
+    expect(out).toEqual({
+      tenant: RUNNING_ID,
+      grain: "day",
+      rows: [
+        {
+          day: "2026-10-26",
+          runningSeconds: 86400,
+          cpuUsec: 1,
+          memByteSeconds: 2,
+          memPeakBytes: 3,
+          egressBytes: 4,
+          ingressBytes: 5,
+          diskAvgBytes: 8,
+          seats: 2,
+          partial: true,
+        },
+      ],
+      gaps: [{ hour: "2026-10-26T03:00:00Z", reason: "agent_unreachable" }],
+    });
+    const sent = (await provisioner.requests()).filter((r) => r.path === usagePath);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].query).toEqual({ grain: "day", from: "2026-10-01T00:00:00Z", to: "2026-10-31T00:00:00Z" });
+    expect(sent[0].headers["x-actor-did"]).toBe(s.accounts.customer.did);
+  });
+
+  test("someone else's instance is NotFound, and their usage is never read", async () => {
+    await fails(server("getUsage"), "customer", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
+    const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/usage"));
+    expect(reads).toEqual([]);
+  });
+
+  test("a bad id or range is InvalidRequest", async () => {
+    await fails(server("getUsage"), "customer", "InvalidRequest", { params: { id: "../plans" } });
+    await fails(server("getUsage"), "customer", "InvalidRequest", { params: { id: RUNNING_ID, grain: "week" } });
+  });
+
+  test("is Forbidden to non-customers", async () => {
+    await fails(server("getUsage"), "outsider", "Forbidden", { params: { id: RUNNING_ID } });
+  });
+});
+
 describe("actor.getAccount", () => {
   test("a customer gets their count and limit from the provisioner", async () => {
     expect(await ok(GET_ACCOUNT, "customer")).toEqual({
