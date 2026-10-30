@@ -13,7 +13,7 @@
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { ensureTestUser, sessionCookie } from "./session";
+import { ensureTestUser, sessionHeaders } from "./session";
 
 export const HAPPYVIEW_URL = process.env.INTEGRATION_HAPPYVIEW_URL ?? "http://127.0.0.1:55200";
 export const PDS_URL = process.env.INTEGRATION_PDS_URL ?? "http://127.0.0.1:55100";
@@ -124,7 +124,7 @@ async function createSpaces(
     await fetch(`${HAPPYVIEW_URL}/xrpc/at.happyproto.admin.createSpaces`, {
       method: "POST",
       headers: {
-        cookie: sessionCookie(owner.did),
+        ...sessionHeaders(owner.did),
         "x-client-key": client.key,
         "x-client-secret": client.secret,
         "content-type": "application/json",
@@ -150,7 +150,7 @@ export async function putMember(
     await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.simplespace.putMember`, {
       method: "POST",
       headers: {
-        cookie: sessionCookie(authority.did),
+        ...sessionHeaders(authority.did),
         "x-client-key": clientKey,
         "content-type": "application/json",
       },
@@ -171,7 +171,7 @@ export async function removeMember(
     await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.simplespace.removeMember`, {
       method: "POST",
       headers: {
-        cookie: sessionCookie(authority.did),
+        ...sessionHeaders(authority.did),
         "x-client-key": clientKey,
         "content-type": "application/json",
       },
@@ -338,7 +338,7 @@ async function setup(): Promise<Stack> {
   // and register the API client, as a fresh instance's first sign-in would.
   await ensureTestUser(accounts.happyproto.did, true);
   const operator = {
-    cookie: sessionCookie(accounts.happyproto.did),
+    ...sessionHeaders(accounts.happyproto.did),
     "content-type": "application/json",
   };
 

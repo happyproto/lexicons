@@ -10,7 +10,7 @@ import { jsonToLex, Lexicons } from "@atproto/lexicon";
 import { expect } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { sessionCookie } from "./session";
+import { sessionHeaders } from "./session";
 import { HAPPYVIEW_URL, stack, type AccountName } from "./setup";
 
 async function loadLexicons(dir = "lexicons"): Promise<any[]> {
@@ -50,7 +50,7 @@ export async function call(
     "x-client-key": client.key,
     "x-client-secret": client.secret,
   };
-  if (who) headers.cookie = sessionCookie(accounts[who].did);
+  if (who) Object.assign(headers, sessionHeaders(accounts[who].did));
   if (input !== undefined) headers["content-type"] = "application/json";
 
   const res = await fetch(url, {
