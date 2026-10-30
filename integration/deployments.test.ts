@@ -79,6 +79,17 @@ beforeEach(async () => {
       tenant(MY_OTHER, "beta", customer.did),
       tenant(THEIRS, "gamma", "did:plc:someoneelseentirely"),
     ],
+    logs: {
+      [MINE]: {
+        lines: [
+          { at: "2026-10-30T01:00:00Z", cursor: "s=a;i=1", level: "info", stream: "stdout", message: "listening" },
+          { at: "2026-10-30T01:00:01Z", cursor: "s=a;i=2", level: "warn", stream: "stderr", message: "key=[redacted]" },
+        ],
+        cursor: "s=a;i=1",
+        more: true,
+        oldest_available: "2026-10-01T00:00:00Z",
+      },
+    },
     operations: [
       op(CREATE, MINE, "2026-10-01T12:00:00Z", { requested_by: customer.did }),
       op(UPGRADE, MINE, "2026-10-20T12:00:00Z", {
@@ -185,5 +196,84 @@ describe("server.getDeployment", () => {
     await fails(server("getDeployment"), "customer", "InvalidRequest", { params: { id: MINE, deploymentId: "x" } });
     await fails(server("getDeployment"), "customer", "InvalidRequest", { params: { id: "x", deploymentId: UPGRADE } });
     expect(await provisioner.requests()).toEqual([]);
+  });
+});
+
+describe("server.getLogs", () => {
+  test("returns the page oldest first, without per-line cursors", async () => {
+    const out = await ok(server("getLogs"), "customer", { params: { id: MINE } });
+    expect(out).toEqual({
+      lines: [
+        { at: "2026-10-30T01:00:00Z", level: "info", stream: "stdout", message: "listening" },
+        { at: "2026-10-30T01:00:01Z", level: "warn", stream: "stderr", message: "key=[redacted]" },
+      ],
+      cursor: "s=a;i=1",
+      more: true,
+      oldestAvailable: "2026-10-01T00:00:00Z",
+    });
+  });
+
+  test("passes a deployment and paging through, encoded", async () => {
+    const out = await ok(server("getLogs"), "customer", {
+      params: {
+        id: MINE,
+        deploymentId: UPGRADE,
+        since: "2026-10-20T12:00:00.5+00:00",
+        cursor: "s=a;i=1",
+        direction: "backward",
+        limit: "50",
+      },
+    });
+    expect(out.window).toEqual({ since: "2026-10-20T12:00:00Z" });
+    const asked = (await provisioner.requests()).find((r: any) => r.path.endsWith("/logs"));
+    expect(asked.query).toEqual({
+      operation: UPGRADE,
+      since: "2026-10-20T12:00:00.5+00:00",
+      cursor: "s=a;i=1",
+      direction: "backward",
+      limit: "50",
+    });
+  });
+
+  test("a change that started no container is NotADeployment", async () => {
+    await provisioner.state({
+      operations: [op(OTHER_OP, MINE, "2026-10-28T12:00:00Z", { kind: "stop", requested_by: s.accounts.customer.did })],
+    });
+    await fails(server("getLogs"), "customer", "NotADeployment", { params: { id: MINE, deploymentId: OTHER_OP } });
+  });
+
+  test("bad input is refused locally, and nothing is sent", async () => {
+    for (const params of [
+      { id: "alpha" },
+      { id: MINE, deploymentId: "x" },
+      { id: MINE, since: "yesterday" },
+      { id: MINE, cursor: "--output=short" },
+      { id: MINE, direction: "sideways" },
+      { id: MINE, limit: "1001" },
+    ]) {
+      await fails(server("getLogs"), "customer", "InvalidRequest", { params });
+    }
+    expect(await provisioner.requests()).toEqual([]);
+  });
+
+  test("someone else's instance is NotFound, and their logs are never asked for", async () => {
+    await fails(server("getLogs"), "customer", "NotFound", { params: { id: THEIRS } });
+    const asked = (await provisioner.requests()).map((r: any) => r.path);
+    expect(asked.some((p: string) => p.endsWith("/logs"))).toBe(false);
+  });
+
+  test("the provisioner's log codes pass through with their words", async () => {
+    for (const [status, code] of [
+      [503, "LogsUnavailable"],
+      [429, "LogsBusy"],
+      [504, "LogsTimeout"],
+    ] as const) {
+      await provisioner.script("GET", `/v1/tenants/${MINE}/logs`, status, {
+        error: code,
+        message: `${code} words`,
+      });
+      const reply = await fails(server("getLogs"), "customer", code, { params: { id: MINE } });
+      expect(JSON.stringify(reply.body)).toContain(`${code} words`);
+    }
   });
 });

@@ -89,6 +89,8 @@ function fresh() {
     invites: [] as Json[],
     customDomains: false,
     domains: [] as Json[],
+    /** GET /v1/tenants/:id/logs's page, by tenant id. */
+    logs: {} as Record<string, Json>,
     autoscale: {
       enabled: true,
       paused: false,
@@ -643,6 +645,24 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const page = rest.slice(0, limit);
     const cursor = rest.length > limit ? page[page.length - 1].id : null;
     return reply(200, { operations: page, cursor });
+  }
+
+  // api/logs.rs `list`: owner-scoped, answering a seeded page per tenant
+  // (state.logs[tenantId]) or an empty one. `operation` must be the
+  // tenant's own; anything else about the window is the real one's business.
+  if (req.method === "GET" && resource === "tenants" && id && parts[3] === "logs" && parts.length === 4) {
+    const tenant = state.tenants.find((t) => t.id === id);
+    if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
+    const opId = url.searchParams.get("operation");
+    if (opId) {
+      const op = state.operations.find((o) => o.id === opId && o.tenant_id === id);
+      if (!op) return error(404, "NotFound", "operation not found");
+      if (op.kind === "stop" || op.kind === "destroy") {
+        return error(400, "NotADeployment", "this operation started no container, so it has no logs of its own");
+      }
+    }
+    const page = state.logs[id] ?? { lines: [], cursor: null, more: false, oldest_available: null };
+    return reply(200, { ...page, window: opId ? { since: "2026-10-20T12:00:00Z", until: null } : null });
   }
 
   if (req.method === "POST" && resource === "tenants" && parts.length === 2) {

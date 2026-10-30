@@ -38,6 +38,8 @@ export const provisioner = {
     autoscale?: any;
     /** Host requests as GET /v1/host-requests/:id answers them, events included. */
     hostRequests?: any[];
+    /** GET /v1/tenants/:id/logs's page, by tenant id. */
+    logs?: Record<string, any>;
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>
