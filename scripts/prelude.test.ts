@@ -343,6 +343,93 @@ describe("instance shapes", () => {
   });
 });
 
+describe("deployment shapes", () => {
+  // Every column the provisioner's Operation serialises.
+  const OP = (extra: string) => `{
+    id = "op-1", tenant_id = "t-1", kind = "upgrade", status = "succeeded",
+    params = { version = { from = "3.0.0-alpha.40", to = "3.0.0-alpha.41" } },
+    steps = {
+      { name = "apply", status = "succeeded", at = "2026-10-30T01:00:01Z" },
+      { name = "healthy", status = "succeeded", at = "2026-10-30T01:00:09Z" },
+    },
+    requested_by = "did:plc:alice", created_at = "2026-10-30T01:00:00Z",
+    started_at = "2026-10-30T01:00:00Z", finished_at = "2026-10-30T01:00:10Z",
+    host_id = "h-1", ${extra}
+  }`;
+
+  it("public_deployment is exactly the customer shape", () => {
+    const { r1 } = run(`return public_deployment(${OP("")}, "did:plc:alice")`);
+    expect(r1).toEqual({
+      id: "op-1",
+      kind: "upgrade",
+      isDeployment: true,
+      change: { version: { from: "3.0.0-alpha.40", to: "3.0.0-alpha.41" } },
+      requestedBy: "owner",
+      status: "succeeded",
+      createdAt: "2026-10-30T01:00:00Z",
+      startedAt: "2026-10-30T01:00:00Z",
+      finishedAt: "2026-10-30T01:00:10Z",
+    });
+  });
+
+  it("never names the host or a staff member", () => {
+    const { r1 } = run(`return public_deployment(${OP('requested_by = "did:plc:staff"')}, "did:plc:alice")`);
+    expect(r1.requestedBy).toBe("staff");
+    expect(JSON.stringify(r1)).not.toContain("did:plc:staff");
+    expect(JSON.stringify(r1)).not.toContain("h-1");
+    const sys = run(`return public_deployment(${OP('requested_by = "system:reconciler"')}, "did:plc:alice")`);
+    expect(sys.r1.requestedBy).toBe("system");
+  });
+
+  it("marks what started the container", () => {
+    const cases: [string, string, boolean][] = [
+      ["create", "{}", true],
+      ["start", "{}", true],
+      ["upgrade", "{}", true],
+      ["update", '{ plan = { from = "small", to = "large" } }', true],
+      ["update", '{ reason = "retry" }', true],
+      ["update", '{ reason = "drift" }', true],
+      ["update", '{ reason = "domains" }', false],
+      ["update", '{ reason = "primary" }', false],
+      ["update", '{ reason = "primary_forced" }', false],
+      ["stop", "{}", false],
+      ["destroy", "{}", false],
+    ];
+    for (const [kind, params, want] of cases) {
+      const { r1 } = run(`return public_deployment(${OP(`kind = "${kind}", params = ${params}`)}, "did:plc:alice")`);
+      expect([kind, params, r1.isDeployment]).toEqual([kind, params, want]);
+    }
+  });
+
+  it("shows an error message only for codes written for the owner", () => {
+    const rolled = run(
+      `return public_deployment(${OP('status = "failed", error_code = "UpgradeRolledBack", error_message = "apply: the new release did not come up healthy"')}, "did:plc:alice")`,
+    );
+    expect(rolled.r1.error).toEqual({ code: "UpgradeRolledBack", message: "the new release did not come up healthy" });
+    const internal = run(
+      `return public_deployment(${OP('status = "failed", error_code = "AgentError", error_message = "apply: host 10.0.1.10 refused"')}, "did:plc:alice")`,
+    );
+    expect(internal.r1.error).toEqual({ code: "AgentError" });
+  });
+
+  it("public_steps keeps the order and withholds detail unless the code is the owner's", () => {
+    const steps = `steps = {
+      { name = "apply", status = "failed", at = "a", detail = "the new release did not come up healthy" },
+      { name = "rollback", status = "succeeded", at = "b", detail = { restored = true, reason = "unhealthy after 120s" } },
+    }`;
+    const hidden = run(`return public_steps(${OP(`${steps}, error_code = "AgentError"`)})`);
+    expect(hidden.r1).toEqual([
+      { name: "apply", status: "failed", at: "a" },
+      { name: "rollback", status: "succeeded", at: "b" },
+    ]);
+    const shown = run(`return public_steps(${OP(`${steps}, error_code = "UpgradeRolledBack"`)})`);
+    expect(shown.r1).toEqual([
+      { name: "apply", status: "failed", at: "a", detail: "the new release did not come up healthy" },
+      { name: "rollback", status: "succeeded", at: "b", detail: "unhealthy after 120s" },
+    ]);
+  });
+});
+
 describe("provisioner", () => {
   it("sends the token, the actor, the key and JSON to the configured URL", () => {
     const { r1, r2, calls } = run(`
