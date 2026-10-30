@@ -13,3 +13,4 @@ happyview-linked-repos|https://github.com/happyproto/plugins/releases/download/h
 happyview-blobs|https://github.com/happyproto/plugins/releases/download/happyview-blobs-v1.0.0-alpha.4/manifest.json|sha256:57bccc7253bc65f50c8dc8c3a25a1e3dfd899e08bd4689beffa0498745083b9d
 happyview-db|https://github.com/happyproto/plugins/releases/download/happyview-db-v1.0.0-alpha.4/manifest.json|sha256:daa2cd550267c76e7f87203c5fd705fa40c31e632c55c84a3545e83bf8f95cd2
 happyview-record|https://github.com/happyproto/plugins/releases/download/happyview-record-v1.0.0-alpha.4/manifest.json|sha256:5536e95fbe94093c148727de0d1d3baa33614af68a8266ef679573b267e8740f
+happyview-account|https://github.com/happyproto/plugins/releases/download/happyview-account-v1.0.0-alpha.1/manifest.json|sha256:3e4f250e81a370fc2aea6b7733d86745e298157a2e32a1496485b706eba592f2
