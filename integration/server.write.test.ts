@@ -749,7 +749,9 @@ describe("actor.syncAccount", () => {
   });
 
   test("anonymous callers and bad keys are refused before anything is sent", async () => {
-    await fails(SYNC, null, "AuthRequired", { input: { idempotencyKey: crypto.randomUUID() } });
+    // HappyView refuses an anonymous procedure itself, before the script runs.
+    const anonymous = await call(SYNC, null, { input: { idempotencyKey: crypto.randomUUID() } });
+    expect(anonymous.status).toBe(401);
     await fails(SYNC, "customer", "InvalidRequest", { input: { idempotencyKey: "nope" } });
     expect(await email()).toEqual([]);
   });
