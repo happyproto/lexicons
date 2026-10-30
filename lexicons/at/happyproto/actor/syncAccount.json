@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Record the email address on the caller's PDS account with HappyProto, read server-side from their PDS session. The dashboard calls it once after each sign-in. The address is reported only when the session was granted transition:email; without one, the last recorded address is kept. Customers and staff; anyone else gets recorded = false.",
+      "description": "Record the email address on the caller's PDS account with HappyProto, read server-side from their PDS session. The dashboard calls it once after each sign-in. The PDS reports the address only when the sign-in granted it (transition:email or account:email); without one, the last recorded address is kept, and an unconfirmed address never replaces a confirmed one. The address itself is never returned. Customers and staff; anyone else gets recorded = false.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -32,13 +32,13 @@
               "type": "boolean",
               "description": "Whether the caller has a HappyProto account to record it against: false for anyone who is neither a customer nor staff."
             },
-            "email": {
-              "type": "string",
-              "description": "The address HappyProto now holds for the caller, if any: this sign-in's, or the last one recorded."
+            "emailRecorded": {
+              "type": "boolean",
+              "description": "Whether HappyProto now holds an address for the caller: this sign-in's, or the last one recorded."
             },
             "emailConfirmed": {
               "type": "boolean",
-              "description": "Whether the PDS reported that address as confirmed, when it said."
+              "description": "Whether the PDS reported the held address as confirmed, when it said."
             }
           }
         }

@@ -67,12 +67,11 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
 
-  local out = { recorded = true }
-  if type(body.email) == "string" and body.email ~= "" then
-    out.email = body.email
-    if type(body.email_confirmed) == "boolean" then
-      out.emailConfirmed = body.email_confirmed
-    end
+  -- The provisioner never sends the address back, and neither does this: an
+  -- answer may be logged or cached, and nothing in the dashboard needs it.
+  local out = { recorded = true, emailRecorded = body.email_recorded == true }
+  if out.emailRecorded and type(body.email_confirmed) == "boolean" then
+    out.emailConfirmed = body.email_confirmed
   end
   return out
 end

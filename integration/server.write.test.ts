@@ -728,17 +728,18 @@ describe("actor.syncAccount", () => {
     // the same as a PDS that withholds the address: a blank, which keeps the
     // last one. The pin bump that adds its first release updates this.
     expect(request.body).toEqual({ email: "" });
-    expect(out.email).toBeUndefined();
+    expect(out).toEqual({ recorded: true, emailRecorded: false });
   });
 
-  test("the address the provisioner holds is reported back", async () => {
+  test("what the provisioner holds is reported back, never the address", async () => {
     await provisioner.state({
       accountEmails: {
         [s.accounts.customer.did]: { email: "kept@example.com", email_confirmed: true, email_seen_at: "2026-10-01T00:00:00Z" },
       },
     });
     const out = await ok(SYNC, "customer", { input: { idempotencyKey: crypto.randomUUID() } });
-    expect(out).toEqual({ recorded: true, email: "kept@example.com", emailConfirmed: true });
+    expect(out).toEqual({ recorded: true, emailRecorded: true, emailConfirmed: true });
+    expect(JSON.stringify(out)).not.toContain("kept@");
   });
 
   test("staff are recorded too; anyone else is not, and nothing is sent", async () => {
