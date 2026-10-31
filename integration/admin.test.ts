@@ -12,7 +12,7 @@
  * are not.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { provisioner } from "./fakes";
+import { provisioner, TERMS } from "./fakes";
 import { ensureTestUser } from "./session";
 import { PROVISIONER_TOKEN, removeMember, setVariable, stack, type Stack } from "./setup";
 import { call, fails, ok } from "./xrpc";
@@ -482,12 +482,12 @@ describe("admin.listJobs", () => {
     try {
       customerJob = (
         await ok(server("createInstance"), "customer", {
-          input: { slug: "staff-sees", plan: "small", idempotencyKey: crypto.randomUUID() },
+          input: { slug: "staff-sees", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
         })
       ).jobId;
       outsiderJob = (
         await ok(server("createInstance"), "outsider", {
-          input: { slug: "also-seen", plan: "small", idempotencyKey: crypto.randomUUID() },
+          input: { slug: "also-seen", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
         })
       ).jobId;
       await untilDone(customerJob);

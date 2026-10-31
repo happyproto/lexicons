@@ -10,7 +10,7 @@
  * at once.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { provisioner, type ProvisionerRequest } from "./fakes";
+import { provisioner, TERMS, type ProvisionerRequest } from "./fakes";
 import { PROVISIONER_TOKEN, putMember, removeMember, stack, type Stack } from "./setup";
 import { call, fails, ok } from "./xrpc";
 
@@ -164,7 +164,7 @@ describe("server.createInstance", () => {
   test("creates the instance as the caller, with their key, and starts a job", async () => {
     const key = crypto.randomUUID();
     const out = await ok(server("createInstance"), "customer", {
-      input: { slug: "fresh-slug", plan: "small", idempotencyKey: key },
+      input: { slug: "fresh-slug", plan: "small", terms: TERMS, idempotencyKey: key },
     });
     started.push(["customer", out.jobId]);
 
@@ -184,14 +184,19 @@ describe("server.createInstance", () => {
     expect(rest).toEqual([]);
     expect(request.method).toBe("POST");
     expect(request.path).toBe("/v1/tenants");
-    expect(request.body).toEqual({ owner_did: s.accounts.customer.did, slug: "fresh-slug", plan: "small" });
+    expect(request.body).toEqual({
+      owner_did: s.accounts.customer.did,
+      slug: "fresh-slug",
+      plan: "small",
+      terms: { terms_version: TERMS.termsVersion, text_version: TERMS.textVersion, text: TERMS.text },
+    });
     expect(request.headers["idempotency-key"]).toBe(key);
     expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
     expect(request.headers.authorization).toBe(`Bearer ${PROVISIONER_TOKEN}`);
   });
 
   test("Review Focus 2: a retry with the same key gets the same instance, not SlugTaken", async () => {
-    const input = { slug: "retried", plan: "small", idempotencyKey: crypto.randomUUID() };
+    const input = { slug: "retried", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() };
     const first = await ok(server("createInstance"), "customer", { input });
     const second = await ok(server("createInstance"), "customer", { input });
     started.push(["customer", first.jobId], ["customer", second.jobId]);
@@ -206,7 +211,7 @@ describe("server.createInstance", () => {
   });
 
   test("bad input is InvalidRequest, and nothing is sent", async () => {
-    const good = { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() };
+    const good = { slug: "fresh-slug", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() };
     const bad: Record<string, unknown>[] = [
       { ...good, idempotencyKey: undefined },
       { ...good, idempotencyKey: "" },
@@ -217,6 +222,9 @@ describe("server.createInstance", () => {
       { ...good, slug: undefined },
       { ...good, plan: "" },
       { ...good, plan: undefined },
+      { ...good, terms: "yes" },
+      { ...good, terms: { ...TERMS, text: 1 } },
+      { ...good, terms: { termsVersion: TERMS.termsVersion, text: TERMS.text } },
     ];
     for (const input of bad) {
       await fails(server("createInstance"), "customer", "InvalidRequest", { input });
@@ -235,22 +243,36 @@ describe("server.createInstance", () => {
     for (const [status, code] of refusals) {
       await provisioner.script("POST", "/v1/tenants", status, { error: code, message: `said ${code}` });
       const reply = await fails(server("createInstance"), "customer", code, {
-        input: { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() },
+        input: { slug: "fresh-slug", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
       });
       expect(reply.body.message).toBe(`said ${code}`);
     }
   });
 
+  test("HAP-299: the provisioner's terms refusals reach the caller", async () => {
+    const input = { slug: "fresh-slug", plan: "small" };
+    const missing = await fails(server("createInstance"), "customer", "TermsRequired", {
+      input: { ...input, idempotencyKey: crypto.randomUUID() },
+    });
+    expect(missing.body.message).toBe("accept the beta terms to create an instance");
+    await fails(server("createInstance"), "customer", "TermsOutdated", {
+      input: { ...input, terms: { ...TERMS, termsVersion: "beta-2026-10" }, idempotencyKey: crypto.randomUUID() },
+    });
+    // Without terms the request still goes out: the provisioner is the gate.
+    const [request] = await sent();
+    expect("terms" in request.body).toBe(false);
+  });
+
   test("the fake's own SlugTaken, from a held slug", async () => {
     await fails(server("createInstance"), "customer", "SlugTaken", {
-      input: { slug: "alpha", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "alpha", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
   });
 
   test("a 5xx is Upstream, and its body is never echoed", async () => {
     await provisioner.script("POST", "/v1/tenants", 500, { error: "Boom", message: "SENTINEL-901" });
     const reply = await fails(server("createInstance"), "customer", "Upstream", {
-      input: { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "fresh-slug", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
     expect(reply.text).not.toContain("SENTINEL-901");
   });
@@ -265,7 +287,7 @@ describe("the instance.operation job", () => {
       { status: "succeeded", step: "apply" },
     ]);
     const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "followed", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "followed", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
     started.push(["customer", jobId]);
 
@@ -383,7 +405,7 @@ describe("the instance.operation job", () => {
   test("a poll answered with a 5xx is tried again, not the end of the job", async () => {
     await provisioner.progress([{ http: 503 }, { http: 502 }, { status: "succeeded", step: "apply" }]);
     const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "flaky", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "flaky", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
     started.push(["customer", jobId]);
 
@@ -398,7 +420,7 @@ describe("the instance.operation job", () => {
     // and the job must not hold a worker for 15 minutes asking.
     await provisioner.progress([{ http: 404, error: "NotFound" }]);
     const { jobId } = await ok(server("createInstance"), "customer", {
-      input: { slug: "vanished", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "vanished", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
     started.push(["customer", jobId]);
 
@@ -433,7 +455,7 @@ describe("server.getJob", () => {
 
     test("NotFound for both, with identical replies", async () => {
       const { jobId } = await ok(server("createInstance"), "customer", {
-        input: { slug: "private", plan: "small", idempotencyKey: crypto.randomUUID() },
+        input: { slug: "private", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
       });
       started.push(["customer", jobId]);
       // The job is real: its creator can read it.
@@ -825,7 +847,7 @@ describe("entitlement", () => {
 
   test("createInstance is NotEntitled", async () => {
     const reply = await fails(server("createInstance"), "customer", "NotEntitled", {
-      input: { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() },
+      input: { slug: "fresh-slug", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
     });
     expect(reply.body.message).toBe("this account cannot do that yet");
   });
@@ -868,7 +890,7 @@ describe("refusals", () => {
 
 test("the read endpoints still answer for an instance a write created", async () => {
   const { instance, jobId } = await ok(server("createInstance"), "customer", {
-    input: { slug: "listed", plan: "small", idempotencyKey: crypto.randomUUID() },
+    input: { slug: "listed", plan: "small", terms: TERMS, idempotencyKey: crypto.randomUUID() },
   });
   started.push(["customer", jobId]);
   const { instances } = await ok(server("listInstances"), "customer");
