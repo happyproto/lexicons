@@ -7,6 +7,11 @@
 -- an input. The idempotencyKey travels as Idempotency-Key, so a double-click
 -- or a network retry gets the first reply back -- the same instance and the
 -- same operation -- instead of a second tenant or SlugTaken.
+--
+-- terms is the caller's acceptance of the beta terms (HAP-299), forwarded
+-- as given. The provisioner is what requires it, staff included, and refuses
+-- a create without it (TermsRequired) or with old terms (TermsOutdated), so
+-- calling the API directly can't skip it. Here it is only shape-checked.
 
 -- @prelude gate, validate, provisioner, instance, jobs
 
@@ -23,12 +28,26 @@ function handle(input, ctx)
   if type(input.plan) ~= "string" or input.plan == "" then
     return failure("InvalidRequest", "plan is required.")
   end
+  local terms = nil
+  if input.terms ~= nil then
+    local t = input.terms
+    if type(t) ~= "table" or type(t.termsVersion) ~= "string" or type(t.textVersion) ~= "string"
+      or type(t.text) ~= "string" then
+      return failure("InvalidRequest", "terms needs termsVersion, textVersion and text.")
+    end
+    terms = { terms_version = t.termsVersion, text_version = t.textVersion, text = t.text }
+  end
 
   local status, body = provisioner(ctx, "POST", "/v1/tenants", {
     owner_did = ctx.caller_did,
     slug = input.slug,
     plan = input.plan,
+    terms = terms,
   }, input.idempotencyKey)
+  if status == 400 and type(body) == "table" and type(body.message) == "string" then
+    if body.error == "TermsRequired" then return failure("TermsRequired", body.message) end
+    if body.error == "TermsOutdated" then return failure("TermsOutdated", body.message) end
+  end
   if status ~= 201 or type(body) ~= "table" or type(body.tenant) ~= "table" then
     return provisioner_failure(status, body)
   end

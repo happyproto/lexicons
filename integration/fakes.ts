@@ -18,6 +18,13 @@ export type ProvisionerRequest = {
   body: any;
 };
 
+/** An acceptance of the beta terms in force, as the dashboard sends it. */
+export const TERMS = {
+  termsVersion: "beta-2026-11",
+  textVersion: "v1",
+  text: "I agree to the Beta Terms and understand beta data may be lost and backups are best-effort.",
+};
+
 export const provisioner = {
   reset: () => post(`${PROVISIONER_URL}/__reset`),
   /** Seed tenants, operations, plans, hosts, staff DIDs and the instance limit. */

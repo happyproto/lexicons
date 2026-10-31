@@ -26,6 +26,11 @@
             "idempotencyKey": {
               "type": "string",
               "description": "A UUID the client generates once per intended change and resends on every retry of it, so a retry gets the original reply instead of acting twice."
+            },
+            "terms": {
+              "type": "ref",
+              "ref": "#termsAcceptance",
+              "description": "The beta terms the caller accepted with the create form's checkbox. The provisioner refuses a create without it (TermsRequired), staff included; it is optional here only so clients can start sending it before the provisioner requires it."
             }
           }
         }
@@ -90,6 +95,14 @@
         {
           "name": "OperationInProgress",
           "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "TermsRequired",
+          "description": "The create carried no acceptance of the beta terms, or one without its wording."
+        },
+        {
+          "name": "TermsOutdated",
+          "description": "The accepted terms are no longer the ones in force: reload and accept the current ones."
         },
         {
           "name": "Upstream",
@@ -220,6 +233,32 @@
           "type": "string",
           "format": "datetime",
           "description": "When HappyProto first offered it."
+        }
+      }
+    },
+    "termsAcceptance": {
+      "type": "object",
+      "description": "An acceptance of the beta terms, recorded append-only by the provisioner with the caller's DID.",
+      "required": [
+        "termsVersion",
+        "textVersion",
+        "text"
+      ],
+      "properties": {
+        "termsVersion": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The terms in force, e.g. beta-2026-11. Anything else is TermsOutdated."
+        },
+        "textVersion": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The version of the checkbox's wording."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The exact wording the caller ticked."
         }
       }
     }
