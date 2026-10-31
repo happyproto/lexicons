@@ -797,9 +797,10 @@ describe("actor.syncAccount", () => {
     expect(request.method).toBe("PUT");
     expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
     expect(request.headers["idempotency-key"]).toBe(key);
-    // happyview-account isn't in integration/plugins.txt yet, which reads
-    // the same as a PDS that withholds the address: a blank, which keeps the
-    // last one. The pin bump that adds its first release updates this.
+    // happyview-account is installed, but the harness signs in with a bare
+    // session cookie and no PDS session behind it, so the read fails
+    // (NO_SESSION). That reads the same as a PDS that withholds the address:
+    // a blank, which keeps the last one.
     expect(request.body).toEqual({ email: "" });
     expect(out).toEqual({ recorded: true, emailRecorded: false });
   });
