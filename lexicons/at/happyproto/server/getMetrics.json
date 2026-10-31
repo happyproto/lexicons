@@ -1,0 +1,118 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getMetrics",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "How one of the caller's own instances is performing: its scripts' runs, times and errors, and its record ingest, as HappyView reports them. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id",
+          "view"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          },
+          "view": {
+            "type": "string",
+            "knownValues": [
+              "scripts",
+              "script",
+              "ingest",
+              "live"
+            ],
+            "description": "scripts: every script, summarised. script: one script, named by trigger. ingest: the record-ingest stages. live: what is running now."
+          },
+          "window": {
+            "type": "string",
+            "knownValues": [
+              "1h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "description": "How far back to summarise. HappyView's default when absent."
+          },
+          "trigger": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "The script, for view=script: its trigger as the scripts view names it."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "view",
+            "metrics"
+          ],
+          "properties": {
+            "view": {
+              "type": "string",
+              "description": "The view asked for."
+            },
+            "metrics": {
+              "type": "unknown",
+              "description": "HappyView's own report for the view, as it sent it."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "An id is not a UUID, or a view, window or trigger is missing, unknown or malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. These are indistinguishable."
+        },
+        {
+          "name": "MetricsUnavailable",
+          "description": "The instance can't report metrics: its HappyView release predates them, or its host is not answering."
+        },
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

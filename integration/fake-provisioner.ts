@@ -93,6 +93,8 @@ function fresh() {
     domains: [] as Json[],
     /** GET /v1/tenants/:id/logs's page, by tenant id. */
     logs: {} as Record<string, Json>,
+    /** GET /v1/tenants/:id/metrics/:view's report, by tenant id then view. */
+    metrics: {} as Record<string, Record<string, Json>>,
     autoscale: {
       enabled: true,
       paused: false,
@@ -737,6 +739,23 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     }
     const page = state.logs[id] ?? { lines: [], cursor: null, more: false, oldest_available: null };
     return reply(200, { ...page, window: opId ? { since: "2026-10-20T12:00:00Z", until: null } : null });
+  }
+
+  // The metrics relay: owner-scoped, answering a seeded report per tenant and
+  // view (state.metrics[tenantId][view]) or an empty one. HappyView's own
+  // shape is its business; only the view and window are checked here.
+  if (req.method === "GET" && resource === "tenants" && id && parts[3] === "metrics" && parts.length === 5) {
+    const tenant = state.tenants.find((t) => t.id === id);
+    if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
+    const view = parts[4];
+    if (!["scripts", "script", "ingest", "live"].includes(view)) {
+      return error(400, "InvalidRequest", "unknown metrics view");
+    }
+    const window = url.searchParams.get("window");
+    if (window !== null && !["1h", "24h", "7d", "30d"].includes(window)) {
+      return error(400, "InvalidRequest", "unknown window");
+    }
+    return reply(200, state.metrics[id]?.[view] ?? {});
   }
 
   if (req.method === "POST" && resource === "tenants" && parts.length === 2) {
