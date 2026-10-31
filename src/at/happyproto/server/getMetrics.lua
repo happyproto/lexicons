@@ -13,21 +13,36 @@
 
 local VIEWS = { scripts = true, script = true, ingest = true, live = true }
 local WINDOWS = { ["1h"] = true, ["24h"] = true, ["7d"] = true, ["30d"] = true }
-local MAX_TRIGGER = 256
+-- A trigger's kinds, as HappyView and the agent name them.
+local TRIGGER_KINDS = {
+  ["record.index"] = true, ["record.create"] = true, ["record.update"] = true, ["record.delete"] = true,
+  ["xrpc.query"] = true, ["xrpc.procedure"] = true, ["labeler.apply"] = true, ["job.run"] = true,
+}
+-- An NSID's limit; a job type's is lower.
+local MAX_TARGET = 317
 
 -- What the provisioner says about metrics, passed through with its own words:
 -- each message is a literal there, never built from internal state.
 local METRICS_CODES = {
   MetricsUnavailable = true,
+  MetricsTimeout = true,
+  NoRuns = true,
   InvalidRequest = true,
 }
 
---- A script's trigger as HappyView names it, e.g.
---- `xrpc.procedure:at.example.doThing` or `record:app.bsky.feed.post`:
---- printable, no spaces, nothing that needs more than url_encode.
+--- A script's trigger id, `<kind>:<target>`, e.g. `xrpc.query:games.example.listGames`
+--- or `record.create:app.bsky.feed.post`: the same check the agent applies.
 local function is_trigger(t)
-  return type(t) == "string" and #t > 0 and #t <= MAX_TRIGGER and t:match("^[%w%.%-_:/#%*]+$") ~= nil
+  if type(t) ~= "string" then return false end
+  local kind, target = t:match("^([%a.]+):(.+)$")
+  return kind ~= nil and TRIGGER_KINDS[kind] == true
+    and #target <= MAX_TARGET and target:match("^[%w._*%-]+$") ~= nil
 end
+
+-- The arrays in each view's report, at its top level. An empty one decodes
+-- to an empty table, which would go back out as {}; these keep it a list.
+-- Arrays deeper in (host_imports, layers) are the dashboard's to tolerate.
+local ARRAYS = { "scripts", "collections", "points", "layers", "backfill_jobs" }
 
 function handle(input, ctx)
   local refused = gate_customer(ctx)
@@ -75,5 +90,8 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
 
+  for _, name in ipairs(ARRAYS) do
+    if type(body[name]) == "table" then body[name] = json.to_array(body[name]) end
+  end
   return { view = view, metrics = body }
 end

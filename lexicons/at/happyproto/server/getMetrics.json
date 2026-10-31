@@ -38,8 +38,8 @@
           },
           "trigger": {
             "type": "string",
-            "maxLength": 256,
-            "description": "The script, for view=script: its trigger as the scripts view names it."
+            "maxLength": 340,
+            "description": "The script, for view=script, and only then: its trigger id, `<kind>:<target>`, e.g. xrpc.query:games.example.listGames or record.create:app.bsky.feed.post."
           }
         }
       },
@@ -74,7 +74,15 @@
         },
         {
           "name": "MetricsUnavailable",
-          "description": "The instance can't report metrics: its HappyView release predates them, or its host is not answering."
+          "description": "The instance's HappyView release predates metrics. Upgrading it fixes this."
+        },
+        {
+          "name": "MetricsTimeout",
+          "description": "The instance didn't answer in time."
+        },
+        {
+          "name": "NoRuns",
+          "description": "For view=script: the script hasn't run in this window."
         },
         {
           "name": "AuthRequired",

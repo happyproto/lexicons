@@ -10,7 +10,7 @@ const server = (name: string) => `at.happyproto.server.${name}`;
 
 const MINE = "11111111-1111-4111-8111-111111111111";
 const THEIRS = "44444444-4444-4444-8444-444444444444";
-const TRIGGER = "xrpc.procedure:at.example.doThing";
+const TRIGGER = "record.create:app.bsky.feed.post";
 
 function tenant(id: string, slug: string, owner: string) {
   return {
@@ -34,7 +34,12 @@ function tenant(id: string, slug: string, owner: string) {
   };
 }
 
-const SCRIPTS = { window: "24h", scripts: [{ trigger: TRIGGER, runs: 12, errors: 1, p50_ms: 3.5, p95_ms: 9 }] };
+const SCRIPTS = {
+  window: "24h",
+  enabled: true,
+  overflow: 0,
+  scripts: [{ trigger: TRIGGER, kind: "record_event", runs: 12, outcomes: { ok: 11, runtime: 1 }, instructions_mean: null }],
+};
 
 let s: Stack;
 
@@ -76,6 +81,9 @@ describe("server.getMetrics", () => {
       { id: MINE, view: "scripts", window: "1y" },
       { id: MINE, view: "script" },
       { id: MINE, view: "script", trigger: "has spaces" },
+      { id: MINE, view: "script", trigger: "record:app.bsky.feed.post" },
+      { id: MINE, view: "script", trigger: "xrpc.query:a b" },
+      { id: MINE, view: "script", trigger: `xrpc.query:${"a".repeat(318)}` },
       { id: MINE, view: "scripts", trigger: TRIGGER },
     ]) {
       await fails(server("getMetrics"), "customer", "InvalidRequest", { params });
@@ -89,15 +97,26 @@ describe("server.getMetrics", () => {
     expect(asked.some((p: string) => p.includes("/metrics/"))).toBe(false);
   });
 
-  test("MetricsUnavailable passes through with the provisioner's words", async () => {
-    await provisioner.script("GET", `/v1/tenants/${MINE}/metrics/scripts`, 409, {
-      error: "MetricsUnavailable",
-      message: "MetricsUnavailable words",
-    });
-    const reply = await fails(server("getMetrics"), "customer", "MetricsUnavailable", {
-      params: { id: MINE, view: "scripts" },
-    });
-    expect(JSON.stringify(reply.body)).toContain("MetricsUnavailable words");
+  test("the relay's metrics codes pass through with its words", async () => {
+    for (const [status, code, view] of [
+      [503, "MetricsUnavailable", "scripts"],
+      [504, "MetricsTimeout", "scripts"],
+      [404, "NoRuns", "script"],
+    ] as const) {
+      await provisioner.script("GET", `/v1/tenants/${MINE}/metrics/${view}`, status, {
+        error: code,
+        message: `${code} words`,
+      });
+      const params = view === "script" ? { id: MINE, view, trigger: TRIGGER } : { id: MINE, view };
+      const reply = await fails(server("getMetrics"), "customer", code, { params });
+      expect(JSON.stringify(reply.body)).toContain(`${code} words`);
+    }
+  });
+
+  test("an empty list stays a list", async () => {
+    await provisioner.state({ metrics: { [MINE]: { ingest: { window: "1h", enabled: false, collections: [] } } } });
+    const out = await ok(server("getMetrics"), "customer", { params: { id: MINE, view: "ingest" } });
+    expect(out.metrics.collections).toEqual([]);
   });
 
   test("anyone but a customer is refused before anything is sent", async () => {
