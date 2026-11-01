@@ -95,6 +95,10 @@
           "description": "The input breaks a rule the registry applies, so it would refuse the records. The message names the field."
         },
         {
+          "name": "InvalidRequest",
+          "description": "The input breaks the method's lexicon, such as a field of the wrong format or past its length, and HappyView refused it before the registry saw it. The message names the field."
+        },
+        {
           "name": "Upstream",
           "description": "A record could not be written to the caller's repo. Records written before the failure stay, and the same call can be made again."
         },
