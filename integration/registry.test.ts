@@ -641,7 +641,9 @@ describe("the registry indexes a software.release plugin end to end", () => {
       await fails(`${REGISTRY}.putProject`, "customer", "InvalidRecord", {
         input: { ...projectInput(), name: "Not A Name", validateOnly: true },
       });
-      const reply = await fails(`${REGISTRY}.putProject`, "customer", "InvalidRecord", {
+      // An empty security list breaks the lexicon's minLength, so HappyView
+      // refuses it before the registry's own checks run.
+      const reply = await fails(`${REGISTRY}.putProject`, "customer", "InvalidRequest", {
         input: { ...projectInput(), project: { ...projectInput().project, security: [] }, validateOnly: true },
       });
       expect(reply.body.message).toContain("security");
@@ -721,7 +723,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
       await fails(`${REGISTRY}.putStatus`, "customer", "InvalidStatus", {
         input: { subject: version.uri, status: "withdrawn" },
       });
-      await fails(`${REGISTRY}.putStatus`, "customer", "InvalidRecord", {
+      await fails(`${REGISTRY}.putStatus`, "customer", "InvalidRequest", {
         input: { subject: version.uri, status: "endOfSupport", reason: "x".repeat(3001) },
       });
       await fails(`${REGISTRY}.putStatus`, "customer", "SubjectNotFound", {
@@ -730,7 +732,7 @@ describe("the registry indexes a software.release plugin end to end", () => {
     });
 
     test("retryVersion is the registry's own, and answers the availability", async () => {
-      await fails(`${REGISTRY}.retryVersion`, "customer", "InvalidRecord", {
+      await fails(`${REGISTRY}.retryVersion`, "customer", "InvalidRequest", {
         input: { did: "not-a-did", name: NAME, version: "1.0.0" },
       });
       await fails(`${REGISTRY}.retryVersion`, "customer", "Forbidden", { input: versionParams() });
