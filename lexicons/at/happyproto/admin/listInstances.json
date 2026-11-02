@@ -174,9 +174,10 @@
             "none",
             "rotating",
             "sealing",
-            "retiring"
+            "retiring",
+            "failed"
           ],
-          "description": "Where its encryption key is in a rotation: none, rotating (the new key is not live yet), sealing (HappyView is re-sealing with it) or retiring (the old key is being removed). From the provisioner's database alone."
+          "description": "Where its encryption key is in a rotation: none, rotating (the new key is not live yet), sealing (HappyView is re-sealing with it), retiring (the old key is being removed) or failed (a rotate_key or retire_key failed and the instance with it). From the provisioner's database alone."
         }
       }
     },

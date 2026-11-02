@@ -283,9 +283,10 @@
             "none",
             "rotating",
             "sealing",
-            "retiring"
+            "retiring",
+            "failed"
           ],
-          "description": "none: one key. rotating: a new key is made but not live yet. sealing: it is live and HappyView is re-sealing what the old key sealed. retiring: the old key is being removed."
+          "description": "none: one key. rotating: a new key is made but not live yet. sealing: it is live and HappyView is re-sealing what the old key sealed. retiring: the old key is being removed. failed: the instance is failed and its latest operation is a failed rotate_key or retire_key; retrying the instance sends its keys again."
         },
         "rotatedAt": {
           "type": "string",
@@ -314,7 +315,8 @@
             "InstanceStopped",
             "NotLive",
             "RotationUnsupported",
-            "AgentUnreachable"
+            "AgentUnreachable",
+            "NotSettled"
           ],
           "description": "Why a rotation cannot start now, when it cannot: the code rotateEncryptionKey would refuse with."
         }

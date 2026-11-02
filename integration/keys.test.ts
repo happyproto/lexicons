@@ -158,6 +158,13 @@ describe("admin.getEncryptionKey", () => {
     expect(encryptionKey.sealing).toEqual({ previousKeyLive: false, remaining: 0, unreadable: 0 });
   });
 
+  test("a failed rotation: the stage, nothing in progress, and NotSettled", async () => {
+    await seed({ encryptionKeys: { [SEALING_ID]: { stage: "failed", blocked_by: "NotSettled" } } });
+    expect(await ok(admin("getEncryptionKey"), "staff", { params: { id: SEALING_ID } })).toEqual({
+      encryptionKey: { stage: "failed", canRotate: false, blockedBy: "NotSettled" },
+    });
+  });
+
   test("a missing instance is NotFound", async () => {
     await fails(admin("getEncryptionKey"), "staff", "NotFound", { params: { id: MISSING_ID } });
   });
@@ -199,6 +206,7 @@ describe("admin.rotateEncryptionKey", () => {
       "NotLive",
       "RotationUnsupported",
       "AgentUnreachable",
+      "NotSettled",
     ]) {
       await seed({ encryptionKeys: { [PLAIN_ID]: { stage: "none", blocked_by: code } } });
       const reply = await fails(admin("rotateEncryptionKey"), "staff", code, {

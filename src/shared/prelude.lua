@@ -927,6 +927,7 @@ local KEY_ERRORS = {
   NotLive = true,
   RotationUnsupported = true,
   AgentUnreachable = true,
+  NotSettled = true,
 }
 
 --- A key route's refusal mapped to a failure table: a KEY_ERRORS code with

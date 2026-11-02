@@ -102,6 +102,10 @@
           "description": "The instance's host did not answer, so the provisioner could not check it."
         },
         {
+          "name": "NotSettled",
+          "description": "The instance isn't running what an apply would send it now: it's failed, or a change such as a version bump hasn't been applied. Retry the instance first."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }

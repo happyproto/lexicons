@@ -94,6 +94,10 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "NotSettled",
+          "description": "Passed through from the provisioner."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
