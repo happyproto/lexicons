@@ -268,6 +268,76 @@
           }
         }
       }
+    },
+    "encryptionKey": {
+      "type": "object",
+      "description": "An instance's encryption key and where it is in a rotation.",
+      "required": [
+        "stage",
+        "canRotate"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "rotating",
+            "sealing",
+            "retiring"
+          ],
+          "description": "none: one key. rotating: a new key is made but not live yet. sealing: it is live and HappyView is re-sealing what the old key sealed. retiring: the old key is being removed."
+        },
+        "rotatedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the current key became current. Absent for the key the instance was created with."
+        },
+        "operation": {
+          "type": "ref",
+          "ref": "at.happyproto.admin.listInstances#operation",
+          "description": "The rotate_key or retire_key operation in progress, if any."
+        },
+        "sealing": {
+          "type": "ref",
+          "ref": "#sealing",
+          "description": "Only while sealing, and only when the instance's host answered."
+        },
+        "canRotate": {
+          "type": "boolean",
+          "description": "Whether a rotation can start now."
+        },
+        "blockedBy": {
+          "type": "string",
+          "knownValues": [
+            "OperationInProgress",
+            "RotationInProgress",
+            "InstanceStopped",
+            "NotLive",
+            "RotationUnsupported",
+            "AgentUnreachable"
+          ],
+          "description": "Why a rotation cannot start now, when it cannot: the code rotateEncryptionKey would refuse with."
+        }
+      }
+    },
+    "sealing": {
+      "type": "object",
+      "required": [
+        "remaining",
+        "unreadable"
+      ],
+      "properties": {
+        "remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Values only the old key opens. The old key is retired once this reaches 0."
+        },
+        "unreadable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Values neither key opens. They were unreadable before the rotation, too."
+        }
+      }
     }
   }
 }

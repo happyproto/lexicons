@@ -1,0 +1,111 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.rotateEncryptionKey",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Give an instance a new encryption key. The old key stays beside it while HappyView re-seals what it sealed, and is then retired on its own. Staff only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "id",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The instance's id, a UUID."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID. Repeating a request with the same key replays its answer."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "operation": {
+              "type": "ref",
+              "ref": "at.happyproto.admin.listInstances#operation"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The input was malformed, or the provisioner refused it as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it has been deleted."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Another operation is in progress for the instance."
+        },
+        {
+          "name": "RotationInProgress",
+          "description": "The instance is already part-way through a rotation: its old key is not retired yet."
+        },
+        {
+          "name": "InstanceStopped",
+          "description": "The instance is stopped. Start it first."
+        },
+        {
+          "name": "NotLive",
+          "description": "The instance has not gone live yet."
+        },
+        {
+          "name": "RotationUnsupported",
+          "description": "The instance's HappyView cannot report a key rotation. Upgrade it first."
+        },
+        {
+          "name": "AgentUnreachable",
+          "description": "The instance's host did not answer, so the provisioner could not check it."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

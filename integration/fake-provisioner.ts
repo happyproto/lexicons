@@ -27,6 +27,8 @@
  *                    autoscale is GET /v1/autoscale's answer; hostRequests
  *                    are rows as GET /v1/host-requests/:id answers them,
  *                    events included.
+ *                    encryptionKeys maps a tenant id to its key's
+ *                    `{stage, rotated_at?, sealing?, blocked_by?}`.
  *   POST /__script   queue one canned reply { method, path, status, body }; the
  *                    next request matching method and path gets it, once.
  *                    With { drop: true } instead, that request gets no reply:
@@ -112,6 +114,11 @@ function fresh() {
       current: { free_memory_mb: 3072, free_disk_gb: 120 },
     } as Json,
     hostRequests: [] as Json[],
+    /**
+     * Tenant id -> `{stage, rotated_at?, sealing?, blocked_by?}`, what GET
+     * /v1/tenants/:id/encryption-key reads. A tenant with none has one key.
+     */
+    encryptionKeys: {} as Record<string, Json>,
   };
 }
 
@@ -780,6 +787,40 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const grain = url.searchParams.get("grain") ?? "hour";
     if (grain !== "hour" && grain !== "day") return error(400, "InvalidRange", "`grain` must be `hour` or `day`");
     return reply(200, { tenant: id, grain, rows: [], gaps: [] });
+  }
+
+  // The encryption-key routes, staff only. A seeded blocked_by stands in for
+  // the checks the real one makes (stopped, not live, the agent's answer);
+  // an operation in progress is worked out here, as the real one does first.
+  if (resource === "tenants" && id && parts[3] === "encryption-key") {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    const tenant = state.tenants.find((t) => t.id === id && !t.deleted_at);
+    if (!tenant) return error(404, "NotFound", "instance not found");
+    const key = state.encryptionKeys[id] ?? { stage: "none" };
+    const active = activeOperation(id);
+    const blocked = active ? "OperationInProgress" : (key.blocked_by ?? null);
+    if (req.method === "GET" && parts.length === 4) {
+      return reply(200, {
+        stage: key.stage,
+        rotated_at: key.rotated_at ?? null,
+        operation: active && (active.kind === "rotate_key" || active.kind === "retire_key") ? active : null,
+        sealing: key.sealing ?? null,
+        can_rotate: blocked === null,
+        blocked_by: blocked,
+      });
+    }
+    if (req.method === "POST" && parts[4] === "rotate" && parts.length === 5) {
+      if (blocked === "OperationInProgress") {
+        return reply(409, {
+          error: blocked,
+          message: "an operation is already in progress for this instance",
+          details: { operation: active },
+        });
+      }
+      if (blocked) return error(409, blocked, `${blocked} said`);
+      state.encryptionKeys[id] = { ...key, stage: "rotating" };
+      return reply(202, { operation: enqueue(id, "rotate_key", {}, actor) });
+    }
   }
 
   if (resource === "tenants" && id && (parts[3] === "domains" || parts[3] === "primary-domain")) {
