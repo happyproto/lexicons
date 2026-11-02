@@ -96,9 +96,13 @@ services:
       # The provisioner and ClickHouse are on this network's private addresses,
       # named in script variables rather than HappyView's own configuration, so
       # its outbound screening needs them listed, as api.happyproto.at lists
-      # its own. Never ALLOW_PRIVATE_DESTINATIONS, which would lift the
-      # screening for every host and hide what production sees.
+      # its own.
       ALLOW_PRIVATE_HOSTS: fake-provisioner,fake-clickhouse
+      # This stack only: its PDS is on a private address too, and requests to a
+      # PDS can't be listed above. It turns the screening off for every host,
+      # so with it set this run says nothing about ALLOW_PRIVATE_HOSTS.
+      # api.happyproto.at never sets it.
+      ALLOW_PRIVATE_DESTINATIONS: "true"
       SESSION_SECRET: e2e-test-secret-that-is-at-least-32-bytes
       TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       # The fake replays whatever a test pushes, so a record can reach a
