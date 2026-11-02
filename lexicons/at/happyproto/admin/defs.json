@@ -323,10 +323,15 @@
     "sealing": {
       "type": "object",
       "required": [
+        "previousKeyLive",
         "remaining",
         "unreadable"
       ],
       "properties": {
+        "previousKeyLive": {
+          "type": "boolean",
+          "description": "Whether the instance runs with both keys. False when its rotate_key has not reached it, for instance because it failed: then remaining reads 0 without anything being re-sealed, and retrying the instance sends both keys again."
+        },
         "remaining": {
           "type": "integer",
           "minimum": 0,

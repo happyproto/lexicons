@@ -73,7 +73,7 @@ async function seed(extra: { encryptionKeys?: Record<string, any> } = {}): Promi
       [SEALING_ID]: {
         stage: "sealing",
         rotated_at: "2026-11-02T18:00:00Z",
-        sealing: { remaining: 12, unreadable: 1 },
+        sealing: { previous_key_live: true, remaining: 12, unreadable: 1 },
         blocked_by: "RotationInProgress",
       },
     },
@@ -128,7 +128,7 @@ describe("admin.getEncryptionKey", () => {
       encryptionKey: {
         stage: "sealing",
         rotatedAt: "2026-11-02T18:00:00Z",
-        sealing: { remaining: 12, unreadable: 1 },
+        sealing: { previousKeyLive: true, remaining: 12, unreadable: 1 },
         canRotate: false,
         blockedBy: "RotationInProgress",
       },
@@ -142,6 +142,20 @@ describe("admin.getEncryptionKey", () => {
     const { encryptionKey } = await ok(admin("getEncryptionKey"), "staff", { params: { id: SEALING_ID } });
     expect(encryptionKey.sealing).toBeUndefined();
     expect(encryptionKey.blockedBy).toBe("AgentUnreachable");
+  });
+
+  test("says when the instance isn't running with both keys, so a 0 isn't read as done", async () => {
+    await seed({
+      encryptionKeys: {
+        [SEALING_ID]: {
+          stage: "sealing",
+          sealing: { previous_key_live: false, remaining: 0, unreadable: 0 },
+          blocked_by: "RotationInProgress",
+        },
+      },
+    });
+    const { encryptionKey } = await ok(admin("getEncryptionKey"), "staff", { params: { id: SEALING_ID } });
+    expect(encryptionKey.sealing).toEqual({ previousKeyLive: false, remaining: 0, unreadable: 0 });
   });
 
   test("a missing instance is NotFound", async () => {
@@ -192,6 +206,14 @@ describe("admin.rotateEncryptionKey", () => {
       });
       expect(reply.body.message).toBe(`${code} said`);
     }
+  });
+
+  test("a host that didn't answer is AgentUnreachable, though it comes as a 503", async () => {
+    await seed({ encryptionKeys: { [PLAIN_ID]: { stage: "none", blocked_by: "AgentUnreachable" } } });
+    const reply = await fails(admin("rotateEncryptionKey"), "staff", "AgentUnreachable", {
+      input: { id: PLAIN_ID, idempotencyKey: key() },
+    });
+    expect(reply.body.message).toBe("AgentUnreachable said");
   });
 
   test("another operation in progress is OperationInProgress", async () => {

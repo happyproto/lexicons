@@ -942,13 +942,17 @@ local function key_failure(status, decoded)
 end
 
 --- `{stage, rotatedAt?, operation?, sealing?, canRotate, blockedBy?}`.
---- `sealing` comes along only with both counts: the provisioner sends null
---- when the agent could not be asked, and a missing count is not a zero.
+--- `sealing` comes along only whole: the provisioner sends null when the
+--- agent could not be asked, and a missing count is not a zero. Nor is a
+--- count read while the instance runs without both keys (previousKeyLive
+--- false): it reads 0 because nothing is re-sealing yet, not because it is
+--- done.
 local function admin_encryption_key(k)
   local sealing
-  if type(k.sealing) == "table" and type(k.sealing.remaining) == "number"
-    and type(k.sealing.unreadable) == "number" then
-    sealing = { remaining = k.sealing.remaining, unreadable = k.sealing.unreadable }
+  local s = k.sealing
+  if type(s) == "table" and type(s.previous_key_live) == "boolean"
+    and type(s.remaining) == "number" and type(s.unreadable) == "number" then
+    sealing = { previousKeyLive = s.previous_key_live, remaining = s.remaining, unreadable = s.unreadable }
   end
   return {
     stage = k.stage,

@@ -28,7 +28,8 @@
  *                    are rows as GET /v1/host-requests/:id answers them,
  *                    events included.
  *                    encryptionKeys maps a tenant id to its key's
- *                    `{stage, rotated_at?, sealing?, blocked_by?}`.
+ *                    `{stage, rotated_at?, sealing?, blocked_by?}`; sealing is
+ *                    `{previous_key_live, remaining, unreadable}`.
  *   POST /__script   queue one canned reply { method, path, status, body }; the
  *                    next request matching method and path gets it, once.
  *                    With { drop: true } instead, that request gets no reply:
@@ -817,7 +818,9 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
           details: { operation: active },
         });
       }
-      if (blocked) return error(409, blocked, `${blocked} said`);
+      // The live check's: the agent did not answer, so a 503 like the other
+      // upstream failures, with its own code.
+      if (blocked) return error(blocked === "AgentUnreachable" ? 503 : 409, blocked, `${blocked} said`);
       state.encryptionKeys[id] = { ...key, stage: "rotating" };
       return reply(202, { operation: enqueue(id, "rotate_key", {}, actor) });
     }
