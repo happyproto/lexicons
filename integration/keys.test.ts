@@ -159,9 +159,15 @@ describe("admin.getEncryptionKey", () => {
   });
 
   test("a failed rotation: the stage, nothing in progress, and NotSettled", async () => {
-    await seed({ encryptionKeys: { [SEALING_ID]: { stage: "failed", blocked_by: "NotSettled" } } });
+    const failure = { operation_id: "f0000000-0000-4000-8000-000000000001", kind: "rotate_key", error_code: "StepFailed" };
+    await seed({ encryptionKeys: { [SEALING_ID]: { stage: "failed", failure, blocked_by: "NotSettled" } } });
     expect(await ok(admin("getEncryptionKey"), "staff", { params: { id: SEALING_ID } })).toEqual({
-      encryptionKey: { stage: "failed", canRotate: false, blockedBy: "NotSettled" },
+      encryptionKey: {
+        stage: "failed",
+        failure: { operationId: failure.operation_id, kind: "rotate_key", errorCode: "StepFailed" },
+        canRotate: false,
+        blockedBy: "NotSettled",
+      },
     });
   });
 

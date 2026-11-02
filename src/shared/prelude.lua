@@ -942,7 +942,9 @@ local function key_failure(status, decoded)
   return provisioner_failure(status, decoded)
 end
 
---- `{stage, rotatedAt?, operation?, sealing?, canRotate, blockedBy?}`.
+--- `{stage, rotatedAt?, operation?, failure?, sealing?, canRotate, blockedBy?}`.
+--- `failure` is the instance's latest operation when it failed and the
+--- instance with it, of any kind: a KeyMismatch can fail an update too.
 --- `sealing` comes along only whole: the provisioner sends null when the
 --- agent could not be asked, and a missing count is not a zero. Nor is a
 --- count read while the instance runs without both keys (previousKeyLive
@@ -955,10 +957,20 @@ local function admin_encryption_key(k)
     and type(s.remaining) == "number" and type(s.unreadable) == "number" then
     sealing = { previousKeyLive = s.previous_key_live, remaining = s.remaining, unreadable = s.unreadable }
   end
+  local failed
+  local f = k.failure
+  if type(f) == "table" and type(f.operation_id) == "string" and type(f.kind) == "string" then
+    failed = {
+      operationId = f.operation_id,
+      kind = f.kind,
+      errorCode = type(f.error_code) == "string" and f.error_code or nil,
+    }
+  end
   return {
     stage = k.stage,
     rotatedAt = type(k.rotated_at) == "string" and k.rotated_at or nil,
     operation = public_operation(k.operation),
+    failure = failed,
     sealing = sealing,
     canRotate = k.can_rotate == true,
     blockedBy = type(k.blocked_by) == "string" and k.blocked_by or nil,

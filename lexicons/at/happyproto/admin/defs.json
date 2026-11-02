@@ -298,6 +298,11 @@
           "ref": "at.happyproto.admin.listInstances#operation",
           "description": "The rotate_key or retire_key operation in progress, if any."
         },
+        "failure": {
+          "type": "ref",
+          "ref": "#keyFailure",
+          "description": "The instance's latest operation, when it failed and the instance with it. Any kind: a KeyMismatch can fail an update or an upgrade too."
+        },
         "sealing": {
           "type": "ref",
           "ref": "#sealing",
@@ -343,6 +348,29 @@
           "type": "integer",
           "minimum": 0,
           "description": "Values neither key opens. They were unreadable before the rotation, too."
+        }
+      }
+    },
+    "keyFailure": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "kind"
+      ],
+      "properties": {
+        "operationId": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "description": "The operation's kind, as on #operation."
+        },
+        "errorCode": {
+          "type": "string",
+          "knownValues": [
+            "KeyMismatch"
+          ],
+          "description": "The provisioner's error code. KeyMismatch: the host refused an apply that would drop the key the instance seals with. It needs an operator, not a retry."
         }
       }
     }

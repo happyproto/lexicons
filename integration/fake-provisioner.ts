@@ -805,6 +805,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
         stage: key.stage,
         rotated_at: key.rotated_at ?? null,
         operation: active && (active.kind === "rotate_key" || active.kind === "retire_key") ? active : null,
+        failure: key.failure ?? null,
         sealing: key.sealing ?? null,
         can_rotate: blocked === null,
         blocked_by: blocked,
