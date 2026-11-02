@@ -93,6 +93,12 @@ services:
       PORT: "3000"
       PLC_URL: http://plc:2582
       RELAY_URL: http://plc:2582
+      # The provisioner and ClickHouse are on this network's private addresses,
+      # named in script variables rather than HappyView's own configuration, so
+      # its outbound screening needs them listed, as api.happyproto.at lists
+      # its own. Never ALLOW_PRIVATE_DESTINATIONS, which would lift the
+      # screening for every host and hide what production sees.
+      ALLOW_PRIVATE_HOSTS: fake-provisioner,fake-clickhouse
       SESSION_SECRET: e2e-test-secret-that-is-at-least-32-bytes
       TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       # The fake replays whatever a test pushes, so a record can reach a
