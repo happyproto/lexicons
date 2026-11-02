@@ -14,7 +14,8 @@
  *
  * Control routes, all under /__:
  *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
- *                    entitlementMode?, invites? }. invites are rows as the
+ *                    entitlementMode?, invites?, accountTerms? }. accountTerms maps a DID to
+ *                    the terms version its account accepted at sign-in. invites are rows as the
  *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
  *                    change) or "staff" (entitlement.rs today: only staff may,
@@ -87,6 +88,8 @@ function fresh() {
     instanceLimit: 3,
     /** DID -> `{email, email_confirmed, email_seen_at}`, as accounts holds them. */
     accountEmails: {} as Record<string, Json>,
+    /** DID -> the terms version its account last accepted at sign-in. */
+    accountTerms: {} as Record<string, string>,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -427,6 +430,27 @@ function domainsRoute(req: Request, parts: string[], body: Json, actor: string, 
 /** The provisioner's terms::TERMS_VERSION. */
 const TERMS_VERSION = "beta-2026-11";
 
+/** terms::check: an acceptance of the terms in force, with its wording. */
+function termsRefusal(terms: Json): Response | null {
+  if (!terms || typeof terms !== "object" || !String(terms.text ?? "").trim() || !String(terms.text_version ?? "").trim()) {
+    return error(400, "TermsRequired", "accept the beta terms to create an instance");
+  }
+  if (terms.terms_version !== TERMS_VERSION) {
+    return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
+  }
+  return null;
+}
+
+/** terms::check_account: has `actor`'s account accepted the terms in force? */
+function accountTermsRefusal(actor: string): Response | null {
+  const accepted = state.accountTerms[actor];
+  if (accepted === undefined) return error(400, "TermsRequired", "accept the beta terms to create an instance");
+  if (accepted !== TERMS_VERSION) {
+    return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
+  }
+  return null;
+}
+
 /** POST /v1/tenants, tenants::create's checks in its order. */
 function createTenant(body: Json, actor: string, staff: boolean): Response {
   if (!body || typeof body !== "object") return error(400, "InvalidRequest", "body must be JSON");
@@ -434,14 +458,10 @@ function createTenant(body: Json, actor: string, staff: boolean): Response {
     return error(403, "Forbidden", "you can only create instances for yourself");
   }
   if (!entitled(staff)) return notEntitled();
-  // terms::check: an acceptance of the terms in force, with its wording.
-  const terms = body.terms;
-  if (!terms || typeof terms !== "object" || !String(terms.text ?? "").trim() || !String(terms.text_version ?? "").trim()) {
-    return error(400, "TermsRequired", "accept the beta terms to create an instance");
-  }
-  if (terms.terms_version !== TERMS_VERSION) {
-    return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
-  }
+  // terms::check on an acceptance made with the create, else
+  // terms::check_account on the caller's sign-in acceptance.
+  const refused = body.terms === undefined || body.terms === null ? accountTermsRefusal(actor) : termsRefusal(body.terms);
+  if (refused) return refused;
   if (!state.plans.some((p) => p.id === body.plan)) {
     return error(400, "UnknownPlan", "no such plan");
   }
@@ -527,6 +547,8 @@ function accountBody(actor: string): Json {
     email: recorded.email ?? null,
     email_confirmed: recorded.email_confirmed ?? null,
     email_seen_at: recorded.email_seen_at ?? null,
+    terms_version: TERMS_VERSION,
+    terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
   };
 }
 
@@ -542,6 +564,14 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
 
   if (req.method === "GET" && resource === "account" && parts.length === 2) {
     return reply(200, accountBody(actor));
+  }
+
+  // POST /v1/account/terms: the account accepts the terms in force.
+  if (req.method === "POST" && resource === "account" && parts[2] === "terms" && parts.length === 3) {
+    const refused = termsRefusal(body);
+    if (refused) return refused;
+    state.accountTerms[actor] = TERMS_VERSION;
+    return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
   }
 
   // PUT /v1/account/email: a blank or missing address keeps the last one, and

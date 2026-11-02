@@ -784,6 +784,65 @@ describe("upgradeInstance", () => {
   });
 });
 
+describe("actor.acceptTerms", () => {
+  const ACCEPT = "at.happyproto.actor.acceptTerms";
+  const GET_TERMS = "at.happyproto.actor.getTerms";
+  const accepts = async () => (await provisioner.requests()).filter((r) => r.path === "/v1/account/terms");
+
+  test("a customer's acceptance is recorded, as them, with its key and exact wording", async () => {
+    const key = crypto.randomUUID();
+    const out = await ok(ACCEPT, "customer", { input: { ...TERMS, idempotencyKey: key } });
+    expect(out).toEqual({ termsVersion: TERMS.termsVersion, accepted: true });
+    const [request, ...rest] = await accepts();
+    expect(rest).toEqual([]);
+    expect(request.method).toBe("POST");
+    expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
+    expect(request.headers["idempotency-key"]).toBe(key);
+    expect(request.body).toEqual({ terms_version: TERMS.termsVersion, text_version: TERMS.textVersion, text: TERMS.text });
+    expect((await ok(GET_TERMS, "customer")).accepted).toBe(true);
+  });
+
+  test("once accepted, a create needs no acceptance of its own", async () => {
+    await ok(ACCEPT, "customer", { input: { ...TERMS, idempotencyKey: crypto.randomUUID() } });
+    const out = await ok(server("createInstance"), "customer", {
+      input: { slug: "fresh-slug", plan: "small", idempotencyKey: crypto.randomUUID() },
+    });
+    started.push(["customer", out.jobId]);
+    const [create] = (await sent()).filter((r) => r.method === "POST" && r.path === "/v1/tenants");
+    expect("terms" in create.body).toBe(false);
+  });
+
+  test("staff accept too; anyone else is refused, and nothing is sent", async () => {
+    expect((await ok(ACCEPT, "staff", { input: { ...TERMS, idempotencyKey: crypto.randomUUID() } })).accepted).toBe(true);
+    await provisioner.reset();
+    await fails(ACCEPT, "outsider", "Forbidden", { input: { ...TERMS, idempotencyKey: crypto.randomUUID() } });
+    expect(await provisioner.requests()).toEqual([]);
+  });
+
+  test("bad input is InvalidRequest, and nothing is sent", async () => {
+    const good = { ...TERMS, idempotencyKey: crypto.randomUUID() };
+    for (const input of [
+      { ...good, idempotencyKey: "nope" },
+      { ...good, termsVersion: undefined },
+      { ...good, textVersion: 2 },
+      { ...good, text: undefined },
+    ]) {
+      await fails(ACCEPT, "customer", "InvalidRequest", { input });
+    }
+    expect(await accepts()).toEqual([]);
+  });
+
+  test("the provisioner's terms refusals reach the caller", async () => {
+    await fails(ACCEPT, "customer", "TermsOutdated", {
+      input: { ...TERMS, termsVersion: "beta-2026-10", idempotencyKey: crypto.randomUUID() },
+    });
+    await fails(ACCEPT, "customer", "TermsRequired", {
+      input: { ...TERMS, text: " ", idempotencyKey: crypto.randomUUID() },
+    });
+    expect((await ok(GET_TERMS, "customer")).accepted).toBe(false);
+  });
+});
+
 describe("actor.syncAccount", () => {
   const SYNC = "at.happyproto.actor.syncAccount";
   const email = async () => (await provisioner.requests()).filter((r) => r.path === "/v1/account/email");

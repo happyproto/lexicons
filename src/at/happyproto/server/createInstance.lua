@@ -8,10 +8,13 @@
 -- or a network retry gets the first reply back -- the same instance and the
 -- same operation -- instead of a second tenant or SlugTaken.
 --
--- terms is the caller's acceptance of the beta terms (HAP-299), forwarded
--- as given. The provisioner is what requires it, staff included, and refuses
--- a create without it (TermsRequired) or with old terms (TermsOutdated), so
--- calling the API directly can't skip it. Here it is only shape-checked.
+-- The caller accepts the beta terms (HAP-299) once, at sign-in, through
+-- actor.acceptTerms. The provisioner refuses a create by anyone whose account
+-- hasn't accepted the terms in force, staff included (TermsRequired, or
+-- TermsOutdated for only older ones), so calling the API directly can't skip
+-- it. terms is an acceptance made with this create instead, as dashboards from
+-- before sign-in acceptance send; it is forwarded as given and only
+-- shape-checked here.
 
 -- @prelude gate, validate, provisioner, instance, jobs
 

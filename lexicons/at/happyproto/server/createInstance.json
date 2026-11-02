@@ -30,7 +30,7 @@
             "terms": {
               "type": "ref",
               "ref": "#termsAcceptance",
-              "description": "The beta terms the caller accepted with the create form's checkbox. The provisioner refuses a create without it (TermsRequired), staff included; it is optional here only so clients can start sending it before the provisioner requires it."
+              "description": "An acceptance of the beta terms made with this create, as dashboards from before sign-in acceptance send. Optional: the caller's account accepts them once with actor.acceptTerms, and the provisioner refuses a create unless one or the other covers the terms in force (TermsRequired, TermsOutdated), staff included."
             }
           }
         }
@@ -98,11 +98,11 @@
         },
         {
           "name": "TermsRequired",
-          "description": "The create carried no acceptance of the beta terms, or one without its wording."
+          "description": "The caller's account hasn't accepted the beta terms (actor.acceptTerms), and the create carried no acceptance of its own, or one without its wording."
         },
         {
           "name": "TermsOutdated",
-          "description": "The accepted terms are no longer the ones in force: reload and accept the current ones."
+          "description": "The caller accepted only older beta terms than the ones in force: accept the current ones and try again."
         },
         {
           "name": "Upstream",

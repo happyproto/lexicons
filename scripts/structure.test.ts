@@ -142,6 +142,10 @@ const UNGATED: Record<string, string> = {
   // Called for everyone after sign-in; it checks customer-or-staff itself and
   // answers a non-member with recorded = false.
   "at/happyproto/actor/syncAccount": "signed-in only, its own customer-or-staff check",
+  // Staff accept the beta terms too, so neither gate alone fits; each checks
+  // customer-or-staff itself and refuses anyone else.
+  "at/happyproto/actor/getTerms": "signed-in only, its own customer-or-staff check",
+  "at/happyproto/actor/acceptTerms": "signed-in only, its own customer-or-staff check",
   // Its callers are not customers yet; the invite token is the authority.
   "at/happyproto/actor/acceptInvite": "signed-in only, the token is the authority",
 };

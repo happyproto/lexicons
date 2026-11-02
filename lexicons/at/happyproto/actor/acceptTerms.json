@@ -1,0 +1,114 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.acceptTerms",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Record that the caller accepted the beta terms in force for their account, with the exact wording they were shown. The dashboard calls it from the terms screen after sign-in. Accepting terms already accepted records nothing new. Each acceptance is kept, append-only. Customers and staff; anyone else is refused.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "termsVersion",
+            "textVersion",
+            "text",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "termsVersion": {
+              "type": "string",
+              "description": "The terms the caller accepted, as getTerms reported them. Anything but the terms in force is refused (TermsOutdated)."
+            },
+            "textVersion": {
+              "type": "string",
+              "description": "The version of the wording the caller was shown, chosen by the client."
+            },
+            "text": {
+              "type": "string",
+              "description": "The exact wording the caller accepted."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per acceptance and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "termsVersion",
+            "accepted"
+          ],
+          "properties": {
+            "termsVersion": {
+              "type": "string",
+              "description": "The beta terms in force."
+            },
+            "accepted": {
+              "type": "boolean",
+              "description": "Always true: the caller has now accepted termsVersion."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "termsVersion, textVersion, text or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is neither a customer nor staff, or the provisioner refused them."
+        },
+        {
+          "name": "TermsRequired",
+          "description": "The wording or its version is blank."
+        },
+        {
+          "name": "TermsOutdated",
+          "description": "termsVersion is not the terms in force: the client is showing old terms, and should read getTerms again."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
