@@ -3,7 +3,7 @@
  * on a real HappyView v3, against the fake provisioner.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { provisioner } from "./fakes";
+import { provisioner, TERMS } from "./fakes";
 import { PROVISIONER_TOKEN, putMember, removeMember, setVariable, stack, type Stack } from "./setup";
 import { call, fails, ok } from "./xrpc";
 
@@ -448,6 +448,45 @@ describe("actor.getAccount", () => {
     await provisioner.script("GET", "/v1/account", 502, { error: "Bad", message: "SENTINEL-789" });
     const reply = await fails(GET_ACCOUNT, "customer", "Upstream");
     expect(reply.text).not.toContain("SENTINEL-789");
+  });
+});
+
+describe("actor.getTerms", () => {
+  const GET_TERMS = "at.happyproto.actor.getTerms";
+
+  test("a customer who hasn't accepted is told so, with the terms in force", async () => {
+    expect(await ok(GET_TERMS, "customer")).toEqual({ termsVersion: TERMS.termsVersion, accepted: false });
+    const [request, ...rest] = await provisioner.requests();
+    expect(rest).toEqual([]);
+    expect(`${request.method} ${request.path}`).toBe("GET /v1/account");
+    expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
+  });
+
+  test("an account that accepted, and staff who did, are told so", async () => {
+    await provisioner.state({
+      accountTerms: { [s.accounts.customer.did]: TERMS.termsVersion, [s.accounts.staff.did]: TERMS.termsVersion },
+    });
+    expect((await ok(GET_TERMS, "customer")).accepted).toBe(true);
+    expect((await ok(GET_TERMS, "staff")).accepted).toBe(true);
+  });
+
+  test("older terms are not the ones in force", async () => {
+    await provisioner.state({ accountTerms: { [s.accounts.customer.did]: "beta-2026-10" } });
+    expect((await ok(GET_TERMS, "customer")).accepted).toBe(false);
+  });
+
+  test("anyone neither customer nor staff is refused, without a provisioner call", async () => {
+    await fails(GET_TERMS, "outsider", "Forbidden");
+    await fails(GET_TERMS, null, "AuthRequired");
+    expect(await provisioner.requests()).toEqual([]);
+  });
+
+  test("a provisioner without the terms fields, or failing, is Upstream", async () => {
+    await provisioner.script("GET", "/v1/account", 200, { instance_count: 0, instance_limit: 3 });
+    await fails(GET_TERMS, "customer", "Upstream");
+    await provisioner.script("GET", "/v1/account", 502, { error: "Bad", message: "SENTINEL-790" });
+    const reply = await fails(GET_TERMS, "customer", "Upstream");
+    expect(reply.text).not.toContain("SENTINEL-790");
   });
 });
 

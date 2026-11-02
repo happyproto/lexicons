@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.getTerms",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Whether the caller has accepted the beta terms in force. The dashboard asks after each sign-in and shows the terms until the caller accepts them with acceptTerms: once per account, and again whenever the terms change. createInstance is refused until then. Customers and staff; anyone else is refused.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "termsVersion",
+            "accepted"
+          ],
+          "properties": {
+            "termsVersion": {
+              "type": "string",
+              "description": "The beta terms in force, e.g. beta-2026-11. Bumped whenever the Terms of Service change."
+            },
+            "accepted": {
+              "type": "boolean",
+              "description": "Whether the caller has accepted termsVersion for their account."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is neither a customer nor staff, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The provisioner refused the request as malformed. Not expected from this read; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
