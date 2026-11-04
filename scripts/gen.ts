@@ -48,6 +48,9 @@ const IMPLIES: Record<string, string[]> = {
   jobs: ["failure"],
   // provisioner_failure is domain_failure's fallback.
   domains: ["json", "failure", "provisioner"],
+  // public_operation lives in `instance`; provisioner_failure is
+  // key_failure's fallback.
+  keys: ["json", "failure", "provisioner", "instance"],
   // `urlencode` for the PDS requests the jobs make through the block.
   release: ["validate", "json", "urlencode"],
   // `authority` for happyproto_did: a registry script reads its own state

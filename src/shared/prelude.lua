@@ -6,7 +6,8 @@
 -- closing over it. `authority` implies `validate`; `gate` implies `failure`,
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
 -- and `urlencode`; `provisioner` implies `json` and `failure`;
--- `instance` implies `json`; `jobs` implies `failure`; `release` implies
+-- `instance` implies `json`; `keys` implies `json`, `failure`, `provisioner`
+-- and `instance`; `jobs` implies `failure`; `release` implies
 -- `validate`, `json` and `urlencode`; `registry` implies `release`, `authority`,
 -- `validate`, `failure`, `json` and `urlencode`.
 --
@@ -525,6 +526,7 @@ local function admin_instance(t, op, host_name)
   out.desiredState = t.desired_state
   out.observedState = t.observed_state
   out.routed = t.routed == true
+  out.encryptionStage = type(t.encryption_stage) == "string" and t.encryption_stage or nil
   return out
 end
 -- @endblock
@@ -908,6 +910,71 @@ local function public_host_request(r)
     out.events = json.to_array(events)
   end
   return out
+end
+-- @endblock
+
+-- @block keys
+-- A tenant's encryption key, as GET /v1/tenants/:id/encryption-key answers
+-- it, and the refusals of its rotate route. Staff only.
+
+--- Codes the key routes chose to say to staff, passed through with their
+--- message. NotLive is here too, ahead of REMAP: staff are told the instance
+--- has not gone live, not that something is in progress.
+local KEY_ERRORS = {
+  OperationInProgress = true,
+  RotationInProgress = true,
+  InstanceStopped = true,
+  NotLive = true,
+  RotationUnsupported = true,
+  AgentUnreachable = true,
+  NotSettled = true,
+}
+
+--- A key route's refusal mapped to a failure table: a KEY_ERRORS code with
+--- its message, otherwise whatever provisioner_failure makes of it.
+local function key_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and KEY_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "The provisioner refused the request."
+    return failure(decoded.error, message)
+  end
+  return provisioner_failure(status, decoded)
+end
+
+--- `{stage, rotatedAt?, operation?, failure?, sealing?, canRotate, blockedBy?}`.
+--- `failure` is the instance's latest operation when it failed and the
+--- instance with it, of any kind: a KeyMismatch can fail an update too.
+--- `sealing` comes along only whole: the provisioner sends null when the
+--- agent could not be asked, and a missing count is not a zero. Nor is a
+--- count read while the instance runs without both keys (previousKeyLive
+--- false): it reads 0 because nothing is re-sealing yet, not because it is
+--- done.
+local function admin_encryption_key(k)
+  local sealing
+  local s = k.sealing
+  if type(s) == "table" and type(s.previous_key_live) == "boolean"
+    and type(s.remaining) == "number" and type(s.unreadable) == "number" then
+    sealing = { previousKeyLive = s.previous_key_live, remaining = s.remaining, unreadable = s.unreadable }
+  end
+  local failed
+  local f = k.failure
+  if type(f) == "table" and type(f.operation_id) == "string" and type(f.kind) == "string" then
+    failed = {
+      operationId = f.operation_id,
+      kind = f.kind,
+      errorCode = type(f.error_code) == "string" and f.error_code or nil,
+    }
+  end
+  return {
+    stage = k.stage,
+    rotatedAt = type(k.rotated_at) == "string" and k.rotated_at or nil,
+    operation = public_operation(k.operation),
+    failure = failed,
+    sealing = sealing,
+    canRotate = k.can_rotate == true,
+    blockedBy = type(k.blocked_by) == "string" and k.blocked_by or nil,
+  }
 end
 -- @endblock
 

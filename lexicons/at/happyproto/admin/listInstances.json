@@ -167,6 +167,17 @@
         "routed": {
           "type": "boolean",
           "description": "Whether its public URL routes to it."
+        },
+        "encryptionStage": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "rotating",
+            "sealing",
+            "retiring",
+            "failed"
+          ],
+          "description": "Where its encryption key is in a rotation: none, rotating (the new key is not live yet), sealing (HappyView is re-sealing with it), retiring (the old key is being removed) or failed (a rotate_key or retire_key failed and the instance with it). From the provisioner's database alone."
         }
       }
     },
@@ -189,7 +200,9 @@
             "upgrade",
             "stop",
             "start",
-            "destroy"
+            "destroy",
+            "rotate_key",
+            "retire_key"
           ]
         },
         "status": {

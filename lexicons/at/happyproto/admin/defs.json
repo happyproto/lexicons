@@ -268,6 +268,111 @@
           }
         }
       }
+    },
+    "encryptionKey": {
+      "type": "object",
+      "description": "An instance's encryption key and where it is in a rotation.",
+      "required": [
+        "stage",
+        "canRotate"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "rotating",
+            "sealing",
+            "retiring",
+            "failed"
+          ],
+          "description": "none: one key. rotating: a new key is made but not live yet. sealing: it is live and HappyView is re-sealing what the old key sealed. retiring: the old key is being removed. failed: the instance is failed and its latest operation is a failed rotate_key or retire_key; retrying the instance sends its keys again."
+        },
+        "rotatedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the current key became current. Absent for the key the instance was created with."
+        },
+        "operation": {
+          "type": "ref",
+          "ref": "at.happyproto.admin.listInstances#operation",
+          "description": "The rotate_key or retire_key operation in progress, if any."
+        },
+        "failure": {
+          "type": "ref",
+          "ref": "#keyFailure",
+          "description": "The instance's latest operation, when it failed and the instance with it. Any kind: a KeyMismatch can fail an update or an upgrade too."
+        },
+        "sealing": {
+          "type": "ref",
+          "ref": "#sealing",
+          "description": "Only while sealing, and only when the instance's host answered."
+        },
+        "canRotate": {
+          "type": "boolean",
+          "description": "Whether a rotation can start now."
+        },
+        "blockedBy": {
+          "type": "string",
+          "knownValues": [
+            "OperationInProgress",
+            "RotationInProgress",
+            "InstanceStopped",
+            "NotLive",
+            "RotationUnsupported",
+            "AgentUnreachable",
+            "NotSettled"
+          ],
+          "description": "Why a rotation cannot start now, when it cannot: the code rotateEncryptionKey would refuse with."
+        }
+      }
+    },
+    "sealing": {
+      "type": "object",
+      "required": [
+        "previousKeyLive",
+        "remaining",
+        "unreadable"
+      ],
+      "properties": {
+        "previousKeyLive": {
+          "type": "boolean",
+          "description": "Whether the instance runs with both keys. False when its rotate_key has not reached it, for instance because it failed: then remaining reads 0 without anything being re-sealed, and retrying the instance sends both keys again."
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Values only the old key opens. The old key is retired once this reaches 0."
+        },
+        "unreadable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Values neither key opens. They were unreadable before the rotation, too."
+        }
+      }
+    },
+    "keyFailure": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "kind"
+      ],
+      "properties": {
+        "operationId": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "description": "The operation's kind, as on #operation."
+        },
+        "errorCode": {
+          "type": "string",
+          "knownValues": [
+            "KeyMismatch"
+          ],
+          "description": "The provisioner's error code. KeyMismatch: the host refused an apply that would drop the key the instance seals with. It needs an operator, not a retry."
+        }
+      }
     }
   }
 }
