@@ -562,6 +562,108 @@ function accountBody(actor: string): Json {
   };
 }
 
+/**
+ * HappyView's /admin/metrics bodies (src/admin/metrics.rs), as the relay
+ * passes them through: snake_case, float milliseconds or null, and only the
+ * non-zero outcomes.
+ */
+const METRICS_FIXTURE = (() => {
+  const stats = {
+    runs: 42,
+    outcomes: { ok: 40, runtime: 1, timeout: 1 },
+    wall_ms: { p50: 1.2344, p95: 8.5, p99: 12.0005, max: 30.25, mean: 2.5 },
+    guest_ms: { p50: 0.8, p95: 6, p99: 9, max: 20, mean: 1.5 },
+    prepare_ms_mean: 0.1,
+    instantiate_ms_mean: 0.2,
+    link_ms_mean: null,
+    allocate_ms_mean: null,
+    teardown_ms_mean: 0.05,
+    host_ms_mean: 0.4,
+    settle_ms_mean: null,
+    host_imports: [{ name: "db.query", calls: 84, ms_mean: 0.3 }],
+    memory_peak_bytes: { max: 1048576, mean: 524288.5 },
+    instructions_mean: 15000.5,
+    module_cache: { hits: 41, misses: 1 },
+  };
+  const trigger = "xrpc.query:com.example.getThing";
+  return {
+    scripts: {
+      window: "1h",
+      enabled: true,
+      overflow: false,
+      scripts: [
+        { trigger, kind: "xrpc_query", layer: "project", ...stats },
+        {
+          trigger: "job.run:com.example.sweep",
+          kind: "job",
+          layer: "dashboard",
+          ...stats,
+          runs: 1,
+          outcomes: { brand_new_outcome: 1 },
+          wall_ms: { p50: null, p95: null, p99: null, max: null, mean: null },
+          memory_peak_bytes: { max: null, mean: null },
+        },
+      ],
+    },
+    series: {
+      trigger,
+      kind: "xrpc_query",
+      layers: ["project"],
+      enabled: true,
+      ...stats,
+      points: [
+        {
+          start: "2026-11-05T10:00:00+00:00",
+          runs: 40,
+          outcomes: { ok: 40 },
+          wall_ms: { p50: 1.1, p95: 8, max: 30.25 },
+          guest_ms: { p50: 0.8, p95: 6, max: 20 },
+          host_ms_mean: 0.4,
+          instantiate_ms_mean: 0.2,
+          link_ms_mean: null,
+          allocate_ms_mean: null,
+          teardown_ms_mean: 0.05,
+        },
+        {
+          start: "2026-11-05T10:01:00+00:00",
+          runs: 0,
+          outcomes: {},
+          wall_ms: { p50: null, p95: null, max: null },
+          guest_ms: { p50: null, p95: null, max: null },
+          host_ms_mean: null,
+          instantiate_ms_mean: null,
+          link_ms_mean: null,
+          allocate_ms_mean: null,
+          teardown_ms_mean: null,
+        },
+      ],
+    },
+    ingest: {
+      window: "1h",
+      enabled: true,
+      overflow: false,
+      scripts_table_reads: 3,
+      collections: [
+        {
+          collection: "com.example.post",
+          action: "create",
+          records: 1200,
+          records_per_s: 0.3333,
+          record_ms: { p50: 0.25, p95: 2.5, p99: 4.0004, max: 9, mean: 0.5 },
+          stages: { decode: { ms_mean: 0.01, share: 0.02 } },
+          outcomes: { indexed: 1190, skipped: 10 },
+          failed: 2,
+          timeouts: 1,
+          dead_lettered: 1,
+          script_ms_mean: 0.2,
+          script_share: 0.4,
+          platform_share: 0.6,
+        },
+      ],
+    },
+  };
+})();
+
 async function route(req: Request, url: URL, actor: string, body: Json): Promise<Response> {
   const staff = state.staff.includes(actor);
   const can = (owner: string) => staff || owner === actor;
@@ -818,6 +920,37 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const grain = url.searchParams.get("grain") ?? "hour";
     if (grain !== "hour" && grain !== "day") return error(400, "InvalidRange", "`grain` must be `hour` or `day`");
     return reply(200, { tenant: id, grain, rows: [], gaps: [] });
+  }
+
+  // The /metrics relay (api/metrics.rs): owner or staff, anyone else NotFound,
+  // answering HappyView's own bodies (METRICS_FIXTURE) as the relay passes
+  // them through. A window or step HappyView would refuse is InvalidRequest,
+  // and a trigger with no runs is ScriptNotRun.
+  if (req.method === "GET" && resource === "tenants" && id && parts[3] === "metrics" && parts.length >= 5) {
+    const tenant = state.tenants.find((t) => t.id === id);
+    if (!tenant || !can(tenant.owner_did)) return error(404, "NotFound", "instance not found");
+    const window = url.searchParams.get("window") ?? "1h";
+    if (!["1h", "24h", "7d", "30d"].includes(window)) {
+      return error(400, "InvalidRequest", `window '${window}' is not one of 1h, 24h, 7d and 30d`);
+    }
+    const stored: Json = window === "7d" || window === "30d" ? { retention_days: 30, instances: 1 } : {};
+    if (parts[4] === "ingest" && parts.length === 5) {
+      return reply(200, { ...METRICS_FIXTURE.ingest, window, ...stored });
+    }
+    if (parts[4] === "scripts" && parts.length === 5) {
+      return reply(200, { ...METRICS_FIXTURE.scripts, window, ...stored });
+    }
+    if (parts[4] === "scripts" && parts.length === 6) {
+      const trigger = decodeURIComponent(parts[5]);
+      const step = url.searchParams.get("step") ?? (stored.retention_days ? "1h" : "1m");
+      if (!["1m", "30m", "1h", "1d"].includes(step)) {
+        return error(400, "InvalidRequest", `step '${step}' is not one of 1m, 30m, 1h and 1d`);
+      }
+      if (trigger !== METRICS_FIXTURE.series.trigger) {
+        return error(404, "ScriptNotRun", `'${trigger}' has not run in the last hour`);
+      }
+      return reply(200, { ...METRICS_FIXTURE.series, window, step, ...stored });
+    }
   }
 
   // The encryption-key routes, staff only. A seeded blocked_by stands in for

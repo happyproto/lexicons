@@ -51,6 +51,9 @@ const IMPLIES: Record<string, string[]> = {
   // public_operation lives in `instance`; provisioner_failure is
   // key_failure's fallback.
   keys: ["json", "failure", "provisioner", "instance"],
+  // provisioner_failure is metrics_failure's fallback; `urlencode` for the
+  // trigger in the path.
+  metrics: ["json", "failure", "provisioner", "urlencode"],
   // `urlencode` for the PDS requests the jobs make through the block.
   release: ["validate", "json", "urlencode"],
   // `authority` for happyproto_did: a registry script reads its own state

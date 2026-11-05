@@ -57,6 +57,7 @@ Each source declares which prelude blocks it needs:
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 | `domains` | `domain_failure(status, body)`, which passes the domain routes' own codes (`DOMAIN_ERRORS`) and hands everything else to `provisioner_failure`; `public_domain(d)` | `json`, `failure`, `provisioner` |
+| `metrics` | `metrics_params(input)`, which checks window, step and trigger and answers `{query, trigger}` with the trigger percent-encoded; `public_script_list(body)`, `public_script_series(body)` and `public_ingest(body)`, which turn HappyView's float milliseconds into whole microseconds and always carry every outcome; `metrics_failure(status, body)`, which passes the metrics routes' own codes (`METRICS_ERRORS`) and hands everything else to `provisioner_failure`; `script_metrics_failure`, which adds `ScriptNotRun` | `json`, `failure`, `provisioner`, `urlencode` |
 | `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
 | `registry` | what the gateway and the read API share: `resolve_actor`, `caller_write`, `project_view`, `version_view`, paging | `release`, `authority`, `validate`, `failure`, `json`, `urlencode` |
 

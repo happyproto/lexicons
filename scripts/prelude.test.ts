@@ -874,3 +874,205 @@ describe("follow_operation", () => {
     }
   });
 });
+
+describe("metrics", () => {
+  const ZERO = {
+    ok: 0, syntax: 0, runtime: 0, missingHandle: 0, timeout: 0,
+    memory: 0, trap: 0, noInterpreter: 0, error: 0,
+  };
+  // Records which tables went through json.to_array, which the harness's
+  // stub otherwise passes through unmarked.
+  const MARK = `
+    local __arrays = {}
+    json.to_array = function(t) __arrays[t] = true; return t end
+  `;
+
+  it("public_script_list turns float ms into rounded whole µs, and leaves a null absent", () => {
+    const { r1, r2 } = run(`${MARK}
+      local null = setmetatable({}, { __name = "null" })
+      local out = public_script_list({
+        window = "1h", enabled = true, overflow = false, retention_days = null,
+        scripts = {
+          { trigger = "xrpc.query:com.example.get", kind = "xrpc_query", layer = "project", runs = 12,
+            outcomes = { ok = 10, runtime = 2 },
+            wall_ms = { p50 = 1.2344, p95 = 2.0005, p99 = null, max = 3, mean = 0.0004 },
+            guest_ms = { p50 = 1 }, host_imports = {}, memory_peak_bytes = { max = 2048, mean = 1024.5 },
+            instructions_mean = 9.5, module_cache = { hits = 1, misses = 0 } },
+        },
+      })
+      local s = out.scripts[1]
+      return out, { math.type(s.wallUs.p50), math.type(s.wallUs.p95), math.type(s.wallUs.max), math.type(s.runs) }
+    `);
+    expect(r1).toEqual({
+      window: "1h",
+      enabled: true,
+      scripts: [
+        {
+          trigger: "xrpc.query:com.example.get",
+          kind: "xrpc_query",
+          layer: "project",
+          runs: 12,
+          outcomes: { ...ZERO, ok: 10, runtime: 2 },
+          wallUs: { p50: 1234, p95: 2001, max: 3000, mean: 0 },
+          memoryPeakBytes: 2048,
+        },
+      ],
+    });
+    expect(r2).toEqual(["integer", "integer", "integer", "integer"]);
+  });
+
+  it("every outcome is present at 0 when HappyView leaves it out, and an unknown one is dropped", () => {
+    const { r1 } = run(`
+      return public_script_list({ window = "1h", enabled = true, scripts = {
+        { trigger = "t", kind = "job", layer = "dashboard", runs = 1, outcomes = { brand_new = 4, missing_handle = 1, no_interpreter = 2 } },
+        { trigger = "u", kind = "job", layer = "dashboard", runs = 0 },
+      } }).scripts
+    `);
+    expect(r1[0].outcomes).toEqual({ ...ZERO, missingHandle: 1, noInterpreter: 2 });
+    expect(r1[1].outcomes).toEqual(ZERO);
+    expect(r1[1].wallUs).toEqual({});
+    expect(r1[1].memoryPeakBytes).toBeUndefined();
+  });
+
+  it("an empty list, series or ingest body still goes out with arrays", () => {
+    const { r1 } = run(`${MARK}
+      local list = public_script_list({ window = "7d", enabled = false, retention_days = 30, scripts = {} })
+      local series = public_script_series({ window = "1h", step = "1m", enabled = true, trigger = "t", kind = "job", runs = 0, points = {} })
+      local ingest = public_ingest({ window = "1h", enabled = true })
+      return {
+        list = __arrays[list.scripts] == true,
+        series = __arrays[series.points] == true,
+        ingest = __arrays[ingest.collections] == true,
+        retention = list.retentionDays,
+      }
+    `);
+    expect(r1).toEqual({ list: true, series: true, ingest: true, retention: 30 });
+  });
+
+  it("public_script_series maps the flattened stats and each point", () => {
+    const { r1 } = run(`
+      return public_script_series({
+        trigger = "xrpc.query:com.example.get", kind = "xrpc_query", layers = { "project" },
+        window = "24h", step = "30m", enabled = true, retention_days = 30, instances = 2,
+        runs = 3, outcomes = { ok = 3 }, wall_ms = { p50 = 0.5, p95 = 1, p99 = 1, max = 1.5, mean = 0.75 },
+        guest_ms = { p50 = 0.1 }, host_imports = {}, memory_peak_bytes = { max = 1 },
+        points = {
+          { start = "2026-11-05T10:00:00+00:00", runs = 3, outcomes = { ok = 3 },
+            wall_ms = { p50 = 0.5, p95 = 1, max = 1.5 }, guest_ms = { p50 = 0.1 }, host_ms_mean = 0.2 },
+          "not a point",
+        },
+      })
+    `);
+    expect(r1).toEqual({
+      window: "24h",
+      step: "30m",
+      enabled: true,
+      retentionDays: 30,
+      script: {
+        trigger: "xrpc.query:com.example.get",
+        kind: "xrpc_query",
+        runs: 3,
+        outcomes: { ...ZERO, ok: 3 },
+        wallUs: { p50: 500, p95: 1000, p99: 1000, max: 1500, mean: 750 },
+      },
+      points: [
+        {
+          start: "2026-11-05T10:00:00+00:00",
+          runs: 3,
+          outcomes: { ...ZERO, ok: 3 },
+          wallUs: { p50: 500, p95: 1000, max: 1500 },
+        },
+      ],
+    });
+  });
+
+  it("public_ingest keeps the counts and record time, and drops the rate, stages and shares", () => {
+    const { r1 } = run(`
+      return public_ingest({
+        window = "1h", enabled = true, overflow = false, scripts_table_reads = 4,
+        collections = {
+          { collection = "com.example.post", action = "create", records = 120, records_per_s = 0.0333,
+            record_ms = { p50 = 0.25, p95 = 2.5, p99 = 3, max = 4, mean = 0.5 },
+            stages = { decode = { mean = 1 } }, outcomes = { ok = 120 }, failed = 1, timeouts = 2,
+            dead_lettered = 3, script_ms_mean = 0.1, script_share = 0.2, platform_share = 0.8 },
+        },
+      })
+    `);
+    expect(r1).toEqual({
+      window: "1h",
+      enabled: true,
+      collections: [
+        {
+          collection: "com.example.post",
+          action: "create",
+          records: 120,
+          failed: 1,
+          timeouts: 2,
+          deadLettered: 3,
+          recordUs: { p50: 250, p95: 2500, p99: 3000, max: 4000, mean: 500 },
+        },
+      ],
+    });
+  });
+
+  it("metrics_params builds the query and encodes the trigger", () => {
+    expect(run("return metrics_params({})").r1).toEqual({ query: "" });
+    expect(run('return metrics_params({ window = "7d", step = "1h" })').r1).toEqual({ query: "?window=7d" });
+    expect(
+      run('return metrics_params({ window = "24h", step = "30m", trigger = "xrpc.query:com.example.get-thing_2" })').r1,
+    ).toEqual({ query: "?window=24h&step=30m", trigger: "xrpc.query%3Acom.example.get-thing_2" });
+    expect(run(`return metrics_params({ trigger = "${"a".repeat(400)}" })`).r1.trigger).toHaveLength(400);
+    // The longest NSID HappyView takes is 317 characters, behind a prefix.
+    const long = `xrpc.procedure:${"a".repeat(317)}`;
+    expect(run(`return metrics_params({ trigger = "${long}" })`).r1.trigger).toBe(long.replace(":", "%3A"));
+  });
+
+  it("metrics_params refuses a bad window, step or trigger before anything is called", () => {
+    const bad = [
+      '{ window = "2h" }',
+      '{ window = 1 }',
+      '{ step = "5m" }',
+      '{ trigger = "../x" }',
+      '{ trigger = "a/b" }',
+      '{ trigger = "a..b" }',
+      '{ trigger = "" }',
+      '{ trigger = "a b" }',
+      '{ trigger = "a?b" }',
+      '{ trigger = 7 }',
+      `{ trigger = "${"a".repeat(401)}" }`,
+    ];
+    for (const input of bad) {
+      const { r1, r2, calls } = run(`return metrics_params(${input})`);
+      expect([input.slice(0, 30), r1, r2?.error]).toEqual([input.slice(0, 30), null, "InvalidRequest"]);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("metrics_failure passes the metrics codes through with the provisioner's words", () => {
+    for (const [status, code] of [[503, "MetricsUnavailable"], [504, "MetricsTimeout"], [409, "NotSupported"], [429, "MetricsBusy"], [400, "InvalidRequest"]] as const) {
+      const { r1 } = run(`return metrics_failure(${status}, { error = "${code}", message = "said ${code}" })`);
+      expect(r1).toEqual({ error: code, message: `said ${code}` });
+    }
+    // Only a one-script read can be ScriptNotRun.
+    expect(run('return metrics_failure(404, { error = "ScriptNotRun", message = "m" })').r1.error).toBe("Upstream");
+    expect(run('return script_metrics_failure(404, { error = "ScriptNotRun", message = "m" })').r1).toEqual({
+      error: "ScriptNotRun",
+      message: "m",
+    });
+    expect(run('return script_metrics_failure(503, { error = "MetricsUnavailable", message = "m" })').r1).toEqual({
+      error: "MetricsUnavailable",
+      message: "m",
+    });
+  });
+
+  it("metrics_failure hands everything else to provisioner_failure", () => {
+    expect(run('return metrics_failure(404, { error = "NotFound", message = "instance not found" })').r1).toEqual({
+      error: "NotFound",
+      message: "instance not found",
+    });
+    const { r1 } = run('return metrics_failure(500, { error = "Internal", message = "SECRET" })');
+    expect(r1.error).toBe("Upstream");
+    expect(JSON.stringify(r1)).not.toContain("SECRET");
+    expect(run('return script_metrics_failure(nil, "provisioner unreachable")').r1.error).toBe("Upstream");
+  });
+});
