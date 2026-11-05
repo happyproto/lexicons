@@ -1,0 +1,128 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.fleet.getTenantIngestMetrics",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "How any tenant handled incoming records in a window, by collection and action. The same shape as server.getIngestMetrics. Admin only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "tenant"
+        ],
+        "properties": {
+          "tenant": {
+            "type": "string",
+            "description": "The instance id."
+          },
+          "window": {
+            "type": "string",
+            "knownValues": [
+              "1h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "1h",
+            "description": "How far back to read. 1h and 24h come from the instance's memory; 7d and 30d from what it stored, as far back as it keeps."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "window",
+            "enabled",
+            "collections"
+          ],
+          "properties": {
+            "window": {
+              "type": "string",
+              "knownValues": [
+                "1h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether the instance is recording metrics at all."
+            },
+            "retentionDays": {
+              "type": "integer",
+              "description": "On 7d and 30d: how many days the instance keeps, so a longer window covers only that."
+            },
+            "collections": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "at.happyproto.server.getIngestMetrics#collection"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "The tenant id is not a UUID, or the window is not one this method takes."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such tenant."
+        },
+        {
+          "name": "MetricsUnavailable",
+          "description": "The instance is not running, or its host cannot be reached."
+        },
+        {
+          "name": "MetricsTimeout",
+          "description": "The instance's HappyView did not answer in time. Try again shortly."
+        },
+        {
+          "name": "NotSupported",
+          "description": "The instance runs a HappyView too old to report its metrics. Upgrading it fixes this."
+        },
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
