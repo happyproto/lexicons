@@ -99,6 +99,8 @@ function fresh() {
     domains: [] as Json[],
     /** GET /v1/tenants/:id/logs's page, by tenant id. */
     logs: {} as Record<string, Json>,
+    /** Tenant id -> GET /v1/admin/tenants's `usage` for it. */
+    tenantUsage: {} as Record<string, Json>,
     autoscale: {
       enabled: true,
       paused: false,
@@ -712,6 +714,34 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const bad = (m: string) => error(400, "InvalidRange", m);
     if (id === "capacity") {
       return reply(200, { latest: null, trend: [], collections: [], tenants: [] });
+    }
+    // api/fleet.rs: every live tenant with its plan, owner and latest
+    // metered hour (seeded per tenant id in state.tenantUsage).
+    if (id === "tenants") {
+      const tenants = state.tenants
+        .filter((t) => !t.deleted_at)
+        .map((t) => {
+          const plan = state.plans.find((p) => p.id === t.plan_id) ?? {};
+          const held = state.accountEmails[t.owner_did];
+          const email = held?.email || null;
+          return {
+            id: t.id,
+            slug: t.slug,
+            host_id: t.host_id ?? null,
+            desired_state: t.desired_state,
+            observed_state: t.observed_state,
+            happyview_version: t.happyview_version,
+            created_at: t.created_at,
+            plan: { id: t.plan_id, name: plan.name, memory_mb: plan.memory_mb, disk_gb: plan.disk_gb },
+            owner: {
+              did: t.owner_did,
+              email,
+              email_confirmed: email ? held.email_confirmed === true : null,
+            },
+            usage: state.tenantUsage[t.id] ?? null,
+          };
+        });
+      return reply(200, { tenants });
     }
     if (id === "usage") {
       const grain = url.searchParams.get("grain") ?? "hour";
