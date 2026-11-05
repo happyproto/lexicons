@@ -41,6 +41,13 @@ local function fleet_tenant(t)
   local plan = type(t.plan) == "table" and t.plan or {}
   local owner = type(t.owner) == "table" and t.owner or {}
   local email = shown(owner.email)
+  -- Only beside an email, and false for one that isn't confirmed. Not
+  -- `email and confirmed or nil`: that drops a false to nil, which would
+  -- hide that an address is unconfirmed.
+  local email_confirmed
+  if email then
+    email_confirmed = owner.email_confirmed == true
+  end
   local usage
   if type(t.usage) == "table" and type(t.usage.hour) == "string" then
     local u = t.usage
@@ -72,8 +79,7 @@ local function fleet_tenant(t)
     owner = {
       did = owner.did,
       email = email,
-      -- Only beside an email: false for one that isn't confirmed.
-      emailConfirmed = email and owner.email_confirmed == true or nil,
+      emailConfirmed = email_confirmed,
     },
     usage = usage,
   }
