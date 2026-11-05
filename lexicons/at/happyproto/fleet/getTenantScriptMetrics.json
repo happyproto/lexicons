@@ -28,7 +28,7 @@
           },
           "trigger": {
             "type": "string",
-            "description": "One script's trigger, such as xrpc.query:com.example.getThing, at most 300 characters. With it, the reply is that script's series; without it, every script that ran."
+            "description": "One script's trigger, such as xrpc.query:com.example.getThing, at most 400 characters. With it, the reply is that script's series; without it, every script that ran."
           },
           "step": {
             "type": "string",
@@ -119,6 +119,10 @@
         {
           "name": "MetricsUnavailable",
           "description": "The instance is not running, or its host cannot be reached."
+        },
+        {
+          "name": "MetricsBusy",
+          "description": "Too many metrics reads are running for this instance or its host. Try again shortly."
         },
         {
           "name": "MetricsTimeout",

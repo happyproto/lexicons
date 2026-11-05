@@ -1021,7 +1021,10 @@ describe("metrics", () => {
     expect(
       run('return metrics_params({ window = "24h", step = "30m", trigger = "xrpc.query:com.example.get-thing_2" })').r1,
     ).toEqual({ query: "?window=24h&step=30m", trigger: "xrpc.query%3Acom.example.get-thing_2" });
-    expect(run(`return metrics_params({ trigger = "${"a".repeat(300)}" })`).r1.trigger).toHaveLength(300);
+    expect(run(`return metrics_params({ trigger = "${"a".repeat(400)}" })`).r1.trigger).toHaveLength(400);
+    // The longest NSID HappyView takes is 317 characters, behind a prefix.
+    const long = `xrpc.procedure:${"a".repeat(317)}`;
+    expect(run(`return metrics_params({ trigger = "${long}" })`).r1.trigger).toBe(long.replace(":", "%3A"));
   });
 
   it("metrics_params refuses a bad window, step or trigger before anything is called", () => {
@@ -1036,7 +1039,7 @@ describe("metrics", () => {
       '{ trigger = "a b" }',
       '{ trigger = "a?b" }',
       '{ trigger = 7 }',
-      `{ trigger = "${"a".repeat(301)}" }`,
+      `{ trigger = "${"a".repeat(401)}" }`,
     ];
     for (const input of bad) {
       const { r1, r2, calls } = run(`return metrics_params(${input})`);
@@ -1046,7 +1049,7 @@ describe("metrics", () => {
   });
 
   it("metrics_failure passes the metrics codes through with the provisioner's words", () => {
-    for (const [status, code] of [[503, "MetricsUnavailable"], [504, "MetricsTimeout"], [409, "NotSupported"], [400, "InvalidRequest"]] as const) {
+    for (const [status, code] of [[503, "MetricsUnavailable"], [504, "MetricsTimeout"], [409, "NotSupported"], [429, "MetricsBusy"], [400, "InvalidRequest"]] as const) {
       const { r1 } = run(`return metrics_failure(${status}, { error = "${code}", message = "said ${code}" })`);
       expect(r1).toEqual({ error: code, message: `said ${code}` });
     }

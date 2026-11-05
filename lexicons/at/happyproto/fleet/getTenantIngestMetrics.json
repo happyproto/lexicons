@@ -79,6 +79,10 @@
           "description": "The instance is not running, or its host cannot be reached."
         },
         {
+          "name": "MetricsBusy",
+          "description": "Too many metrics reads are running for this instance or its host. Try again shortly."
+        },
+        {
           "name": "MetricsTimeout",
           "description": "The instance's HappyView did not answer in time. Try again shortly."
         },

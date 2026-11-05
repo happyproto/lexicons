@@ -1049,7 +1049,7 @@ end
 
 local METRICS_WINDOWS = { ["1h"] = true, ["24h"] = true, ["7d"] = true, ["30d"] = true }
 local METRICS_STEPS = { ["1m"] = true, ["30m"] = true, ["1h"] = true, ["1d"] = true }
-local MAX_TRIGGER = 300
+local MAX_TRIGGER = 400
 
 -- Every outcome a run can have, as HappyView names it, and as the lexicons
 -- name it. HappyView sends only the non-zero ones; the lexicons always carry
@@ -1072,6 +1072,7 @@ local METRICS_ERRORS = {
   MetricsUnavailable = true,
   MetricsTimeout = true,
   NotSupported = true,
+  MetricsBusy = true,
   InvalidRequest = true,
 }
 

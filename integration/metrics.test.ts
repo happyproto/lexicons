@@ -154,7 +154,7 @@ describe("server.getScriptMetrics", () => {
       { id: OWN_ID, trigger: TRIGGER, step: "5m" },
       { id: OWN_ID, trigger: "../x" },
       { id: OWN_ID, trigger: "a/b" },
-      { id: OWN_ID, trigger: "a".repeat(301) },
+      { id: OWN_ID, trigger: "a".repeat(401) },
     ];
     for (const params of bad) {
       await fails(server("getScriptMetrics"), "customer", "InvalidRequest", { params });
@@ -196,6 +196,7 @@ describe("the metrics codes pass through with the provisioner's words", () => {
     [503, "MetricsUnavailable", "This instance isn't running."],
     [504, "MetricsTimeout", "The instance took too long to answer."],
     [409, "NotSupported", "This instance's HappyView is too old to report metrics."],
+    [429, "MetricsBusy", "Too many metrics reads are running for this instance. Try again shortly."],
     [400, "InvalidRequest", "the last day is kept by the half hour: use step=30m with window=24h"],
   ] as const;
   const cases = [
@@ -256,7 +257,7 @@ describe("fleet.getTenantScriptMetrics and fleet.getTenantIngestMetrics", () => 
       { tenant: OWN_ID, trigger: TRIGGER, step: "5m" },
       { tenant: OWN_ID, trigger: "../x" },
       { tenant: OWN_ID, trigger: "a/b" },
-      { tenant: OWN_ID, trigger: "a".repeat(301) },
+      { tenant: OWN_ID, trigger: "a".repeat(401) },
     ];
     for (const params of bad) {
       await fails(fleet("getTenantScriptMetrics"), "staff", "InvalidRequest", { params });
