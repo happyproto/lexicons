@@ -47,6 +47,10 @@ export const provisioner = {
     hostRequests?: any[];
     /** GET /v1/tenants/:id/logs's page, by tenant id. */
     logs?: Record<string, any>;
+    /** DID -> `{email, email_confirmed}`, as accounts holds them. */
+    accountEmails?: Record<string, any>;
+    /** Tenant id -> GET /v1/admin/tenants's `usage` for it. */
+    tenantUsage?: Record<string, any>;
     /** Tenant id -> `{stage, rotated_at?, sealing?, blocked_by?}`. */
     encryptionKeys?: Record<string, any>;
   }) => post(`${PROVISIONER_URL}/__state`, state),

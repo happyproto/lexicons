@@ -1,0 +1,273 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.getFleet",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every host, and every tenant with its host, plan, owner and latest metered hour, for the staff fleet view. Staff only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "hosts",
+            "tenants"
+          ],
+          "properties": {
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#host"
+              }
+            },
+            "tenants": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#tenant"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not treat them as staff."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The provisioner refused the request as malformed."
+        }
+      ]
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "memoryMb",
+        "diskGb",
+        "tenantCount",
+        "reservedMemoryMb",
+        "reservedDiskGb"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "knownValues": [
+            "active",
+            "draining",
+            "degraded",
+            "retired"
+          ]
+        },
+        "memoryMb": {
+          "type": "integer"
+        },
+        "diskGb": {
+          "type": "integer"
+        },
+        "tenantCount": {
+          "type": "integer"
+        },
+        "reservedMemoryMb": {
+          "type": "integer"
+        },
+        "reservedDiskGb": {
+          "type": "integer"
+        },
+        "freeMemoryMb": {
+          "type": "integer",
+          "description": "Negative when the host is over-committed."
+        },
+        "freeDiskGb": {
+          "type": "integer",
+          "description": "Negative when the host is over-committed."
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Absent until the agent first answers."
+        }
+      }
+    },
+    "tenant": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "desiredState",
+        "observedState",
+        "version",
+        "createdAt",
+        "plan",
+        "owner"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A UUID."
+        },
+        "slug": {
+          "type": "string"
+        },
+        "hostId": {
+          "type": "string",
+          "description": "The host it is placed on. Absent when it never was."
+        },
+        "desiredState": {
+          "type": "string"
+        },
+        "observedState": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string",
+          "description": "The HappyView release it runs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "plan": {
+          "type": "ref",
+          "ref": "#plan"
+        },
+        "owner": {
+          "type": "ref",
+          "ref": "#owner"
+        },
+        "usage": {
+          "type": "ref",
+          "ref": "#usage",
+          "description": "Its latest metered hour. Absent when it has none yet: never zeros."
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "memoryMb": {
+          "type": "integer",
+          "description": "Its memory limit."
+        },
+        "diskGb": {
+          "type": "integer",
+          "description": "Its disk quota."
+        }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "required": [
+        "did"
+      ],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "email": {
+          "type": "string",
+          "description": "The address the owner shared, when they did."
+        },
+        "emailConfirmed": {
+          "type": "boolean",
+          "description": "Whether the owner's PDS says the address is confirmed. Present only with email."
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "required": [
+        "hour",
+        "partial"
+      ],
+      "properties": {
+        "hour": {
+          "type": "string",
+          "format": "datetime",
+          "description": "The metered hour these are from."
+        },
+        "diskAvgBytes": {
+          "type": "integer"
+        },
+        "diskPeakBytes": {
+          "type": "integer"
+        },
+        "memPeakBytes": {
+          "type": "integer"
+        },
+        "memAvgBytes": {
+          "type": "integer",
+          "description": "Average over the hour's running time."
+        },
+        "seats": {
+          "type": "integer"
+        },
+        "apiClients": {
+          "type": "integer"
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "Whether the hour has gaps in its samples."
+        }
+      }
+    }
+  }
+}
