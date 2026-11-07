@@ -356,10 +356,23 @@ export function keyCodes(prelude: string): string[] {
 }
 
 /**
+ * The codes metrics_failure passes through on top of provisioner_failure's,
+ * read from the prelude's METRICS_ERRORS table, and what
+ * script_metrics_failure adds to those, from SCRIPT_METRICS_ERRORS.
+ */
+export function metricsCodes(prelude: string, table = "METRICS_ERRORS"): string[] {
+  const found = prelude.match(new RegExp(`local ${table}\\s*=\\s*\\{([\\s\\S]*?)\\}`));
+  if (!found) throw new Error(`prelude: no ${table} table in the metrics block`);
+  return [...found[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*true/g)].map((m) => m[1]);
+}
+
+/**
  * Every error name a source can return. `passthrough` is everything
  * provisioner_failure can answer besides Upstream: the PASSTHROUGH codes and
  * the REMAP targets. `domain` is what domain_failure adds to those, and
  * `scaler` what scaler_failure adds, and `keys` what key_failure adds.
+ * `metrics` is what metrics_failure adds, and `scriptMetrics` what
+ * script_metrics_failure adds on top of that.
  */
 export function errorsReturned(
   text: string,
@@ -367,6 +380,8 @@ export function errorsReturned(
   domain: string[] = [],
   scaler: string[] = [],
   keys: string[] = [],
+  metrics: string[] = [],
+  scriptMetrics: string[] = [],
 ): Set<string> {
   const code = stripLua(text, true);
   const bare = stripLua(text);
@@ -381,7 +396,7 @@ export function errorsReturned(
   // gate_owner refuses everyone it refuses, signed-out callers included, as
   // Forbidden.
   if (/(^|[^\w.])gate_owner\s*\(/.test(bare)) names.add("Forbidden");
-  if (/(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure|scaler_failure|key_failure)\s*\(/.test(bare)) {
+  if (/(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure|scaler_failure|key_failure|metrics_failure|script_metrics_failure)\s*\(/.test(bare)) {
     for (const name of passthrough) names.add(name);
     names.add("Upstream");
   }
@@ -393,6 +408,12 @@ export function errorsReturned(
   }
   if (/(^|[^\w.])key_failure\s*\(/.test(bare)) {
     for (const name of keys) names.add(name);
+  }
+  if (/(^|[^\w.])(metrics_failure|script_metrics_failure)\s*\(/.test(bare)) {
+    for (const name of metrics) names.add(name);
+  }
+  if (/(^|[^\w.])script_metrics_failure\s*\(/.test(bare)) {
+    for (const name of scriptMetrics) names.add(name);
   }
   // owned_tenant also refuses another owner's tenant itself.
   if (/(^|[^\w.])owned_tenant\s*\(/.test(bare)) names.add("NotFound");
@@ -407,11 +428,13 @@ export function undeclaredErrorOffences(
   domain: string[] = [],
   scaler: string[] = [],
   keys: string[] = [],
+  metrics: string[] = [],
+  scriptMetrics: string[] = [],
 ): string[] {
   const declared = new Set<string>(
     (lexicon?.defs?.main?.errors ?? []).map((e: { name: string }) => e.name),
   );
-  return [...errorsReturned(text, passthrough, domain, scaler, keys)]
+  return [...errorsReturned(text, passthrough, domain, scaler, keys, metrics, scriptMetrics)]
     .filter((name) => !declared.has(name))
     .sort()
     .map((name) => `can return ${name}, which the lexicon does not declare`);
@@ -647,6 +670,28 @@ describe("each rule flags a bad fixture", () => {
     ).toEqual([]);
   });
 
+  test("metrics_failure can return the metrics codes, and script_metrics_failure ScriptNotRun too", () => {
+    const lexicon = { defs: { main: { errors: [{ name: "Upstream" }, { name: "SlugTaken" }] } } };
+    const run = (text: string) =>
+      undeclaredErrorOffences(lexicon, text, ["SlugTaken"], [], [], [], ["MetricsTimeout"], ["ScriptNotRun"]);
+    expect(run("return metrics_failure(s, b)\n")).toEqual([
+      "can return MetricsTimeout, which the lexicon does not declare",
+    ]);
+    expect(run("return script_metrics_failure(s, b)\n")).toEqual([
+      "can return MetricsTimeout, which the lexicon does not declare",
+      "can return ScriptNotRun, which the lexicon does not declare",
+    ]);
+    expect(run("return provisioner_failure(s, b)\n")).toEqual([]);
+  });
+
+  test("the metrics codes are read from the prelude", () => {
+    const prelude =
+      "local METRICS_ERRORS = {\n  MetricsTimeout = true,\n  NotSupported = true,\n}\n" +
+      "local SCRIPT_METRICS_ERRORS = {\n  ScriptNotRun = true,\n}\n";
+    expect(metricsCodes(prelude)).toEqual(["MetricsTimeout", "NotSupported"]);
+    expect(metricsCodes(prelude, "SCRIPT_METRICS_ERRORS")).toEqual(["ScriptNotRun"]);
+  });
+
   test("the key codes are read from the prelude", () => {
     expect(
       keyCodes("local KEY_ERRORS = {\n  NotLive = true,\n  AgentUnreachable = true,\n}\n"),
@@ -764,12 +809,14 @@ describe("every script is deployable", () => {
     const domain = domainCodes(prelude);
     const scaler = scalerCodes(prelude);
     const keys = keyCodes(prelude);
+    const metrics = metricsCodes(prelude);
+    const scriptMetrics = metricsCodes(prelude, "SCRIPT_METRICS_ERRORS");
     const offenders: string[] = [];
     for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
-      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys)) {
+      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys, metrics, scriptMetrics)) {
         offenders.push(`${script}: ${o}`);
       }
     }

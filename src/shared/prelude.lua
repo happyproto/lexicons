@@ -7,7 +7,8 @@
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
 -- and `urlencode`; `provisioner` implies `json` and `failure`;
 -- `instance` implies `json`; `keys` implies `json`, `failure`, `provisioner`
--- and `instance`; `jobs` implies `failure`; `release` implies
+-- and `instance`; `metrics` implies `json`, `failure`, `provisioner` and
+-- `urlencode`; `jobs` implies `failure`; `release` implies
 -- `validate`, `json` and `urlencode`; `registry` implies `release`, `authority`,
 -- `validate`, `failure`, `json` and `urlencode`.
 --
@@ -1033,6 +1034,227 @@ local function usage_query(input)
     end
   end
   return query
+end
+-- @endblock
+
+-- @block metrics
+-- A tenant's script and ingest metrics, as HappyView's /admin/metrics routes
+-- answer them through the provisioner's /metrics relay, mapped to the shapes
+-- the server and fleet lexicons share. Each field is listed explicitly, so a
+-- field HappyView adds later is never passed along by accident.
+--
+-- HappyView reports durations as float milliseconds, or null where nothing
+-- was measured. Lexicons have no float type, so every duration goes out as
+-- whole microseconds, and a null stays absent.
+
+local METRICS_WINDOWS = { ["1h"] = true, ["24h"] = true, ["7d"] = true, ["30d"] = true }
+local METRICS_STEPS = { ["1m"] = true, ["30m"] = true, ["1h"] = true, ["1d"] = true }
+local MAX_TRIGGER = 400
+
+-- Every outcome a run can have, as HappyView names it, and as the lexicons
+-- name it. HappyView sends only the non-zero ones; the lexicons always carry
+-- all of them, and drop one HappyView adds later.
+local METRICS_OUTCOMES = {
+  { "ok", "ok" },
+  { "syntax", "syntax" },
+  { "runtime", "runtime" },
+  { "missing_handle", "missingHandle" },
+  { "timeout", "timeout" },
+  { "memory", "memory" },
+  { "trap", "trap" },
+  { "no_interpreter", "noInterpreter" },
+  { "error", "error" },
+}
+
+-- Codes the provisioner's metrics routes chose to say to a caller, passed
+-- through with their message. Anything else goes to provisioner_failure.
+local METRICS_ERRORS = {
+  MetricsUnavailable = true,
+  MetricsTimeout = true,
+  NotSupported = true,
+  MetricsBusy = true,
+  InvalidRequest = true,
+}
+
+-- What only a one-script read can answer, on top of METRICS_ERRORS.
+local SCRIPT_METRICS_ERRORS = {
+  ScriptNotRun = true,
+}
+
+--- `{query, trigger}` for a metrics read, or nil and a failure table.
+---
+--- `query` is "" or "?window=..[&step=..]", and `trigger` is the trigger
+--- percent-encoded for the path, or nil for the list. `step` only shapes a
+--- series, so without a trigger it is checked and never sent.
+local function metrics_params(input)
+  local window, step, trigger = input.window, input.step, input.trigger
+  if window ~= nil and not METRICS_WINDOWS[window] then
+    return nil, failure("InvalidRequest", "window must be 1h, 24h, 7d or 30d.")
+  end
+  if step ~= nil and not METRICS_STEPS[step] then
+    return nil, failure("InvalidRequest", "step must be 1m, 30m, 1h or 1d.")
+  end
+  if trigger ~= nil and (type(trigger) ~= "string" or #trigger == 0 or #trigger > MAX_TRIGGER
+    or not trigger:match("^[%w%._:%-]+$") or trigger:find("..", 1, true)) then
+    return nil, failure("InvalidRequest", "trigger must be a script's trigger, at most " .. MAX_TRIGGER .. " characters.")
+  end
+  local query = {}
+  -- Safe unencoded: each is one of the fixed values above.
+  if window ~= nil then query[#query + 1] = "window=" .. window end
+  if step ~= nil and trigger ~= nil then query[#query + 1] = "step=" .. step end
+  return {
+    query = #query > 0 and ("?" .. table.concat(query, "&")) or "",
+    trigger = trigger ~= nil and url_encode(trigger) or nil,
+  }
+end
+
+--- A metrics route's refusal mapped to a failure table: a METRICS_ERRORS
+--- code with its message, otherwise whatever provisioner_failure makes of it.
+local function metrics_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and METRICS_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "The instance's metrics could not be read."
+    return failure(decoded.error, message)
+  end
+  return provisioner_failure(status, decoded)
+end
+
+--- metrics_failure for a one-script read, which may also be ScriptNotRun.
+local function script_metrics_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and SCRIPT_METRICS_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "That script has not run in this window."
+    return failure(decoded.error, message)
+  end
+  return metrics_failure(status, decoded)
+end
+
+-- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+local function metrics_text(v)
+  if type(v) == "string" then return v end
+  return nil
+end
+
+--- A count as an integer: 0 for anything that is not a whole number.
+local function metrics_count(v)
+  return type(v) == "number" and math.tointeger(v) or 0
+end
+
+--- Float milliseconds as whole microseconds, rounded; nil for a null.
+local function metrics_us(ms)
+  if type(ms) ~= "number" or ms ~= ms or ms == math.huge or ms == -math.huge then
+    return nil
+  end
+  return math.tointeger(math.floor(ms * 1000 + 0.5))
+end
+
+--- Every outcome, 0 where HappyView left it out.
+local function metrics_outcomes(o)
+  o = type(o) == "table" and o or {}
+  local out = {}
+  for _, pair in ipairs(METRICS_OUTCOMES) do
+    out[pair[2]] = metrics_count(o[pair[1]])
+  end
+  return out
+end
+
+--- A percentiles object in microseconds. HappyView's per-point percentiles
+--- carry only p50, p95 and max, so the others are simply absent there.
+local function metrics_percentiles(p)
+  p = type(p) == "table" and p or {}
+  return {
+    p50 = metrics_us(p.p50),
+    p95 = metrics_us(p.p95),
+    p99 = metrics_us(p.p99),
+    max = metrics_us(p.max),
+    mean = metrics_us(p.mean),
+  }
+end
+
+--- The fields every metrics body shares: the window, whether recording is
+--- on, and how long stored windows are kept.
+local function metrics_header(body)
+  local retention = body.retention_days
+  return {
+    window = metrics_text(body.window),
+    enabled = body.enabled == true,
+    retentionDays = type(retention) == "number" and math.tointeger(retention) or nil,
+  }
+end
+
+--- `{window, enabled, retentionDays?, scripts}` from GET .../metrics/scripts.
+local function public_script_list(body)
+  local out = metrics_header(body)
+  local scripts = {}
+  for _, s in ipairs(type(body.scripts) == "table" and body.scripts or {}) do
+    if type(s) == "table" and type(s.trigger) == "string" then
+      local memory = type(s.memory_peak_bytes) == "table" and s.memory_peak_bytes.max
+      scripts[#scripts + 1] = {
+        trigger = s.trigger,
+        kind = metrics_text(s.kind),
+        layer = metrics_text(s.layer),
+        runs = metrics_count(s.runs),
+        outcomes = metrics_outcomes(s.outcomes),
+        wallUs = metrics_percentiles(s.wall_ms),
+        memoryPeakBytes = type(memory) == "number" and math.tointeger(memory) or nil,
+      }
+    end
+  end
+  out.scripts = json.to_array(scripts)
+  return out
+end
+
+--- `{window, step, enabled, retentionDays?, script, points}` from GET
+--- .../metrics/scripts/:trigger, whose stats are flattened at the top.
+local function public_script_series(body)
+  local out = metrics_header(body)
+  out.step = metrics_text(body.step)
+  out.script = {
+    trigger = metrics_text(body.trigger),
+    kind = metrics_text(body.kind),
+    runs = metrics_count(body.runs),
+    outcomes = metrics_outcomes(body.outcomes),
+    wallUs = metrics_percentiles(body.wall_ms),
+  }
+  local points = {}
+  for _, p in ipairs(type(body.points) == "table" and body.points or {}) do
+    if type(p) == "table" and type(p.start) == "string" then
+      local wall = type(p.wall_ms) == "table" and p.wall_ms or {}
+      points[#points + 1] = {
+        start = p.start,
+        runs = metrics_count(p.runs),
+        outcomes = metrics_outcomes(p.outcomes),
+        wallUs = { p50 = metrics_us(wall.p50), p95 = metrics_us(wall.p95), max = metrics_us(wall.max) },
+      }
+    end
+  end
+  out.points = json.to_array(points)
+  return out
+end
+
+--- `{window, enabled, retentionDays?, collections}` from GET .../metrics/ingest.
+--- The rate, stages and shares are dropped: the dashboard derives a rate
+--- from `records` and the window.
+local function public_ingest(body)
+  local out = metrics_header(body)
+  local collections = {}
+  for _, c in ipairs(type(body.collections) == "table" and body.collections or {}) do
+    if type(c) == "table" and type(c.collection) == "string" then
+      collections[#collections + 1] = {
+        collection = c.collection,
+        action = metrics_text(c.action),
+        records = metrics_count(c.records),
+        failed = metrics_count(c.failed),
+        timeouts = metrics_count(c.timeouts),
+        deadLettered = metrics_count(c.dead_lettered),
+        recordUs = metrics_percentiles(c.record_ms),
+      }
+    end
+  end
+  out.collections = json.to_array(collections)
+  return out
 end
 -- @endblock
 
