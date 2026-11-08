@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Create HappyProto's admin and customers spaces under HAPPYPROTO_DID, member-only, keeping either that already exists, and add each of staff to the admin space with write access, skipping existing members. Idempotent: a second call creates nothing and adds no one. Only HappyProto's own account may call it.",
+      "description": "Create HappyProto's admin and customers spaces, member-only, keeping either that already exists, and add each of staff to the admin space with write access, skipping existing members. Each space is looked up at the uri its script variable (HAPPYPROTO_ADMIN_SPACE, HAPPYPROTO_CUSTOMERS_SPACE) names, or, unset, under HAPPYPROTO_DID. A space created here has a DID of its own, and the uri answered is the one to set its variable to. Idempotent once the variables are set: a second call creates nothing and adds no one. Only HappyProto's own account may call it.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -53,6 +53,10 @@
       },
       "errors": [
         {
+          "name": "Conflict",
+          "description": "A space of this type already exists at a uri of its own that no variable names. The message names the variable to set to it."
+        },
+        {
           "name": "Forbidden",
           "description": "The caller is not HAPPYPROTO_DID, is signed out, or HAPPYPROTO_DID is unset or not a DID."
         },
@@ -62,7 +66,7 @@
         },
         {
           "name": "Upstream",
-          "description": "A space could not be read, created or changed, or the instance anchors new spaces under its own DID rather than HAPPYPROTO_DID. A failure part-way through staff names, in its message, the DIDs already added. Retrying is safe."
+          "description": "A space could not be read, created or changed. A failure part-way through staff names, in its message, the DIDs already added. Retrying is safe."
         }
       ]
     },

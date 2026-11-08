@@ -96,15 +96,13 @@ local MEMBER_ACCESS = { read = true, read_self = true, write = true }
 -- @endblock
 
 -- @block authority
--- HappyProto's two spaces, derived from the one script variable that says who
--- HappyProto is. Both are fixed: type at.happyproto.admin or
--- at.happyproto.customers, skey `main`, under HappyProto's own DID.
+-- HappyProto's two spaces: type at.happyproto.admin or at.happyproto.customers.
 --
--- The DID is a script variable, not a literal, because it is the part that
--- makes a membership check mean anything: matching on the space TYPE would
--- admit everyone, since any user can create a space of any type and is
--- auto-added to their own as a member. Keeping it server-side means no client
--- can point the gate at a different space.
+-- Where each one lives is server-side configuration, never the client's word,
+-- because that is what makes a membership check mean anything: matching on
+-- the space TYPE would admit everyone, since any user can create a space of
+-- any type and is a member of their own. The uri comes from a script variable
+-- (`SPACE_VARIABLES`), or is derived from HAPPYPROTO_DID when that is unset.
 
 local ADMIN_SPACE_TYPE = "at.happyproto.admin"
 local CUSTOMERS_SPACE_TYPE = "at.happyproto.customers"
@@ -123,8 +121,34 @@ local function happyproto_did(ctx)
   return nil
 end
 
---- `at://<HAPPYPROTO_DID>/space/<space_type>/main`, or nil with no valid DID.
+--- The script variable naming each space's uri.
+local SPACE_VARIABLES = {
+  [ADMIN_SPACE_TYPE] = "HAPPYPROTO_ADMIN_SPACE",
+  [CUSTOMERS_SPACE_TYPE] = "HAPPYPROTO_CUSTOMERS_SPACE",
+}
+
+--- Whether `uri` addresses a space of `space_type`:
+--- `at://<did>/space/<space_type>/<skey>`.
+local function is_space_of_type(uri, space_type)
+  local did, kind, skey = uri:match("^at://([^/]+)/space/([^/]+)/([^/]+)$")
+  return is_did(did) and kind == space_type and skey ~= nil
+end
+
+--- The uri of one of HappyProto's spaces, or nil when none is configured.
+---
+--- HappyView gives each space it creates a DID of its own, so a space's uri
+--- names that DID and is read from its script variable (`SPACE_VARIABLES`).
+--- An instance whose spaces still sit on HAPPYPROTO_DID's own account, as
+--- spaces created before space DIDs did, needs no variable: unset, the uri is
+--- `at://<HAPPYPROTO_DID>/space/<space_type>/main`. A variable that is set but
+--- does not address a space of this type configures nothing, rather than
+--- falling back, so a typo fails closed.
 local function happyproto_space(ctx, space_type)
+  local configured = (ctx.env or {})[SPACE_VARIABLES[space_type] or ""]
+  if type(configured) == "string" and configured ~= "" then
+    if is_space_of_type(configured, space_type) then return configured end
+    return nil
+  end
   local did = happyproto_did(ctx)
   if not did then return nil end
   return "at://" .. did .. "/space/" .. space_type .. "/main"
@@ -135,8 +159,8 @@ end
 local spaces = require("happyview.spaces")
 
 --- nil when the caller may proceed, else a failure table. Fails closed: a
---- missing caller, a missing or malformed HAPPYPROTO_DID, a space that cannot
---- be read, and no access all refuse.
+--- missing caller, no space configured (see `happyproto_space`), a space that
+--- cannot be read, and no access all refuse.
 local function gate_member(ctx, space_type, who)
   if not ctx.caller_did or ctx.caller_did == "" then
     return failure("AuthRequired", "This endpoint requires an authenticated caller.")

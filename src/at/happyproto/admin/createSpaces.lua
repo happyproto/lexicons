@@ -133,27 +133,23 @@ local function ensure(ctx, spec)
     if error_code(made) == "CONFLICT" and exists(uri) then
       return { uri = uri, created = false }
     end
+    if error_code(made) == "CONFLICT" then
+      -- HappyView gives each space a DID of its own, so a space this
+      -- account already made is not at the uri derived from HAPPYPROTO_DID,
+      -- and this library cannot look it up. Its uri is on the dashboard's
+      -- spaces page.
+      return nil, failure("Conflict", "HappyProto's " .. spec.field .. " already exists at a uri of its own. "
+        .. "Set " .. SPACE_VARIABLES[spec.space_type] .. " to that uri.")
+    end
     log.warn("could not create a HappyProto space", { uri = uri, error = tostring(made) })
     return nil, failure("Upstream", "HappyProto's spaces could not be created.")
   end
 
-  -- HappyView anchors a new space on the instance's own DID when the instance
-  -- publishes a service identity, and on the creator's DID only when it does
-  -- not (src/spaces/service.rs `space_authority_for_new_space`). Anchored on
-  -- the instance, the space is not at the uri the gates derive, so it would
-  -- grant nothing: remove it and say why rather than report success.
-  if type(made) ~= "table" or made.uri ~= uri then
-    local stray = type(made) == "table" and made.uri or nil
-    local removed = stray ~= nil and pcall(function()
-      return spaces.get(stray):delete()
-    end)
-    log.warn("a HappyProto space was created at the wrong uri", {
-      expected = uri, created = stray, removed = removed,
-    })
-    return nil, failure("Upstream", "This instance creates spaces under its own DID, not HAPPYPROTO_DID, so the gates could never find them. "
-      .. (removed and "The space it made was removed." or "The space it made could not be removed."))
-  end
-  return { uri = uri, created = true }
+  -- HappyView gives each space it creates a DID of its own, so the new space
+  -- is at its own uri rather than the one derived from HAPPYPROTO_DID. The
+  -- gates find it once its variable is set to the uri answered here.
+  local created_uri = type(made) == "table" and made.uri or uri
+  return { uri = created_uri, created = true }
 end
 
 function handle(input, ctx)

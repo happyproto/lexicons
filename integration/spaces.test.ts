@@ -1,12 +1,14 @@
 /**
- * admin.createSpaces, and the gates' derivation of both spaces from
- * HAPPYPROTO_DID, on a real HappyView v3.
+ * admin.createSpaces, and how the gates find both spaces, on a real
+ * HappyView v3.
  *
- * setup.ts bootstraps the stack's own spaces by calling createSpaces as
- * `happyproto`, so every other file already runs against derived uris. This
- * file checks what that bootstrap made, who else may call it, and -- with
- * HAPPYPROTO_DID pointed at `outsider` for one test -- a genuine first call
- * and its repeat, on spaces that test removes again.
+ * HappyView gives each space a DID of its own. setup.ts bootstraps the
+ * stack's spaces by calling createSpaces as `happyproto` and setting
+ * HAPPYPROTO_ADMIN_SPACE and HAPPYPROTO_CUSTOMERS_SPACE to the uris it
+ * answers, so every other file runs against configured uris. This file checks
+ * what that bootstrap made, who else may call it, and -- with HAPPYPROTO_DID
+ * pointed at `outsider` and the space variables cleared for one test -- a
+ * genuine first call and its repeat, on spaces that test removes again.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sessionHeaders } from "./session";
@@ -14,14 +16,13 @@ import { HAPPYVIEW_URL, setVariable, stack, type Account, type Stack } from "./s
 import { call, fails, ok } from "./xrpc";
 
 const nsid = "at.happyproto.admin.createSpaces";
-const MEMBER_LIST = "com.atproto.simplespace.defs#memberListPolicy";
+const MEMBERSPACE = { $type: "com.atproto.memberspace.policy", publicRead: false, publicWrite: false };
+const SPACE_TYPES = ["at.happyproto.admin", "at.happyproto.customers"];
 
 let s: Stack;
 
-const uris = (did: string) => ({
-  admin: `at://${did}/space/at.happyproto.admin/main`,
-  customers: `at://${did}/space/at.happyproto.customers/main`,
-});
+/** `at://<did:plc>/space/<type>/main`. */
+const spaceOfType = (type: string) => new RegExp(`^at://did:plc:[a-z2-7]+/space/${type.replaceAll(".", "\\.")}/main$`);
 
 function headers(who: Account): Record<string, string> {
   return {
@@ -32,29 +33,43 @@ function headers(who: Account): Record<string, string> {
   };
 }
 
-/** The space as its creator reads it through simplespace.getSpace, or null. */
+/** The space as its creator reads it through space.getSpace, or null. */
 async function getSpace(who: Account, uri: string): Promise<any | null> {
-  const url = new URL("/xrpc/com.atproto.simplespace.getSpace", HAPPYVIEW_URL);
+  const url = new URL("/xrpc/com.atproto.space.getSpace", HAPPYVIEW_URL);
   url.searchParams.set("space", uri);
   const res = await fetch(url, { headers: headers(who) });
   return res.ok ? res.json() : null;
 }
 
-/** Delete the space as its creator; a space that is already gone is fine. */
-async function deleteSpace(who: Account, uri: string): Promise<void> {
-  await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.simplespace.deleteSpace`, {
-    method: "POST",
-    headers: headers(who),
-    body: JSON.stringify({ space: uri }),
-  });
+/** The uris of the spaces of `type` that `who` belongs to. */
+async function spacesOf(who: Account, type: string): Promise<string[]> {
+  const url = new URL("/xrpc/com.atproto.space.listSpaces", HAPPYVIEW_URL);
+  url.searchParams.set("spaceType", type);
+  const res = await fetch(url, { headers: headers(who) });
+  if (!res.ok) throw new Error(`listSpaces answered ${res.status}`);
+  return ((await res.json()).spaces as { uri: string }[]).map((space) => space.uri);
 }
 
-async function withDid<T>(value: string, body: () => Promise<T>): Promise<T> {
+/** Delete every HappyProto space `who` belongs to, as its creator. */
+async function deleteOwnSpaces(who: Account): Promise<void> {
+  for (const type of SPACE_TYPES) {
+    for (const uri of await spacesOf(who, type)) {
+      await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.space.deleteSpace`, {
+        method: "POST",
+        headers: headers(who),
+        body: JSON.stringify({ space: uri }),
+      });
+    }
+  }
+}
+
+/** Run `body` with these script variables, restoring setup's afterwards. */
+async function withVariables<T>(values: Record<string, string>, body: () => Promise<T>): Promise<T> {
   try {
-    await setVariable(s.apiKey, "HAPPYPROTO_DID", value);
+    for (const [key, value] of Object.entries(values)) await setVariable(s.apiKey, key, value);
     return await body();
   } finally {
-    await setVariable(s.apiKey, "HAPPYPROTO_DID", s.variables.HAPPYPROTO_DID);
+    for (const key of Object.keys(values)) await setVariable(s.apiKey, key, s.variables[key]);
   }
 }
 
@@ -64,28 +79,24 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // The first-call test's spaces, should it have failed before removing them.
-  const own = uris(s.accounts.outsider.did);
-  await deleteSpace(s.accounts.outsider, own.admin);
-  await deleteSpace(s.accounts.outsider, own.customers);
+  await deleteOwnSpaces(s.accounts.outsider);
 }, 30_000);
 
 describe("the bootstrapped spaces", () => {
-  test("are at the uris derived from HAPPYPROTO_DID", () => {
-    expect(s.spaces).toEqual(uris(s.accounts.happyproto.did));
+  test("are each on a DID of its own, named by its variable", () => {
+    expect(s.spaces.admin).toMatch(spaceOfType("at.happyproto.admin"));
+    expect(s.spaces.customers).toMatch(spaceOfType("at.happyproto.customers"));
+    expect(s.spaces.admin).not.toContain(s.accounts.happyproto.did);
+    expect([s.variables.HAPPYPROTO_ADMIN_SPACE, s.variables.HAPPYPROTO_CUSTOMERS_SPACE]).toEqual([
+      s.spaces.admin,
+      s.spaces.customers,
+    ]);
   });
 
-  test("are member-only to read and to write, and named", async () => {
-    const admin = await getSpace(s.accounts.happyproto, s.spaces.admin);
-    const customers = await getSpace(s.accounts.happyproto, s.spaces.customers);
-    for (const space of [admin, customers]) {
-      expect(space.config.readPolicy).toEqual({ $type: MEMBER_LIST });
-      expect(space.config.writePolicy).toEqual({ $type: MEMBER_LIST });
+  test("are member-only to read and to write", async () => {
+    for (const uri of [s.spaces.admin, s.spaces.customers]) {
+      expect(await getSpace(s.accounts.happyproto, uri)).toMatchObject({ uri, policy: MEMBERSPACE });
     }
-    expect(admin.space).toMatchObject({
-      display_name: "HappyProto admins",
-      description: "Membership of this space grants access to the HappyProto dashboard.",
-    });
-    expect(customers.space).toMatchObject({ display_name: "HappyProto customers" });
   });
 
   test("a second call creates nothing and adds no one", async () => {
@@ -108,8 +119,10 @@ describe("refusals", () => {
   test("anyone but HAPPYPROTO_DID is Forbidden, and nothing is created", async () => {
     for (const who of ["staff", "customer", "outsider"] as const) {
       await fails(nsid, who, "Forbidden", { input: { staff: [s.accounts.outsider.did] } });
-      const own = uris(s.accounts[who].did);
-      expect(await getSpace(s.accounts[who], own.admin)).toBeNull();
+    }
+    // `staff` belongs to the real admin space; the others to no admin space.
+    for (const who of ["customer", "outsider"] as const) {
+      expect(await spacesOf(s.accounts[who], "at.happyproto.admin")).toEqual([]);
     }
     // And the staff it named were not added.
     const profile = await ok("at.happyproto.actor.getProfile", "outsider");
@@ -124,15 +137,29 @@ describe("refusals", () => {
     expect((await ok("at.happyproto.actor.getProfile", "outsider")).isMember).toBe(false);
   });
 
-  test("an unset or malformed HAPPYPROTO_DID is Forbidden, and every gate refuses", async () => {
+  test("an unset or malformed HAPPYPROTO_DID is Forbidden to createSpaces", async () => {
     for (const value of ["", "happyproto", `${s.accounts.happyproto.did}/space/x`]) {
-      await withDid(value, async () => {
+      await withVariables({ HAPPYPROTO_DID: value }, async () => {
         await fails(nsid, "happyproto", "Forbidden", { input: {} });
+      });
+    }
+  });
+
+  test("with neither a space variable nor HAPPYPROTO_DID, every gate refuses", async () => {
+    await withVariables(
+      { HAPPYPROTO_DID: "", HAPPYPROTO_ADMIN_SPACE: "", HAPPYPROTO_CUSTOMERS_SPACE: "" },
+      async () => {
         await fails("at.happyproto.admin.listCustomers", "staff", "Forbidden");
         await fails("at.happyproto.admin.listCustomers", "happyproto", "Forbidden");
         await fails("at.happyproto.server.listPlans", "customer", "Forbidden");
-      });
-    }
+      },
+    );
+  });
+
+  test("a space variable that addresses no space of its type refuses its gate", async () => {
+    await withVariables({ HAPPYPROTO_ADMIN_SPACE: s.spaces.customers }, async () => {
+      await fails("at.happyproto.admin.listCustomers", "staff", "Forbidden");
+    });
   });
 
   test("staff that is not a list of at most 50 DIDs is InvalidRequest, and changes nothing", async () => {
@@ -147,45 +174,48 @@ describe("refusals", () => {
 describe("a first call", () => {
   test("creates both spaces, member-only, and adds staff once; a repeat is a no-op", async () => {
     const owner = s.accounts.outsider;
-    const own = uris(owner.did);
     // A rerun against a stack where this test failed half-way starts clean.
-    await deleteSpace(owner, own.admin);
-    await deleteSpace(owner, own.customers);
+    await deleteOwnSpaces(owner);
 
-    await withDid(owner.did, async () => {
+    const unset = { HAPPYPROTO_ADMIN_SPACE: "", HAPPYPROTO_CUSTOMERS_SPACE: "" };
+    await withVariables({ HAPPYPROTO_DID: owner.did, ...unset }, async () => {
       // `customer` twice, and the owner, who is already a member as creator.
       const staff = [s.accounts.customer.did, s.accounts.customer.did, owner.did];
       const first = await ok(nsid, "outsider", { input: { staff } });
-      expect(first).toEqual({
-        adminSpace: { uri: own.admin, created: true },
-        customersSpace: { uri: own.customers, created: true },
-        staffAdded: [s.accounts.customer.did],
-      });
+      expect(first.adminSpace.uri).toMatch(spaceOfType("at.happyproto.admin"));
+      expect(first.customersSpace.uri).toMatch(spaceOfType("at.happyproto.customers"));
+      expect([first.adminSpace.created, first.customersSpace.created]).toEqual([true, true]);
+      expect(first.staffAdded).toEqual([s.accounts.customer.did]);
+      const own = { admin: first.adminSpace.uri as string, customers: first.customersSpace.uri as string };
 
       for (const uri of [own.admin, own.customers]) {
-        const space = await getSpace(owner, uri);
-        expect(space.config.readPolicy).toEqual({ $type: MEMBER_LIST });
-        expect(space.config.writePolicy).toEqual({ $type: MEMBER_LIST });
+        expect(await getSpace(owner, uri)).toMatchObject({ uri, policy: MEMBERSPACE });
       }
 
-      // The gates now read the new admin space: the added staff member is in,
-      // with write access, and the real stack's staff are not.
-      expect(await ok("at.happyproto.actor.getProfile", "customer")).toMatchObject({
-        isMember: true,
-        access: "write",
-      });
-      await fails("at.happyproto.admin.listCustomers", "staff", "Forbidden");
+      // Until a variable names it, a space on its own DID cannot be found,
+      // and a repeat says which variable to set.
+      const lost = await fails(nsid, "outsider", "Conflict", { input: { staff } });
+      expect(lost.body.message).toContain("HAPPYPROTO_ADMIN_SPACE");
 
-      const second = await ok(nsid, "outsider", { input: { staff } });
-      expect(second).toEqual({
-        adminSpace: { uri: own.admin, created: false },
-        customersSpace: { uri: own.customers, created: false },
-        staffAdded: [],
+      await withVariables({ HAPPYPROTO_ADMIN_SPACE: own.admin, HAPPYPROTO_CUSTOMERS_SPACE: own.customers }, async () => {
+        // The gates now read the new admin space: the added staff member is
+        // in, with write access, and the real stack's staff are not.
+        expect(await ok("at.happyproto.actor.getProfile", "customer")).toMatchObject({
+          isMember: true,
+          access: "write",
+        });
+        await fails("at.happyproto.admin.listCustomers", "staff", "Forbidden");
+
+        const second = await ok(nsid, "outsider", { input: { staff } });
+        expect(second).toEqual({
+          adminSpace: { uri: own.admin, created: false },
+          customersSpace: { uri: own.customers, created: false },
+          staffAdded: [],
+        });
       });
     });
 
-    await deleteSpace(owner, own.admin);
-    await deleteSpace(owner, own.customers);
-    expect(await getSpace(owner, own.admin)).toBeNull();
+    await deleteOwnSpaces(owner);
+    expect(await spacesOf(owner, "at.happyproto.admin")).toEqual([]);
   });
 });

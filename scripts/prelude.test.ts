@@ -116,9 +116,17 @@ describe("gate", () => {
     }
   });
 
-  it("the old space variables grant nothing on their own", () => {
+  it("a space variable names the space without HAPPYPROTO_DID", () => {
+    const { r1, calls } = run(`
+      __access = function() return "read" end
+      return gate_admin({ caller_did = "did:plc:alice", env = { HAPPYPROTO_ADMIN_SPACE = "${ADMINS}" } })`);
+    expect(r1).toBeNull();
+    expect(calls).toEqual([{ fn: "access", uri: ADMINS, did: "did:plc:alice" }]);
+  });
+
+  it("a space variable that addresses no space of its type is Forbidden, without asking a space", () => {
     const { r1, calls } = run(`return gate_admin({ caller_did = "did:plc:alice", env = {
-      HAPPYPROTO_ADMIN_SPACE = "${ADMINS}", HAPPYPROTO_CUSTOMERS_SPACE = "${CUSTOMERS}",
+      HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_ADMIN_SPACE = "${CUSTOMERS}",
     } })`);
     expect(r1.error).toBe("Forbidden");
     expect(calls).toEqual([]);
@@ -177,6 +185,34 @@ describe("authority", () => {
     const { r1, r2 } = run(`return happyproto_space(${CTX}, ADMIN_SPACE_TYPE),
       happyproto_space(${CTX}, CUSTOMERS_SPACE_TYPE)`);
     expect([r1, r2]).toEqual([ADMINS, CUSTOMERS]);
+  });
+
+  it("reads each space from its variable when one is set", () => {
+    const admin = "at://did:plc:spaceadmin/space/at.happyproto.admin/main";
+    const customers = "at://did:plc:spacecustomers/space/at.happyproto.customers/main";
+    const { r1, r2 } = run(`local ctx = { env = { HAPPYPROTO_DID = "${HAPPYPROTO}",
+        HAPPYPROTO_ADMIN_SPACE = "${admin}", HAPPYPROTO_CUSTOMERS_SPACE = "${customers}" } }
+      return happyproto_space(ctx, ADMIN_SPACE_TYPE), happyproto_space(ctx, CUSTOMERS_SPACE_TYPE)`);
+    expect([r1, r2]).toEqual([admin, customers]);
+  });
+
+  it("an empty variable is unset, and the space is derived", () => {
+    const { r1 } = run(`local ctx = { env = { HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_ADMIN_SPACE = "" } }
+      return happyproto_space(ctx, ADMIN_SPACE_TYPE)`);
+    expect(r1).toBe(ADMINS);
+  });
+
+  it("a variable that addresses no space of its type configures nothing", () => {
+    for (const value of [
+      "not a uri",
+      "at://did:plc:spaceadmin/space/at.happyproto.customers/main",
+      "at://did:plc:spaceadmin/space/at.happyproto.admin",
+      "at://notadid/space/at.happyproto.admin/main",
+    ]) {
+      const { r1 } = run(`local ctx = { env = { HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_ADMIN_SPACE = "${value}" } }
+        return happyproto_space(ctx, ADMIN_SPACE_TYPE)`);
+      expect([value, r1]).toEqual([value, null]);
+    }
   });
 
   it("a missing, empty or malformed HAPPYPROTO_DID derives nothing", () => {

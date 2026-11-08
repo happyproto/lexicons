@@ -1,8 +1,8 @@
 /**
  * admin.createSpaces, executed. The script is generated from source exactly
  * as `bun run gen` does and run under Lua 5.4 behind a stateful spaces stub,
- * so the paths a real HappyView cannot be steered into -- a space anchored on
- * the wrong DID, a create or an add that loses a race, a failure part-way
+ * so the paths a real HappyView cannot be steered into -- a space at a DID of
+ * its own, a create or an add that loses a race, a failure part-way
  * through the staff list -- are proven here. The integration suite covers the
  * same script against the real thing.
  */
@@ -236,18 +236,37 @@ describe("creating the spaces", () => {
     expect(JSON.stringify(log)).toContain("HOST_ERROR");
   });
 
-  it("a space anchored on another DID is deleted -- only that one -- and is Upstream", () => {
-    const stray = "at://did:web:api.example.com/space/at.happyproto.admin/main";
+  it("a space created at a DID of its own is kept, and its uri is answered", () => {
+    const own = "at://did:plc:spaceofitsown/space/at.happyproto.admin/main";
     const { out, calls } = run('{ staff = { "did:plc:s1" } }', {
-      setup: `__authority = "did:web:api.example.com"`,
+      setup: `__authority = "did:plc:spaceofitsown"`,
     });
-    expect(out.error).toBe("Upstream");
-    expect(out.message).toContain("HAPPYPROTO_DID");
-    expect(fns(calls, "delete")).toEqual([{ fn: "delete", uri: stray }]);
-    // The derived uri is never deleted, nothing else is created, no one added.
-    expect(calls.some((c) => c.fn === "delete" && c.uri === ADMIN)).toBe(false);
-    expect(fns(calls, "create")).toHaveLength(1);
-    expect(fns(calls, "add_member")).toEqual([]);
+    expect(out.adminSpace).toEqual({ uri: own, created: true });
+    expect(fns(calls, "delete")).toEqual([]);
+    // Staff go to the space that was made, not to the derived uri.
+    expect(fns(calls, "add_member").map((c) => c.uri)).toEqual([own]);
+  });
+
+  it("a space that exists at a uri of its own, with no variable naming it, is a Conflict naming the variable", () => {
+    const { out } = run("{}", {
+      setup: `__create = function() __raise("happyview.spaces.create", "CONFLICT") end`,
+    });
+    expect(out.error).toBe("Conflict");
+    expect(out.message).toContain("HAPPYPROTO_ADMIN_SPACE");
+  });
+
+  it("a space its variable names is used, and nothing is created", () => {
+    const admin = "at://did:plc:spaceadmin/space/at.happyproto.admin/main";
+    const customers = "at://did:plc:spacecustomers/space/at.happyproto.customers/main";
+    const ctx = `{ caller_did = "${HP}", env = { HAPPYPROTO_DID = "${HP}",
+      HAPPYPROTO_ADMIN_SPACE = "${admin}", HAPPYPROTO_CUSTOMERS_SPACE = "${customers}" } }`;
+    const { out, calls } = run("{}", {
+      ctx,
+      setup: `__existing["${admin}"] = true; __existing["${customers}"] = true`,
+    });
+    expect(out.adminSpace).toEqual({ uri: admin, created: false });
+    expect(out.customersSpace).toEqual({ uri: customers, created: false });
+    expect(fns(calls, "create")).toEqual([]);
   });
 });
 
