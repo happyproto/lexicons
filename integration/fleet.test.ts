@@ -324,15 +324,16 @@ describe("actor.getProfile", () => {
     expect((await ok(nsid, "happyproto")).isCustomer).toBe(true);
   });
 
-  test("with no HAPPYPROTO_DID, staff are not members", async () => {
+  test("with no space configured, staff are not members", async () => {
     const { accounts, apiKey, variables } = await stack();
+    const keys = ["HAPPYPROTO_DID", "HAPPYPROTO_ADMIN_SPACE", "HAPPYPROTO_CUSTOMERS_SPACE"];
     try {
-      await setVariable(apiKey, "HAPPYPROTO_DID", "");
+      for (const key of keys) await setVariable(apiKey, key, "");
       const out = await ok(nsid, "staff");
       expect(out).toMatchObject({ did: accounts.staff.did, isSelf: true, isMember: false, isCustomer: false });
       expect(out).not.toHaveProperty("access");
     } finally {
-      await setVariable(apiKey, "HAPPYPROTO_DID", variables.HAPPYPROTO_DID);
+      for (const key of keys) await setVariable(apiKey, key, variables[key]);
     }
   });
 

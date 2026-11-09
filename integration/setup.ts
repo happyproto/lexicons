@@ -111,8 +111,8 @@ async function assertInPlc(account: Account): Promise<void> {
 
 /**
  * HappyProto's two spaces, created by `owner` calling admin.createSpaces with
- * `staff`, as production bootstraps them. Idempotent, so a rerun against a
- * stack already set up adopts the existing spaces. Called directly rather
+ * `staff`, as production bootstraps them. A rerun against a stack already set
+ * up finds the spaces through the variables the first run set, and adopts them. Called directly rather
  * than through xrpc.ts, which needs the stack this is building.
  */
 async function createSpaces(
@@ -397,7 +397,13 @@ async function setup(): Promise<Stack> {
 
   await deploy(apiKey);
 
+  // Each space is created on a DID of its own, and the gates find it through
+  // its variable, as production's are configured.
   const { admin, customers } = await createSpaces(accounts.happyproto, client, [accounts.staff.did]);
+  variables.HAPPYPROTO_ADMIN_SPACE = admin;
+  variables.HAPPYPROTO_CUSTOMERS_SPACE = customers;
+  await setVariable(apiKey, "HAPPYPROTO_ADMIN_SPACE", admin);
+  await setVariable(apiKey, "HAPPYPROTO_CUSTOMERS_SPACE", customers);
   await putMember(accounts.happyproto, client.key, customers, accounts.customer.did);
 
   return { accounts, spaces: { admin, customers }, apiKey, client, variables };

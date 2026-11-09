@@ -433,9 +433,10 @@ describe("customers", () => {
     expect(await customersOf()).toEqual(before);
   });
 
-  test("no HAPPYPROTO_DID: the gate refuses, and nothing changes", async () => {
+  test("no admin space configured: the gate refuses, and nothing changes", async () => {
     try {
       await setVariable(s.apiKey, "HAPPYPROTO_DID", "");
+      await setVariable(s.apiKey, "HAPPYPROTO_ADMIN_SPACE", "");
       const did = s.accounts.outsider.did;
       for (const name of ["addCustomer", "removeCustomer"]) {
         await fails(admin(name), "staff", "Forbidden", { input: { did } });
@@ -443,6 +444,7 @@ describe("customers", () => {
       await fails(admin("listCustomers"), "staff", "Forbidden");
     } finally {
       await setVariable(s.apiKey, "HAPPYPROTO_DID", s.variables.HAPPYPROTO_DID);
+      await setVariable(s.apiKey, "HAPPYPROTO_ADMIN_SPACE", s.variables.HAPPYPROTO_ADMIN_SPACE);
     }
     expect(await customersOf()).not.toContain(s.accounts.outsider.did);
   });

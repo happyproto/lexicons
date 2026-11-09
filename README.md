@@ -65,8 +65,8 @@ Blocks are emitted in **prelude file order**, never directive order, because a
 Lua local must be declared before any function closing over it.
 
 Each gate returns nil when the caller may proceed and a failure table
-otherwise, and fails closed: no caller, an unset or malformed `HAPPYPROTO_DID`,
-or a space that cannot be read all refuse. A gated handler opens with it:
+otherwise, and fails closed: no caller, no space configured (neither its
+variable nor `HAPPYPROTO_DID`), or a space that cannot be read all refuse. A gated handler opens with it:
 
 ```lua
 function handle(input, ctx)
@@ -339,7 +339,9 @@ works.
 
 | Key | Value |
 | --- | --- |
-| `HAPPYPROTO_DID` | HappyProto's own account DID: the authority of both spaces. Never the instance's service DID (see below) |
+| `HAPPYPROTO_DID` | HappyProto's own account DID. Never the instance's service DID (see below) |
+| `HAPPYPROTO_ADMIN_SPACE` | the admin space's uri, as `admin.createSpaces` answers it |
+| `HAPPYPROTO_CUSTOMERS_SPACE` | the customers space's uri, as `admin.createSpaces` answers it |
 | `HAPPYPROTO_CLICKHOUSE_URL` | `http://clickhouse:8123` |
 | `HAPPYPROTO_CLICKHOUSE_USER` | `readonly` |
 | `HAPPYPROTO_CLICKHOUSE_PASSWORD` | from the infrastructure vault (`vault_clickhouse_readonly_password`) |
@@ -368,30 +370,33 @@ curl -sX POST https://api.happyproto.at/admin/script-variables \
   }'
 ```
 
-Both spaces are fixed, and derived from it:
+Each space's uri is read from its own variable:
 
-| Space | Uri | Members may |
+| Space | Variable | Members may |
 | --- | --- | --- |
-| admin | `at://<HAPPYPROTO_DID>/space/at.happyproto.admin/main` | use the dashboard (staff) |
-| customers | `at://<HAPPYPROTO_DID>/space/at.happyproto.customers/main` | manage instances |
+| admin | `HAPPYPROTO_ADMIN_SPACE` | use the dashboard (staff) |
+| customers | `HAPPYPROTO_CUSTOMERS_SPACE` | manage instances |
 
-The DID lives here rather than in the dashboard's bundle on purpose. The gate
-is "is the caller a member of *this* space", and the authority DID is the part
-that makes it mean anything — matching on the space *type* would admit
-everyone, because any user can create a space of any type and is auto-added to
-their own as a write member. Keeping it server-side means a browser cannot be
-pointed at a different space, and the rule cannot be edited by anyone holding
-the bundle.
+HappyView gives each space it creates a DID of its own, so a space's uri is
+known only once it exists. `admin.createSpaces` answers both; set each
+variable to the uri it answers. A variable that is unset or empty falls back
+to `at://<HAPPYPROTO_DID>/space/<type>/main`, where spaces created before
+space DIDs live. A variable that is set but does not address a space of its
+type configures nothing, so a typo fails closed rather than falling back.
+
+The uris live here rather than in the dashboard's bundle on purpose. The gate
+is "is the caller a member of *this* space", and which space is the part that
+makes it mean anything — matching on the space *type* would admit everyone,
+because any user can create a space of any type and is a write member of
+their own. Keeping it server-side means a browser cannot be pointed at a
+different space, and the rule cannot be edited by anyone holding the bundle.
 
 `HAPPYPROTO_DID` must be HappyProto's own **account**, and must never be the
-instance's own service DID. On an instance that publishes a service identity,
-HappyView anchors every new space under that DID, whoever creates it. With
-`HAPPYPROTO_DID` set to it, any signed-in user could create
-`at.happyproto.admin/main` before HappyProto does, become its creator, and so
-pass the staff gate.
+instance's own service DID: `gate_owner` admits exactly that DID, and the
+fallback uris are under it.
 
-Scripts fail closed when it is absent, empty or not a DID: no authority means
-nobody is a member of anything. A missing `PROVISIONER_URL` or
+Scripts fail closed when no space is configured: nobody is a member of
+anything. A missing `PROVISIONER_URL` or
 `PROVISIONER_TOKEN` answers `Upstream` rather than raising.
 
 ### Bootstrapping the spaces
