@@ -153,12 +153,14 @@ describe("server.listPlans", () => {
 
   describe("Review Focus 3: a missing script variable fails closed", () => {
     afterEach(async () => {
-      for (const key of ["HAPPYPROTO_DID", "PROVISIONER_URL", "PROVISIONER_TOKEN"]) {
+      for (const key of ["HAPPYPROTO_DID", "HAPPYPROTO_CUSTOMERS_SPACE", "PROVISIONER_URL", "PROVISIONER_TOKEN"]) {
         await setVariable(s.apiKey, key, s.variables[key]);
       }
     });
 
-    test("no HAPPYPROTO_DID, or one that is not a DID: Forbidden, and nothing is sent", async () => {
+    test("no customers space configured: Forbidden, and nothing is sent", async () => {
+      // Neither the space's variable nor a HAPPYPROTO_DID to derive it from.
+      await setVariable(s.apiKey, "HAPPYPROTO_CUSTOMERS_SPACE", "");
       for (const value of ["", "happyproto"]) {
         await setVariable(s.apiKey, "HAPPYPROTO_DID", value);
         await fails(server("listPlans"), "customer", "Forbidden");
