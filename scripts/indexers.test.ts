@@ -238,7 +238,7 @@ describe("the sidecar (at.happyproto.registry.project)", () => {
   const event = { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") };
   const fresh = unindex(SIDECAR_URI);
 
-  it("stores it and fetches its pinned publication", () => {
+  it("stores it, fetches its pinned publication, and backfills the project's records", () => {
     const { out, calls } = index(SIDECAR_SCRIPT, event, { setup: fresh });
     expect(out).toBe(true);
     expect(jobs(calls)).toEqual([
@@ -247,7 +247,24 @@ describe("the sidecar (at.happyproto.registry.project)", () => {
         job_type: "registry.fetch-publication",
         input: { did: DID, name: "probe", uri: at(DID, "site.standard.publication", "probe"), cid: "bafypub" },
       },
+      { fn: "create", job_type: "registry.backfill-project", input: { did: DID, name: "probe" } },
     ]);
+  });
+
+  it("queues no backfill for an edit of a live sidecar, since nothing was skipped meanwhile", () => {
+    const record = sidecar(DID, "probe").replace(`"bafypub"`, `"bafypub2"`);
+    const { calls } = index(SIDECAR_SCRIPT, { ...event, action: "update", record });
+    expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.fetch-publication"]);
+  });
+
+  it("queues no backfill for a replayed sidecar", () => {
+    const { calls } = index(SIDECAR_SCRIPT, event);
+    expect(jobs(calls)).toEqual([]);
+  });
+
+  it("marks nothing for a delete of a sidecar it never stored", () => {
+    const { calls } = index(SIDECAR_SCRIPT, { ...event, action: "delete", record: undefined }, { setup: fresh });
+    expect(writes(calls)).toEqual([]);
   });
 
   it("stores it before its project exists, since the gateway writes it first", () => {
@@ -315,7 +332,8 @@ describe("the sidecar (at.happyproto.registry.project)", () => {
     const body = writes(calls)[0].body;
     expect(body.sidecarDeleted).toBeUndefined();
     expect(body.publication).toMatchObject({ cid: "bafypub" });
-    expect(jobs(calls)).toHaveLength(1);
+    // What arrived while it was deleted was skipped, so it is backfilled.
+    expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.fetch-publication", "registry.backfill-project"]);
   });
 });
 
@@ -843,7 +861,7 @@ describe("the echo of a record the gateway wrote", () => {
       SIDECAR_SCRIPT,
       { collection: "at.happyproto.registry.project", rkey: "probe", record: sidecar(DID, "probe") },
       SIDECAR_URI,
-      (calls) => expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.fetch-publication"]),
+      (calls) => expect(jobs(calls).map((j) => j.job_type)).toEqual(["registry.fetch-publication", "registry.backfill-project"]),
     ],
     [
       "project",
