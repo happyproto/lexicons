@@ -894,3 +894,73 @@ describe("the echo of a record the gateway wrote", () => {
     expect(writes(calls)[0].body.suspect).toBe(true);
   });
 });
+
+// HappyView's own releases live under the reserved name happyview, and a
+// sidecar for it is refused, so they can never become a registry project.
+describe("the reserved name happyview", () => {
+  const record = sidecar(DID, "happyview");
+  it("refuses a sidecar for it, fetching nothing", () => {
+    const { out, calls } = index(SIDECAR_SCRIPT, { collection: "at.happyproto.registry.project", rkey: "happyview", record });
+    expect(out).toBeNull();
+    expect(jobs(calls)).toEqual([]);
+    expect(writes(calls)).toEqual([]);
+  });
+  it("still indexes a sidecar for a name that only starts with it", () => {
+    const { out } = index(SIDECAR_SCRIPT, { collection: "at.happyproto.registry.project", rkey: "happyview-lua", record: sidecar(DID, "happyview-lua") });
+    expect(out).toBe(true);
+  });
+});
+
+// A project with no sidecar: every one of its records, run through its
+// indexer in the order the network delivers them, is skipped. Nothing is
+// stored, no state row is written, no job is queued (so no copy_blob or
+// pds_get ever runs), and no request leaves the instance.
+describe("a project with no sidecar, end to end", () => {
+  const NAME = "ghost";
+  const P = at(DID, "software.release.project", NAME);
+  const M = at(DID, "software.release.manifest", "3kghost");
+  const V = at(DID, "software.release.version", `${NAME}.1.0.0`);
+  const S = at(DID, "software.release.status", "3kghoststatus");
+  const events: [string, string, Event][] = [
+    ["project", PROJECT_SCRIPT, { collection: "software.release.project", rkey: NAME, record: `{ name = "${NAME}" }` }],
+    ["manifest", MANIFEST_SCRIPT, { collection: "software.release.manifest", rkey: "3kghost", record: manifest(P) }],
+    ["version", VERSION_SCRIPT, {
+      collection: "software.release.version", rkey: `${NAME}.1.0.0`,
+      record: versionRecord({ project: P, manifestUri: M, manifestCid: "bafyghost", extra: `changelog = "${at(DID, "site.standard.document", "3kdoc")}",` }),
+    }],
+    ["channel", CHANNEL_SCRIPT, { collection: "software.release.channel", rkey: `${NAME}.latest`, record: `{ project = "${P}", channel = "latest", version = { uri = "${V}", cid = "bafyghostv" } }` }],
+    ["status", STATUS_SCRIPT, { collection: "software.release.status", rkey: "3kghoststatus", record: `{ subject = "${P}", status = "endOfLife" }` }],
+  ];
+  // Every way an indexer could reach out: HTTP (pds_get, copy_blob), a job
+  // (copy-version, fetch-changelog, fetch-publication), or a state write.
+  const touched = (calls: any[]) =>
+    calls.filter((c) => c.fn === "create" || c.fn === "save_local" || ["get", "post", "put", "patch", "delete", "head"].includes(c.fn));
+
+  for (const action of ["create", "update", "delete"]) {
+    for (const [name, script, event] of events) {
+      it(`${name}: a ${action} is skipped and writes, queues and fetches nothing`, () => {
+        const { out, calls } = index(script, { ...event, action, record: action === "delete" ? undefined : event.record });
+        expect(out).toBeNull();
+        expect(touched(calls)).toEqual([]);
+      });
+    }
+  }
+
+  // Rows a gateway write's mirror could put in the index without any
+  // indexer running: their rewrites and deletes still write no state.
+  const MIRRORED = `
+__indexed["${M}"] = { uri = "${M}", cid = "bafyghost", record = ${manifest(P)} }
+__indexed["${V}"] = { uri = "${V}", cid = "bafyghostv", record = { project = "${P}", version = "1.0.0" } }
+__indexed["${at(DID, "software.release.channel", `${NAME}.latest`)}"] = { uri = "x", cid = "bafyghostc", record = { project = "${P}", channel = "latest" } }
+__indexed["${S}"] = { uri = "${S}", cid = "bafyghosts", record = { subject = "${P}", status = "endOfLife" } }
+__indexed["${P}"] = { uri = "${P}", cid = "bafyghostp", record = { name = "${NAME}" } }`;
+  for (const action of ["update", "delete"]) {
+    for (const [name, script, event] of events) {
+      it(`${name}: a ${action} of a mirrored row writes, queues and fetches nothing`, () => {
+        const { out, calls } = index(script, { ...event, action, record: action === "delete" ? undefined : event.record }, { setup: MIRRORED });
+        expect(out).toBeNull();
+        expect(touched(calls)).toEqual([]);
+      });
+    }
+  }
+});

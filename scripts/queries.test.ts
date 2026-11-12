@@ -461,13 +461,6 @@ describe("getProject", () => {
     expect(query(GET_PROJECT, `{ actor = "${EVE}", name = "probe" }`).out.error).toBe("ProjectNotFound");
   });
 
-  it("still answers for a project whose sidecar was deleted, since its versions stay served", () => {
-    const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
-      setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true`,
-    });
-    expect(out.uri).toBe(PROJECT_URI);
-    expect(out.sidecarDeleted).toBeUndefined();
-  });
 
   it("answers authors and security contacts with only the fields the lexicon declares", () => {
     const { out } = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, {
@@ -590,12 +583,6 @@ describe("searchProjects", () => {
     expect(query(SEARCH, `{ q = "plc", includeRetired = true }`).out.projects).toEqual({});
   });
 
-  it("keeps listing an indexed project whose sidecar was deleted", () => {
-    const { out } = query(SEARCH, `{}`, { setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true` });
-    expect(out.projects.map((p: any) => p.name)).toEqual(["probe"]);
-    const found = query(SEARCH, `{ q = "Probe" }`, { setup: `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true` });
-    expect(found.out.projects.map((p: any) => p.name)).toEqual(["probe"]);
-  });
 
   it("leaves out a sidecar whose project is not indexed, so sidecars alone fill no page", () => {
     // Eve writes only sidecars, newer than every real project.
@@ -990,6 +977,95 @@ describe("registry.fetch-changelog after the move", () => {
     const parsed = JSON.parse(new TextDecoder().decode(result.stdout));
     expect(parsed.ok).toBe(true);
     expect(parsed.cache.markdown).toBe("# Job");
+  });
+});
+
+// A deleted sidecar keeps every row, but the project is withdrawn from new
+// installs: search, getProject and resolveChannel no longer find it, while a
+// version already installed keeps loading by its exact version. Writing the
+// sidecar again revives it (the sidecar indexer clears the mark).
+describe("a project whose sidecar was deleted", () => {
+  const DELETED = `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true`;
+  const REVIVED = `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = nil`;
+
+  it("is left out of searchProjects, listed or searched", () => {
+    expect(query(SEARCH, `{}`, { setup: DELETED }).out.projects).toEqual({});
+    expect(query(SEARCH, `{ q = "Probe" }`, { setup: DELETED }).out.projects).toEqual({});
+    expect(query(SEARCH, `{ q = "probe" }`, { setup: DELETED }).out.projects).toEqual({});
+  });
+
+  it("answers ProjectNotFound from getProject, as a project that does not exist", () => {
+    const hidden = query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup: DELETED }).out;
+    expect(hidden.error).toBe("ProjectNotFound");
+    expect(hidden).toEqual(query(GET_PROJECT, `{ actor = "${DID}", name = "nothing" }`).out);
+  });
+
+  it("resolves no channel, so no new install finds it", () => {
+    for (const channel of ["latest", "beta"]) {
+      const { out } = query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "${channel}" }`, { setup: DELETED });
+      expect(out.error).toBe("ChannelNotFound");
+    }
+  });
+
+  it("still answers getVersion by exact version, so an installed plugin keeps reloading", () => {
+    const { out } = query(GET_VERSION, `{ did = "${DID}", name = "probe", version = "1.0.0" }`, { setup: DELETED });
+    expect(out.error).toBeUndefined();
+    expect(out.version).toBe("1.0.0");
+    expect(out.availability).toBe("available");
+    expect(query(GET_ARTIFACT, `{ cid = "${CIDS.package1}" }`, { setup: DELETED }).out.ref.$link).toBe(CIDS.package1);
+  });
+
+  it("answers everything again once the sidecar is written again", () => {
+    const setup = DELETED + "\n" + REVIVED;
+    expect(query(SEARCH, `{}`, { setup }).out.projects.map((p: any) => p.name)).toEqual(["probe"]);
+    expect(query(GET_PROJECT, `{ actor = "${DID}", name = "probe" }`, { setup }).out.uri).toBe(PROJECT_URI);
+    expect(query(RESOLVE, `{ did = "${DID}", name = "probe", channel = "latest" }`, { setup }).out.version).toBe("1.0.0");
+  });
+});
+
+// Records of a project with no sidecar are never indexed (indexers.test.ts
+// proves each indexer skips them). Even if their rows reached the index some
+// other way, as a gateway write's mirror does, no read answers them, and
+// nothing is fetched or served.
+describe("a project with no sidecar", () => {
+  const GHOST_PROJECT = at(DID, "software.release.project", "ghost");
+  const GHOST_MANIFEST = at(DID, "software.release.manifest", "3kghost");
+  const GHOST_VERSION = at(DID, "software.release.version", "ghost.1.0.0");
+  const GHOST = `
+__put("${GHOST_PROJECT}", "bafyghostproject", { ["$type"] = "software.release.project", name = "ghost" })
+__put("${GHOST_MANIFEST}", "bafyghostmanifest", {
+  ["$type"] = "software.release.manifest", project = "${GHOST_PROJECT}",
+  artifacts = { ${artifact(CIDS.stray, CIDS.stray, "")} },
+})
+__put("${GHOST_VERSION}", "bafyghostversion", {
+  ["$type"] = "software.release.version", project = "${GHOST_PROJECT}", version = "1.0.0",
+  manifest = { uri = "${GHOST_MANIFEST}", cid = "bafyghostmanifest" },
+})
+__put("${at(DID, "software.release.channel", "ghost.latest")}", "bafyghostlatest", {
+  ["$type"] = "software.release.channel", project = "${GHOST_PROJECT}", channel = "latest",
+  version = { uri = "${GHOST_VERSION}", cid = "bafyghostversion" },
+})`;
+  const network = (calls: any[]) =>
+    calls.filter((c) => ["get", "post", "stat", "save_local"].includes(c.fn));
+
+  for (const [name, script, input, error] of [
+    ["getProject", GET_PROJECT, `{ actor = "${DID}", name = "ghost" }`, "ProjectNotFound"],
+    ["getVersion", GET_VERSION, `{ did = "${DID}", name = "ghost", version = "1.0.0" }`, "VersionNotFound"],
+    ["listVersions", LIST_VERSIONS, `{ did = "${DID}", name = "ghost" }`, "ProjectNotFound"],
+    ["resolveChannel", RESOLVE, `{ did = "${DID}", name = "ghost", channel = "latest" }`, "ChannelNotFound"],
+    ["getArtifact by kind", GET_ARTIFACT, `{ did = "${DID}", name = "ghost", version = "1.0.0", kind = "package" }`, "ArtifactNotHeld"],
+    ["getArtifact by CID", GET_ARTIFACT, `{ cid = "${CIDS.stray}" }`, "ArtifactNotHeld"],
+  ] as const) {
+    it(`${name} answers ${error}, fetching and writing nothing`, () => {
+      const { out, calls } = query(script, input, { setup: GHOST });
+      expect(out.error).toBe(error);
+      expect(network(calls)).toEqual([]);
+    });
+  }
+
+  it("searchProjects never lists it, by page or by name", () => {
+    expect(query(SEARCH, `{ includeRetired = true }`, { setup: GHOST }).out.projects.map((p: any) => p.name)).toEqual(["old", "probe"]);
+    expect(query(SEARCH, `{ q = "ghost" }`, { setup: GHOST }).out.projects).toEqual({});
   });
 });
 
