@@ -1899,6 +1899,12 @@ local function artifact_problem(a)
   return nil
 end
 
+--- Names no sidecar may take. HappyView publishes its own releases as
+--- software.release records under this name, straight to its repo and never
+--- as a registry project: a sidecar for it would offer HappyView itself to
+--- every instance as a plugin to install.
+local RESERVED_NAMES = { happyview = true }
+
 --- The most authors, and the most security contacts, a sidecar may list.
 local MAX_PEOPLE = 20
 
@@ -1910,6 +1916,9 @@ local function sidecar_problem(r, did, name)
   if type(r) ~= "table" then return "the record has no body" end
   if not is_did(did) or not is_project_name(name) then
     return "the record key is not a project name"
+  end
+  if RESERVED_NAMES[name] then
+    return "the name " .. name .. " is reserved for HappyView's own releases"
   end
   if r.project ~= uri_of(did, PROJECT, name) then
     return "project must be " .. uri_of(did, PROJECT, name)
@@ -2565,9 +2574,11 @@ end
 --- The `projectView` of a plugin project, or nil when it has no sidecar or
 --- its project is not indexed.
 ---
---- A deleted sidecar keeps its row, and the project still answers: its
---- versions stay served, so the project they belong to must stay readable.
---- `handle` is the one the caller already confirmed, `false` when the caller
+--- A deleted sidecar keeps its row, but the project no longer answers: it is
+--- left out of search and getProject, and its channels stop resolving, so no
+--- new install finds it. Its versions stay served by exact version, so an
+--- instance that installed one keeps reloading it. Writing the sidecar again
+--- revives it. `handle` is the one the caller already confirmed, `false` when the caller
 --- already knows there is none, or nil to look it up; a lookup that fails
 --- only leaves it out.
 local function project_view(our_did, did, name, handle)
@@ -2582,6 +2593,7 @@ local function project_view(our_did, did, name, handle)
   local project = db.get(project_uri)
   if not project then return nil end
   local state = project_state(our_did, did, name) or {}
+  if state.sidecarDeleted then return nil end
 
   local pin = type(s.publication) == "table" and s.publication or {}
   local cached = type(state.publication) == "table" and state.publication or nil

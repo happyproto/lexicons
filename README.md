@@ -164,7 +164,15 @@ them, copies their bytes and serves them to HappyView and hpy.
 | `software.release.status` | TID | a lifecycle event about a version or the project |
 
 Only a project with a valid sidecar is indexed: any other `software.release.*`
-record is skipped. Manifests, versions and statuses are immutable, so a
+record is skipped, and writes no state, queues no job and fetches nothing. The
+name `happyview` is reserved: HappyView publishes its own releases under it,
+straight to its repo, and no sidecar may make them a registry project.
+
+Deleting a sidecar withdraws the project from new installs and keeps every
+row: `searchProjects` and `getProject` no longer find it, its channels stop
+resolving, and it takes no new releases, while `getVersion` still answers
+every version by exact version so an installed plugin keeps reloading.
+Writing the sidecar again revives it. Manifests, versions and statuses are immutable, so a
 rewrite keeps the first record, and a rewritten manifest or version marks the
 version `suspect`. A record that names something not indexed yet is skipped
 and not recovered: Jetstream delivers a repo's commits in order, and the

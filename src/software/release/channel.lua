@@ -26,7 +26,8 @@ function handle(input, ctx)
   if input.action == "delete" then
     -- Only a channel the registry stored has anything to hide; marking any
     -- other would let anyone write state rows by deleting what never was.
-    if name and is_channel_name(channel) and db.get(uri) then
+    -- Nor for a project with no sidecar row: its channels resolve nothing.
+    if name and is_channel_name(channel) and db.get(uri) and db.get(uri_of(did, SIDECAR, name)) then
       local state = project_state(our_did, did, name) or {}
       state.deletedChannels = type(state.deletedChannels) == "table" and state.deletedChannels or {}
       state.deletedChannels[channel] = true

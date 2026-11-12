@@ -46,6 +46,11 @@ end
 local function mark_manifest(our_did, did, stored, uri, field)
   local project_did, collection, name = parse_uri(stored and (stored.record or {}).project)
   if project_did ~= did or collection ~= PROJECT or not is_project_name(name) then return end
+  -- Only a project the registry took on has state to keep. A manifest row
+  -- of one with no sidecar (one a gateway write mirrored) backs no version,
+  -- and marking it would write state for a project that is not indexed. A
+  -- deleted sidecar keeps its row, so its project's marks are still kept.
+  if not db.get(uri_of(did, SIDECAR, name)) then return end
   local state = project_state(our_did, did, name) or {}
   state[field] = state[field] or {}
   state[field][uri] = true
