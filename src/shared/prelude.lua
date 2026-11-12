@@ -2055,6 +2055,37 @@ local function pds_record(uri)
   return decoded
 end
 
+--- Every record of `collection` in `did`'s repo as its own PDS lists them,
+--- `{uri, cid, value}` each, or nil, why, and whether asking again later
+--- could help. `com.atproto.repo.listRecords` is paged 100 at a time and
+--- read for at most `max_pages` pages; a repo with more answers the first
+--- ones and `true` as a fourth value, so a caller can say it stopped short.
+--- An entry that is not a record with a CID is left out.
+local function pds_list(did, collection, max_pages)
+  local out, cursor = {}, nil
+  for _ = 1, max_pages do
+    local path = "/xrpc/com.atproto.repo.listRecords?repo=" .. url_encode(did)
+      .. "&collection=" .. url_encode(collection) .. "&limit=100"
+    if cursor then path = path .. "&cursor=" .. url_encode(cursor) end
+    local body, problem, retryable = pds_get(did, path)
+    if body == nil then return nil, problem, retryable end
+    if type(body) ~= "string" then return nil, "the PDS answered a listing that is not text", true end
+    local decoded_ok, page = pcall(json.decode, body)
+    if not decoded_ok or type(page) ~= "table" or type(page.records) ~= "table" then
+      return nil, "the PDS answered something that is not a listing", true
+    end
+    for _, entry in ipairs(page.records) do
+      if type(entry) == "table" and type(entry.uri) == "string" and type(entry.cid) == "string"
+          and type(entry.value) == "table" then
+        out[#out + 1] = entry
+      end
+    end
+    cursor = type(page.cursor) == "string" and page.cursor ~= "" and page.cursor or nil
+    if not cursor or #page.records == 0 then return out, nil, nil, false end
+  end
+  return out, nil, nil, true
+end
+
 -- Far above what the gateway writes, but a document written some other way
 -- could be any size, and the cache is served whole.
 local MAX_CHANGELOG_TITLE_BYTES = 5000
@@ -2286,6 +2317,194 @@ local function lifecycle(statuses, project_statuses)
     end
   end
   return out
+end
+
+-- What each record.index script asks of a record arriving for the first
+-- time, shared with the registry.backfill-project job: a record the job
+-- stores is exactly one its indexer would have stored. Each answers why the
+-- record is refused, or nil. The indexers keep what only an event has (its
+-- action, and whether it replays or rewrites a stored row) to themselves.
+
+--- A software.release.project at `<did>/<name>`.
+local function project_record_problem(our_did, did, name, r)
+  if not is_project_name(name) or type(r) ~= "table" or r.name ~= name then
+    return "the project key is not its name"
+  end
+  local renamed_did, renamed_collection = parse_uri(r.renamedTo)
+  if r.renamedTo ~= nil and (renamed_did ~= did or renamed_collection ~= PROJECT) then
+    -- A project can alias only its own successor: pointing it at another
+    -- repo's project would hand that repo this name's installs.
+    return "renamedTo is not a project of this repo"
+  end
+  if not live_sidecar(our_did, did, name) then return "the project has no plugin sidecar" end
+  return nil
+end
+
+--- A software.release.manifest of `did`: exactly one valid plugin artifact,
+--- for an indexed project of the same repo with a live sidecar of its type.
+local function manifest_record_problem(our_did, did, r)
+  local db = require("happyview.db")
+  if type(r) ~= "table" then return "the record has no body" end
+  local project_did, collection, name = parse_uri(r.project)
+  if project_did ~= did or collection ~= PROJECT or not is_project_name(name) then
+    return "the manifest names no project of its own repo"
+  end
+  local sidecar = live_sidecar(our_did, did, name)
+  if not sidecar then return "the manifest's project has no plugin sidecar" end
+  if not db.get(r.project) then return "the manifest's project is not indexed" end
+  local artifact, problem = manifest_artifact(r)
+  problem = problem or artifact_problem(artifact)
+  if problem then return problem end
+  if artifact.pluginType ~= (sidecar.record or {}).pluginType then
+    return "pluginType is not the one the sidecar declares"
+  end
+  return nil
+end
+
+--- A software.release.version `<name>.<version>` of `did`: naming its own
+--- project, and pinning by CID a stored manifest of that project. The CID
+--- is checked against the stored row, the only CID the registry holds.
+local function version_record_problem(our_did, did, name, version, r)
+  local db = require("happyview.db")
+  if not is_project_name(name) or not is_release_version(version) then
+    return "the version key is not <name>.<version>"
+  end
+  if type(r) ~= "table" or r.version ~= version or r.project ~= uri_of(did, PROJECT, name) then
+    return "the version does not match its key"
+  end
+  if not live_sidecar(our_did, did, name) then return "the version's project has no plugin sidecar" end
+  local ref = r.manifest
+  if type(ref) ~= "table" or type(ref.cid) ~= "string" then
+    return "the version has no manifest reference"
+  end
+  local manifest_did, collection = parse_uri(ref.uri)
+  local manifest = manifest_did == did and collection == MANIFEST and db.get(ref.uri) or nil
+  if not manifest or manifest.cid ~= ref.cid or (manifest.record or {}).project ~= r.project then
+    return "the version's manifest is not a stored manifest of its project"
+  end
+  return nil
+end
+
+--- The registry's own state for a version just taken: its VERSION_STATE
+--- row, starting `pending` (or `deletedAtSource` when its manifest is gone),
+--- the copy of its blobs, and the first fetch of a changelog document in the
+--- publisher's own repo. What happened to the manifest before the version
+--- arrived still applies: a rewritten one makes it suspect, and a suspect
+--- mark or bytes already held outlive a delete and a re-create.
+local function index_version(our_did, did, uri, name, version, r)
+  local db = require("happyview.db")
+  local record = require("happyview.record")
+  local jobs = require("happyview.jobs")
+  local state_rkey = version_state_rkey(did, name, version)
+  local state = db.get(uri_of(our_did, VERSION_STATE, state_rkey))
+  local ref = r.manifest
+  local marks = project_state(our_did, did, name) or {}
+  local rewritten = type(marks.suspectManifests) == "table" and marks.suspectManifests[ref.uri] == true
+  local gone = type(marks.deletedManifests) == "table" and marks.deletedManifests[ref.uri] == true
+  local previous = state and state.record or {}
+
+  record.save_local(VERSION_STATE, state_rkey, {
+    did = did,
+    name = name,
+    version = version,
+    uri = uri,
+    manifestUri = ref.uri,
+    manifestCid = ref.cid,
+    availability = gone and "deletedAtSource" or "pending",
+    suspect = previous.suspect == true or rewritten,
+    held = previous.held,
+  }, our_did)
+
+  if not gone then
+    jobs.create("registry.copy-version", { did = did, name = name, version = version })
+  end
+  -- Only a document in the publisher's own repo is cached: a changelog from
+  -- elsewhere is not the publisher's statement about this release.
+  local changelog_did, changelog_collection = parse_uri(r.changelog)
+  if changelog_did == did and changelog_collection == DOCUMENT then
+    jobs.create("registry.fetch-changelog", {
+      did = did, name = name, version = version, uri = r.changelog,
+    })
+  end
+end
+
+--- A software.release.channel `<name>.<channel>` of `did`: naming its own
+--- project, and pinning by CID a stored version of that project.
+local function channel_record_problem(our_did, did, name, channel, r)
+  local db = require("happyview.db")
+  if not name or not is_channel_name(channel) or type(r) ~= "table"
+    or r.channel ~= channel or r.project ~= uri_of(did, PROJECT, name) then
+    return "the channel does not match its key"
+  end
+  if not live_sidecar(our_did, did, name) then return "the channel's project has no plugin sidecar" end
+  local ref = r.version
+  local version_did, collection
+  if type(ref) == "table" then version_did, collection = parse_uri(ref.uri) end
+  local target = version_did == did and collection == VERSION and db.get(ref.uri) or nil
+  if not target or type(ref.cid) ~= "string" or target.cid ~= ref.cid
+    or (target.record or {}).project ~= r.project then
+    return "the channel's version is not a stored version of its project"
+  end
+  return nil
+end
+
+--- The registry's own state for a channel just taken: a mark left by its
+--- earlier delete is cleared, so it resolves again.
+local function index_channel(our_did, did, name, channel)
+  local state = project_state(our_did, did, name)
+  if state and type(state.deletedChannels) == "table" and state.deletedChannels[channel] then
+    state.deletedChannels[channel] = nil
+    if next(state.deletedChannels) == nil then state.deletedChannels = nil end
+    save_project_state(our_did, did, name, state)
+  end
+end
+
+--- A software.release.status of `did`, about a stored version or project of
+--- its own with a live sidecar. What `lifecycle` reads from a status is
+--- checked, so a stored status always means what it says: `supersededBy`
+--- names a version when that is the event, and a withdrawal names a stored
+--- status about the same subject.
+local function status_record_problem(our_did, did, r)
+  local db = require("happyview.db")
+  if type(r) ~= "table" then return "the record has no body" end
+
+  local subject_did, collection, rkey = parse_uri(r.subject)
+  if subject_did ~= did then return "subject is not a record of this repo" end
+  local name
+  if collection == PROJECT then
+    name = is_project_name(rkey) and rkey or nil
+  elseif collection == VERSION then
+    name = split_rkey(rkey)
+  end
+  if not name then return "subject is not a version or project" end
+  if not live_sidecar(our_did, did, name) then return "the project has no plugin sidecar" end
+  if not db.get(r.subject) then return "subject is not indexed" end
+
+  if type(r.status) ~= "string" or r.status == "" or #r.status > 64 then
+    return "status must be a string"
+  end
+  -- HappyView stores a record without checking it against its lexicon, so
+  -- the lexicon's limits hold only if they are checked here, as putStatus
+  -- checks them for a status it writes.
+  if r.kind ~= nil and (type(r.kind) ~= "string" or #r.kind > 64) then
+    return "kind must be a string of at most 64 characters"
+  end
+  if r.reason ~= nil then
+    local problem = text_problem(r.reason, "reason", 300, 3000)
+    if problem then return problem end
+  end
+  if r.status == "supersededBy" and not is_release_version(r.supersededBy) then
+    return "supersededBy must name a version"
+  end
+  if r.status == "withdrawn" then
+    local target_did, target_collection = parse_uri(r.withdraws)
+    local target = target_did == did and target_collection == STATUS and db.get(r.withdraws) or nil
+    if not target then return "withdraws must name a stored status of this repo" end
+    if (target.record or {}).subject ~= r.subject then
+      return "withdraws must name a status about the same subject"
+    end
+  end
+  return nil
 end
 -- @endblock
 

@@ -16,6 +16,13 @@
 -- A delete keeps the row, because versions already indexed stay served and
 -- their views read it, and marks the project's state so it takes no new
 -- releases. Writing the sidecar again clears the mark.
+--
+-- Every other record is indexed only while a live sidecar exists, and one
+-- that arrived without one was skipped for good. So a sidecar that arrives,
+-- or comes back, after the project's records queues
+-- registry.backfill-project, which reads them from the publisher's PDS and
+-- stores those the indexers would have taken. A replay or an edit of a live
+-- sidecar queues none: nothing was skipped meanwhile.
 
 local log = require("internal.logging")
 local db = require("happyview.db")
@@ -32,7 +39,9 @@ function handle(input, ctx)
   local did, name, r = input.did, input.rkey, input.record
 
   if input.action == "delete" then
-    if is_project_name(name) then
+    -- Only a sidecar the registry stored has a project to withdraw; marking
+    -- any other would write state for a project that was never indexed.
+    if is_project_name(name) and db.get(input.uri) then
       local state = project_state(our_did, did, name) or {}
       state.sidecarDeleted = true
       save_project_state(our_did, did, name, state)
@@ -68,5 +77,8 @@ function handle(input, ctx)
   jobs.create("registry.fetch-publication", {
     did = did, name = name, uri = r.publication.uri, cid = r.publication.cid,
   })
+  if not stored or revived then
+    jobs.create("registry.backfill-project", { did = did, name = name })
+  end
   return true
 end

@@ -37,31 +37,12 @@ function handle(input, ctx)
     return nil
   end
 
-  if not name or not is_channel_name(channel) or type(r) ~= "table"
-    or r.channel ~= channel or r.project ~= uri_of(did, PROJECT, name) then
-    log.info("registry: channel does not match its key", { did = did, rkey = input.rkey })
-    return nil
-  end
-  if not live_sidecar(our_did, did, name) then
-    log.info("registry: channel's project has no plugin sidecar", { uri = uri, name = name })
+  local problem = channel_record_problem(our_did, did, name, channel, r)
+  if problem then
+    log.info("registry: channel refused", { did = did, rkey = input.rkey, reason = problem })
     return nil
   end
 
-  local ref = r.version
-  local version_did, collection
-  if type(ref) == "table" then version_did, collection = parse_uri(ref.uri) end
-  local target = version_did == did and collection == VERSION and db.get(ref.uri) or nil
-  if not target or type(ref.cid) ~= "string" or target.cid ~= ref.cid
-    or (target.record or {}).project ~= r.project then
-    log.info("registry: channel's version is not a stored version of its project", { uri = uri })
-    return nil
-  end
-
-  local state = project_state(our_did, did, name)
-  if state and type(state.deletedChannels) == "table" and state.deletedChannels[channel] then
-    state.deletedChannels[channel] = nil
-    if next(state.deletedChannels) == nil then state.deletedChannels = nil end
-    save_project_state(our_did, did, name, state)
-  end
+  index_channel(our_did, did, name, channel)
   return true
 end

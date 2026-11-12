@@ -58,7 +58,7 @@ Each source declares which prelude blocks it needs:
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 | `domains` | `domain_failure(status, body)`, which passes the domain routes' own codes (`DOMAIN_ERRORS`) and hands everything else to `provisioner_failure`; `public_domain(d)` | `json`, `failure`, `provisioner` |
 | `metrics` | `metrics_params(input)`, which checks window, step and trigger and answers `{query, trigger}` with the trigger percent-encoded; `public_script_list(body)`, `public_script_series(body)` and `public_ingest(body)`, which turn HappyView's float milliseconds into whole microseconds and always carry every outcome; `metrics_failure(status, body)`, which passes the metrics routes' own codes (`METRICS_ERRORS`) and hands everything else to `provisioner_failure`; `script_metrics_failure`, which adds `ScriptNotRun` | `json`, `failure`, `provisioner`, `urlencode` |
-| `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
+| `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), what each indexer asks of a first arrival (`project_record_problem`, `manifest_record_problem`, `version_record_problem`, `channel_record_problem`, `status_record_problem`) and the state it writes (`index_version`, `index_channel`), `pds_list`, `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
 | `registry` | what the gateway and the read API share: `resolve_actor`, `caller_write`, `project_view`, `version_view`, paging | `release`, `authority`, `validate`, `failure`, `json`, `urlencode` |
 
 Blocks are emitted in **prelude file order**, never directive order, because a
@@ -164,7 +164,9 @@ them, copies their bytes and serves them to HappyView and hpy.
 | `software.release.status` | TID | a lifecycle event about a version or the project |
 
 Only a project with a valid sidecar is indexed: any other `software.release.*`
-record is skipped, and writes no state, queues no job and fetches nothing. The
+record is skipped, and writes no state, queues no job and fetches nothing. A
+record skipped for want of a sidecar is picked up when the sidecar arrives,
+by `registry.backfill-project`, through the same checks its indexer applies. The
 name `happyview` is reserved: HappyView publishes its own releases under it,
 straight to its repo, and no sidecar may make them a registry project.
 
@@ -172,11 +174,14 @@ Deleting a sidecar withdraws the project from new installs and keeps every
 row: `searchProjects` and `getProject` no longer find it, its channels stop
 resolving, and it takes no new releases, while `getVersion` still answers
 every version by exact version so an installed plugin keeps reloading.
-Writing the sidecar again revives it. Manifests, versions and statuses are immutable, so a
+Writing the sidecar again revives it.
+
+Manifests, versions and statuses are immutable, so a
 rewrite keeps the first record, and a rewritten manifest or version marks the
 version `suspect`. A record that names something not indexed yet is skipped
 and not recovered: Jetstream delivers a repo's commits in order, and the
-gateway writes every record after what it references. HappyView does not check
+gateway writes every record after what it references. The one exception is
+the sidecar itself arriving late, which the backfill above covers. HappyView does not check
 a record against its lexicon on the way in, so the index scripts hold every
 limit the lexicons state.
 
@@ -226,6 +231,7 @@ never a redirect to the publisher.
 | `registry.copy-version` | fetches each blob of a version's artifact with `com.atproto.sync.getBlob` from the PDS the publisher's DID document names, and keeps it only if it hashes to the declared CID |
 | `registry.fetch-publication` | caches the publication the sidecar pins, if its CID matches, and copies its icon |
 | `registry.fetch-changelog` | caches a version's changelog document; `getVersion` refreshes it at most once an hour |
+| `registry.backfill-project` | queued when a sidecar is first stored or written again after a delete: lists the project's records on the publisher's PDS (`com.atproto.repo.listRecords`, up to 20 pages per collection) and stores, with `happyview.record.save_local` and the CID the PDS gave, each one its indexer would have taken, in the order project, manifests, versions, channels, statuses, writing the state the indexers would. Records already indexed are left alone, so it can run again |
 
 What the registry derives is written with `save_local` under `HAPPYPROTO_DID`
 in collections that are deliberately not registered as lexicons, so nobody can
