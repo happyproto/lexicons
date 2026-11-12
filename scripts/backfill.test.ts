@@ -294,6 +294,29 @@ describe("records first, then the sidecar", () => {
   ].join("\n");
   const FLOW = BEFORE + "\n" + event("sidecar", SIDECAR_URI, SIDECAR, "bafysidecar") + "\n" + RUN_BACKFILLS + "\n" + READ;
 
+  it("says so when a collection runs past its listing cap", () => {
+    // A statuses listing that never ends: every page holds one record of
+    // another project and points at another page.
+    const ENDLESS = `
+do
+  local base = "${PDS}/xrpc/com.atproto.repo.listRecords?repo=did%3Aplc%3Apub&collection=software.release.status&limit=100"
+  __pds[base] = { status = 200, body = "LIST endless" }
+  __pds[base .. "&cursor=more"] = { status = 200, body = "LIST endless" }
+  __decoded["LIST endless"] = {
+    cursor = "more",
+    records = { { uri = "${at(DID, "software.release.status", "3kother")}", cid = "bafyother",
+      value = { subject = "${at(DID, "software.release.project", "probe-two")}", status = "deprecated" } } },
+  }
+end`;
+    const { out } = run(ENDLESS + "\n" + FLOW + "\n__out.log = __log");
+    expect(out.backfills[0].truncated).toBe(true);
+    const warned = (out.log as any[]).filter((l) => l.level === "warn" && /listing cap/.test(l.message));
+    expect(warned.length).toBe(1);
+    expect(warned[0].fields.max_records).toBe(2000);
+    // What was within reach is still stored.
+    expect(out.backfills[0].stored.length).toBeGreaterThan(0);
+  });
+
   it("skips every record while there is no sidecar", () => {
     const { out } = run(BEFORE);
     expect(Object.values(out.indexed)).toEqual([false, false, false, false, false]);

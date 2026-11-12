@@ -33,9 +33,12 @@ local log = require("internal.logging")
 local db = require("happyview.db")
 local record = require("happyview.record")
 
---- How many pages of 100 records are read per collection. Far past what a
---- project publishes; a repo with more is stored as far as this reaches, and
---- the run says so.
+--- How many pages of 100 records are read per collection: at most 2,000
+--- records of each collection, counted across the whole repo, since
+--- listRecords can't filter by project. That is far past what a publisher
+--- has today. A repo with more is stored as far as this reaches, and the run
+--- says so: the result carries `truncated` and a warning is logged, so an
+--- operator can see it and backfill the rest.
 local MAX_PAGES = 20
 
 --- Records in key order. TIDs sort by time as strings, so this is the order
@@ -180,6 +183,11 @@ function handle(input, ctx)
     store(STATUS, entry, status_record_problem(our_did, did, entry.value))
   end
 
+  if truncated then
+    log.warn("registry: backfill stopped at its listing cap; records past it were not read", {
+      did = did, name = name, max_records = MAX_PAGES * 100,
+    })
+  end
   log.info("registry: project backfilled", {
     did = did, name = name, stored = #stored, refused = #refused, truncated = truncated,
   })
