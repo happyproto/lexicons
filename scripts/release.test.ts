@@ -366,6 +366,13 @@ describe("sidecar_problem", () => {
       expect(await edit(`r.publication.cid = ${cid}`)).toMatch(/publication\.cid/);
     }
   });
+  it("refuses the name happyview, reserved for HappyView's own releases", async () => {
+    const r = sidecar(`at://${DID}/software.release.project/happyview`);
+    expect(await lua(`return sidecar_problem(${r}, "${DID}", "happyview")`))
+      .toBe("the name happyview is reserved for HappyView's own releases");
+    const lua_ = sidecar(`at://${DID}/software.release.project/happyview-lua`).replace("site.standard.publication/x", "site.standard.publication/happyview-lua");
+    expect(await lua(`return sidecar_problem(${lua_}, "${DID}", "happyview-lua")`)).toBeNull();
+  });
   it("refuses a security contact with neither url nor email", async () => {
     expect(await lua(`local r = ${sidecar(`at://${DID}/software.release.project/x`)}
       r.security = { {} }

@@ -46,6 +46,11 @@ end
 local function mark_manifest(our_did, did, stored, uri, field)
   local project_did, collection, name = parse_uri(stored and (stored.record or {}).project)
   if project_did ~= did or collection ~= PROJECT or not is_project_name(name) then return end
+  -- Only a project the registry took on has state to keep. A manifest row
+  -- of one with no sidecar (one a gateway write mirrored) backs no version,
+  -- and marking it would write state for a project that is not indexed. A
+  -- deleted sidecar keeps its row, so its project's marks are still kept.
+  if not db.get(uri_of(did, SIDECAR, name)) then return end
   local state = project_state(our_did, did, name) or {}
   state[field] = state[field] or {}
   state[field][uri] = true
@@ -79,27 +84,7 @@ function handle(input, ctx)
   -- A create matching the stored row is a replayed cursor.
   if stored then return nil end
 
-  if type(r) ~= "table" then return nil end
-  local project_did, collection, name = parse_uri(r.project)
-  if project_did ~= did or collection ~= PROJECT or not is_project_name(name) then
-    log.info("registry: manifest names no project of its own repo", { uri = uri })
-    return nil
-  end
-  local sidecar = live_sidecar(our_did, did, name)
-  if not sidecar then
-    log.info("registry: manifest's project has no plugin sidecar", { uri = uri, name = name })
-    return nil
-  end
-  if not db.get(r.project) then
-    log.info("registry: manifest's project is not indexed", { uri = uri, name = name })
-    return nil
-  end
-
-  local artifact, problem = manifest_artifact(r)
-  problem = problem or artifact_problem(artifact)
-  if not problem and artifact.pluginType ~= (sidecar.record or {}).pluginType then
-    problem = "pluginType is not the one the sidecar declares"
-  end
+  local problem = manifest_record_problem(our_did, did, r)
   if problem then
     log.info("registry: manifest refused", { uri = uri, reason = problem })
     return nil

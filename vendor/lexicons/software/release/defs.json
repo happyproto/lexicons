@@ -75,6 +75,75 @@
           "description": "Full lowercase hexadecimal commit object ID, never abbreviated. Exactly 40 characters for sha1 or 64 for sha256. This hashes the Git commit object, not the source archive bytes."
         }
       }
+    },
+    "blobArtifact": {
+      "type": "object",
+      "description": "A named downloadable file stored as a blob in the manifest publisher's PDS. Consumers MUST verify downloaded bytes against the blob CID. Target metadata is optional and describes coarse runtime compatibility, not installation instructions.",
+      "required": [
+        "fileName",
+        "blob"
+      ],
+      "properties": {
+        "blob": {
+          "type": "blob",
+          "accept": [
+            "*/*"
+          ],
+          "description": "The artifact bytes. The blob reference supplies the content CID, MIME type, and size. No artifact-specific size limit is imposed; hosting services may impose their own limits."
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 255,
+          "minLength": 1,
+          "description": "Suggested download filename, not a path. MUST NOT contain slashes, backslashes, or control characters, and MUST NOT be dot or dot-dot. Consumers MUST handle it as untrusted input and ensure it is safe for the destination filesystem. Filenames do not define target compatibility."
+        },
+        "metadata": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "closed": false,
+            "refs": []
+          },
+          "description": "Typed ecosystem-specific metadata fragments. Metadata supplements core artifact fields and MUST NOT override or contradict them. Consumers may display or offer downloads of artifacts with unknown fragment types, but MUST NOT assume those fragments impose no additional requirements for automated installation. Unknown fragment types do not establish compatibility or suitability for automated installation."
+        },
+        "target": {
+          "type": "ref",
+          "ref": "#target",
+          "description": "Intended runtime target. Omission means compatibility is unspecified, not universal."
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "description": "Coarse runtime compatibility for an artifact, not its build host. This is not a complete compatibility guarantee: OS versions, ABI, libc, and CPU features may impose additional requirements. Unknown values MUST NOT be treated as compatibility matches by consumers that do not understand them.",
+      "properties": {
+        "architectures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "knownValues": [
+              "amd64",
+              "arm64",
+              "386"
+            ],
+            "minLength": 1
+          },
+          "minLength": 1,
+          "description": "Supported runtime CPU architectures, with no duplicates. Each entry is an alternative supported architecture, not a simultaneous requirement. Architecture identifiers follow Go GOARCH naming as adopted by the OCI Image Specification's platform.architecture field (https://github.com/opencontainers/image-spec/blob/v1.0.2/image-index.md). Publishers SHOULD use canonical identifiers where applicable, such as amd64, arm64, and 386 rather than x86_64, aarch64, and x86. Omission means unspecified, not architecture-independent."
+        },
+        "os": {
+          "type": "string",
+          "knownValues": [
+            "linux",
+            "macos",
+            "windows",
+            "android",
+            "ios"
+          ],
+          "minLength": 1,
+          "description": "Intended runtime operating system. Use canonical known values where applicable, such as macos rather than darwin. Omission means unspecified, not support for every OS."
+        }
+      }
     }
   }
 }

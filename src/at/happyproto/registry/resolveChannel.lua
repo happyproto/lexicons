@@ -6,6 +6,9 @@
 -- installable is answered with its state rather than passed over for an
 -- older one: only the publisher may move a channel, and an install that
 -- silently fell back would be one nobody chose.
+--
+-- A project whose sidecar was deleted resolves no channel, so no new install
+-- finds it; a version already installed still loads by exact version.
 
 local db = require("happyview.db")
 
@@ -19,7 +22,7 @@ function handle(input, ctx)
   -- A record whose own channel disagrees with its key is no channel, as
   -- getProject leaves it out too, and nor is one the publisher deleted.
   if not row or type(row.record) ~= "table" or row.record.channel ~= channel
-    or channel_deleted(our_did, did, name, channel) then
+    or channel_deleted(our_did, did, name, channel) or not live_sidecar(our_did, did, name) then
     return failure("ChannelNotFound", "the project has no channel of that name indexed")
   end
 

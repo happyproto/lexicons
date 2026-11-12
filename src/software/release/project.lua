@@ -12,7 +12,6 @@
 -- first record stays.
 
 local log = require("internal.logging")
-local db = require("happyview.db")
 
 --- The record without `renamedTo`, to compare the rest of it.
 local function without_rename(r)
@@ -31,19 +30,9 @@ function handle(input, ctx)
   if input.action == "delete" then return nil end
 
   local did, name, r = input.did, input.rkey, input.record
-  if not is_project_name(name) or type(r) ~= "table" or r.name ~= name then
-    log.info("registry: project key is not its name", { did = did, rkey = name })
-    return nil
-  end
-  local renamed_did, renamed_collection = parse_uri(r.renamedTo)
-  if r.renamedTo ~= nil and (renamed_did ~= did or renamed_collection ~= PROJECT) then
-    -- A project can alias only its own successor: pointing it at another
-    -- repo's project would hand that repo this name's installs.
-    log.info("registry: project renamedTo is not a project of this repo", { did = did, name = name })
-    return nil
-  end
-  if not live_sidecar(our_did, did, name) then
-    log.info("registry: project has no plugin sidecar", { did = did, name = name })
+  local problem = project_record_problem(our_did, did, name, r)
+  if problem then
+    log.info("registry: project refused", { did = did, rkey = name, reason = problem })
     return nil
   end
 

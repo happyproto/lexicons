@@ -875,3 +875,46 @@ __indexed["${STATE_URI}"].record.failed = { banner = "the PDS answered 503" }`,
     expect(r.out.error).toBe("InvalidRecord");
   });
 });
+
+describe("the reserved name happyview", () => {
+  const HAPPYVIEW = PROJECT_INPUT().replace(`name = "probe"`, `name = "happyview"`);
+  it("is refused by putProject, signed in or validating anonymously, writing nothing", () => {
+    for (const [ctx, input] of [[CTX, HAPPYVIEW], [ANONYMOUS, HAPPYVIEW.replace(`name = "happyview",`, `name = "happyview", validateOnly = true,`)]]) {
+      const r = call(PUT_PROJECT, input, { ctx });
+      expect(r.out.error).toBe("InvalidRecord");
+      expect(r.out.message).toBe("the name happyview is reserved for HappyView's own releases");
+      expect(writes(r.calls)).toEqual([]);
+    }
+  });
+  it("leaves names that only start with it alone", () => {
+    const r = call(PUT_PROJECT, PROJECT_INPUT().replace(`name = "probe"`, `name = "happyview-lua"`), { setup: NO_PROJECT });
+    expect(r.out.error).toBeUndefined();
+  });
+});
+
+describe("a project whose sidecar was deleted takes no new releases", () => {
+  const DELETED = `__indexed["${PROJECT_STATE_URI}"].record.sidecarDeleted = true`;
+  it("publishRelease, promoteRelease and putStatus refuse, writing nothing", () => {
+    for (const [script, input, error] of [
+      [PUBLISH, RELEASE(), "ProjectMissing"],
+      [PROMOTE, PROMOTE_INPUT(`track = "latest"`), "ProjectMissing"],
+      [PUT_STATUS, `{ subject = "${VERSION_URI}", status = "endOfLife" }`, "SubjectNotFound"],
+    ]) {
+      const r = call(script, input, { setup: DELETED });
+      expect(r.out.error).toBe(error);
+      expect(writes(r.calls)).toEqual([]);
+    }
+  });
+});
+
+describe("retryVersion for a project with no sidecar", () => {
+  it("answers VersionNotFound and queues no copy, since no version state was ever written", () => {
+    const ghost = at(DID, "software.release.version", "ghost.1.0.0");
+    const r = call(RETRY, `{ did = "${DID}", name = "ghost", version = "1.0.0" }`, {
+      ctx: ctxFor(HP),
+      setup: `__indexed["${ghost}"] = { uri = "${ghost}", cid = "bafyghost", record = { version = "1.0.0" } }`,
+    });
+    expect(r.out.error).toBe("VersionNotFound");
+    expect(jobs(r.calls)).toEqual([]);
+  });
+});
