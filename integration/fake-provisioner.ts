@@ -94,6 +94,8 @@ function fresh() {
     accountEmails: {} as Record<string, Json>,
     /** DID -> the uri of its preferences space, once recorded (HAP-463). */
     preferencesSpaces: {} as Record<string, string>,
+    /** Whether owner contact email is on (EMAIL_PROOF_KEY set). */
+    contactEmail: true,
     /** DID -> the lowercase addresses proven to be its own. */
     emailProofs: {} as Record<string, string[]>,
     /** Links sent: `{did, email, token, used}`, oldest first. */
@@ -565,6 +567,7 @@ function accountBody(actor: string): Json {
     email_confirmed: recorded.email_confirmed ?? null,
     email_seen_at: recorded.email_seen_at ?? null,
     preferences_space: state.preferencesSpaces[actor] ?? null,
+    contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
   };

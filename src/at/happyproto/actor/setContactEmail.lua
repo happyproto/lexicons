@@ -29,7 +29,10 @@ function handle(input, ctx)
     return failure("Forbidden", "Only customers and staff have contact settings.")
   end
 
-  local uri = preferences.space(ctx, true)
+  local uri, why = preferences.space(ctx, true)
+  if why == preferences.OFF then
+    return failure("EmailNotConfigured", "Contact email isn't switched on yet.")
+  end
   if not uri then return failure("Upstream", "Your preferences could not be saved.") end
   local contact = preferences.read(ctx, uri, preferences.CONTACT)
   if contact == nil then return failure("Upstream", "Your preferences could not be read.") end

@@ -82,6 +82,10 @@
           "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
         },
         {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is not switched on yet."
+        },
+        {
           "name": "Upstream",
           "description": "The preferences space or the provisioner could not be reached, or answered with an error it does not explain to callers."
         }

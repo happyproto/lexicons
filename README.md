@@ -362,8 +362,13 @@ It holds two records, at rkey `self`, written only as the owner:
 | `at.happyproto.preferences.contact` | `{email?, pendingEmail?, source: "pds" \| "owner", updatedAt}`. No `email`: the owner removed theirs. `pendingEmail`: a change waiting for its link |
 | `at.happyproto.preferences.notices` | `{maintenance, updatedAt}`; none means maintenance emails are on |
 
-Sign-in writes the contact record from the PDS address once, the first time
-there is one, and never again. After that `actor.setContactEmail`,
+No space is created until the provisioner's `GET /v1/account` says
+`contact_email` is on (its `EMAIL_PROOF_KEY` is set). A new space's uri is
+recorded with up to three tries; if all fail, the uri is logged at error
+level for staff to record by hand (infrastructure `docs/accounts.md`).
+
+Only the sign-in that creates the space writes the contact record, from the
+PDS address, and never again, so nothing written later is overwritten. After that `actor.setContactEmail`,
 `confirmContactEmail` and `removeContactEmail` change it, and `actor.setNotices`
 the notices record; `actor.getContact` reads both. Whether an address is the
 owner's is the provisioner's to say: it keeps an HMAC of each proven address,

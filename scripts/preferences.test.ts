@@ -47,6 +47,8 @@ const APP = "did:plc:hp#happyproto_app";
  */
 const STUBS = String.raw`
 __space_exists = false
+__email_on = true
+__put_space_failures = 0
 __records = {}
 __customer = true
 __account = {}
@@ -75,8 +77,12 @@ __reply = function(method, url, opts)
   local failing = __fail[method .. " " .. path]
   if failing then return respond(failing[1], { error = failing[2], message = "stubbed " .. failing[2] }) end
   if method == "get" and path == "/v1/account" then
-    return respond(200, { preferences_space = __account.preferences_space })
+    return respond(200, { preferences_space = __account.preferences_space, contact_email = __email_on })
   elseif method == "put" and path == "/v1/account/preferences-space" then
+    if __put_space_failures > 0 then
+      __put_space_failures = __put_space_failures - 1
+      return respond(503, { error = "Unavailable", message = "stubbed" })
+    end
     __account.preferences_space = opts.body:match('"uri":"([^"]+)"')
     return respond(200, { preferences_space = __account.preferences_space })
   elseif method == "put" and path == "/v1/account/email" then
@@ -226,6 +232,42 @@ describe("sign-in (syncAccount)", () => {
       expect(out.recorded).toBe(true);
       expect(calls.filter((c) => c.fn === "create")).toEqual([]);
     }
+  });
+
+  it("creates nothing while contact email is off, and the settings say so", () => {
+    const off = "__email_on = false";
+    const { out, calls } = run("syncAccount", SYNC, { setup: [off, `__pds = { email = "a@example.com" }`].join("\n") });
+    expect(out.recorded).toBe(true);
+    expect(calls.filter((c) => c.fn === "create")).toEqual([]);
+    for (const [script, input] of [
+      ["setContactEmail", `{ email = "a@example.com", idempotencyKey = "${KEY}" }`],
+      ["setNotices", `{ maintenance = false, idempotencyKey = "${KEY}" }`],
+      ["removeContactEmail", `{ idempotencyKey = "${KEY}" }`],
+    ]) {
+      const r = run(script, input, { setup: off });
+      expect([script, r.out.error]).toEqual([script, "EmailNotConfigured"]);
+      expect(r.calls.filter((c) => c.fn === "create" || c.fn === "put_record")).toEqual([]);
+    }
+  });
+
+  it("retries recording a new space, and logs its uri when every try fails", () => {
+    const retried = run("syncAccount", SYNC, { setup: "__put_space_failures = 2" });
+    expect(retried.account.preferences_space).toBe(SPACE);
+    const lost = run("syncAccount", SYNC, { setup: "__put_space_failures = 3" });
+    expect(lost.out.recorded).toBe(true);
+    expect(lost.account.preferences_space).toBeUndefined();
+    const logged = lost.log.find((l) => l.message === "a preferences space was created but not recorded");
+    expect(logged?.level).toBe("error");
+    expect(logged?.fields?.uri).toBe(SPACE);
+  });
+
+  it("seeds only when it creates the space, so a later sign-in never writes over the owner", () => {
+    // The space exists, recorded, with no contact record: another tab created
+    // it (setNotices, say) and the owner set nothing yet. A sign-in leaves it.
+    const { calls } = run("syncAccount", SYNC, {
+      setup: [recorded, `__space_exists = true`, `__pds = { email = "pds@example.com" }`].join("\n"),
+    });
+    expect(calls.filter((c) => c.fn === "put_record")).toEqual([]);
   });
 
   it("a space that exists but was never recorded is logged, and the sign-in still succeeds", () => {

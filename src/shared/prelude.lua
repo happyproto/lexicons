@@ -423,7 +423,16 @@ local function provisioner_failure(status, decoded)
   if remap then
     return failure(remap[1], remap[2] or message)
   end
-  log.warn("provisioner request failed", { status = status, body = decoded })
+  -- The error's code and message, never the whole body: a reply can carry
+  -- fields no log should hold.
+  local function excerpt(v)
+    return type(v) == "string" and v:sub(1, 200) or nil
+  end
+  log.warn("provisioner request failed", {
+    status = status,
+    error = type(decoded) == "table" and excerpt(decoded.error) or nil,
+    message = type(decoded) == "table" and excerpt(decoded.message) or excerpt(decoded),
+  })
   return failure("Upstream", "The provisioner could not complete the request.")
 end
 
@@ -501,6 +510,8 @@ local preferences = {
   CONTACT = "at.happyproto.preferences.contact",
   NOTICES = "at.happyproto.preferences.notices",
   RKEY = "self",
+  -- preferences.space's reason while contact email is switched off.
+  OFF = "contact email is not switched on",
 }
 
 --- Enough to refuse garbage before anything is written; the provisioner and
@@ -528,18 +539,42 @@ function preferences.policy(ctx)
   return { ["$type"] = "com.atproto.simplespace.defs#managingAppPolicy", managingApp = app }
 end
 
---- The caller's preferences space uri, or nil and why. With `create`, a
---- space that does not exist yet is created and recorded; without, nil and
---- no message means there is none.
+--- Record a just-created space's uri, trying three times. true, or false
+--- once all three failed, logged with the uri so staff can record it by
+--- hand (infrastructure docs/accounts.md, "A preferences space that was
+--- never recorded"): until then nothing can find the space again.
+function preferences.record(ctx, uri)
+  local status, body
+  for _ = 1, 3 do
+    status, body = provisioner(ctx, "PUT", "/v1/account/preferences-space",
+      { uri = uri }, "preferences-space:" .. uri)
+    if status == 200 then return true end
+  end
+  log.error("a preferences space was created but not recorded", {
+    uri = uri,
+    status = status,
+    error = type(body) == "table" and body.error or nil,
+  })
+  return false
+end
+
+--- The caller's preferences space uri, or nil and why; second, whether this
+--- call created it. With `create`, a space that does not exist yet is
+--- created and recorded, but only once the provisioner says contact email is
+--- on: until then no space is made. Without `create`, nil and no message
+--- means there is none.
 function preferences.space(ctx, create)
   local status, body = provisioner(ctx, "GET", "/v1/account")
   if status ~= 200 or type(body) ~= "table" then
     return nil, "the account could not be read"
   end
   if type(body.preferences_space) == "string" and body.preferences_space ~= "" then
-    return body.preferences_space
+    return body.preferences_space, false
   end
   if not create then return nil end
+  if body.contact_email ~= true then
+    return nil, preferences.OFF
+  end
 
   local policy = preferences.policy(ctx)
   if not policy then
@@ -555,19 +590,16 @@ function preferences.space(ctx, create)
     write_policy = policy,
   })
   if not ok or type(made) ~= "table" or type(made.uri) ~= "string" then
-    -- CONFLICT here is a space that exists but was never recorded: a create
-    -- that won a race with this one records it, and otherwise nothing can
-    -- find it again (happyview.spaces has no lookup by creator and key).
+    -- CONFLICT here is a space that exists but is not recorded: another
+    -- sign-in's create won the race and records it, or recording failed
+    -- three times and was logged (preferences.record).
     log.warn("could not create the preferences space", { error = tostring(made) })
     return nil, "the preferences space could not be created"
   end
-  local put_status, put_body = provisioner(ctx, "PUT", "/v1/account/preferences-space",
-    { uri = made.uri }, "preferences-space:" .. made.uri)
-  if put_status ~= 200 then
-    log.warn("could not record the preferences space", { status = put_status, error = put_body })
+  if not preferences.record(ctx, made.uri) then
     return nil, "the preferences space could not be recorded"
   end
-  return made.uri
+  return made.uri, true
 end
 
 --- The owner's record at `collection`/self in the space: the record, false
@@ -641,14 +673,22 @@ function preferences.promote(ctx, uri, record)
   return promoted
 end
 
---- Sign-in's part (actor.syncAccount): make sure the space exists, write the
---- contact record from the PDS address the first time there is one, and
---- promote a change whose link was opened. Best-effort: answers nothing and
---- logs what failed, never the address.
+--- Sign-in's part (actor.syncAccount): make sure the space exists, and
+--- promote a change whose link was opened. The contact record is written
+--- from the PDS address only by the sign-in that creates the space, the
+--- first time, so nothing written later -- an owner who removed their
+--- address, or one who set it from another tab -- is ever overwritten.
+--- Best-effort: answers nothing and logs what failed, never the address.
 function preferences.sync(ctx, pds_email)
-  local uri, why = preferences.space(ctx, true)
+  local uri, created_or_why = preferences.space(ctx, true)
   if not uri then
-    log.warn("preferences not synced", { reason = why })
+    log.warn("preferences not synced", { reason = created_or_why })
+    return
+  end
+  if created_or_why == true then
+    if preferences.is_email(pds_email) then
+      preferences.write(uri, preferences.CONTACT, { email = pds_email, source = "pds" })
+    end
     return
   end
   local record, err = preferences.read(ctx, uri, preferences.CONTACT)
@@ -656,13 +696,7 @@ function preferences.sync(ctx, pds_email)
     log.warn("preferences not synced", { reason = err })
     return
   end
-  if record == false then
-    if preferences.is_email(pds_email) then
-      preferences.write(uri, preferences.CONTACT, { email = pds_email, source = "pds" })
-    end
-    return
-  end
-  preferences.promote(ctx, uri, record)
+  if record then preferences.promote(ctx, uri, record) end
 end
 -- @endblock
 
