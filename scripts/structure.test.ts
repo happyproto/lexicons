@@ -167,6 +167,9 @@ const UNGATED: Record<string, string> = {
  */
 const UNGATED_DIRS: Record<string, string> = {
   registry: "public reads; any instance resolves a plugin without an account here",
+  // Record indexers that drop every record: the preferences records live
+  // only in spaces (HAP-463).
+  preferences: "record indexers that store nothing",
 };
 
 type Gate = "gate_admin" | "gate_customer" | "gate_owner";

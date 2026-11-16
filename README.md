@@ -355,7 +355,10 @@ write policy is a managing-app policy naming `HAPPYPROTO_APP`. The provisioner
 records its uri, because a script cannot look a space up by creator, type and
 key.
 
-It holds two records, at rkey `self`, written only as the owner:
+It holds two records, at rkey `self`, written only as the owner. Their
+lexicons are in `lexicons/at/happyproto/preferences/`; HappyView validates no
+space record against them, and each has a `record.index` script that stores
+nothing, so a copy published to a public repo is dropped:
 
 | Collection | Record |
 | --- | --- |
