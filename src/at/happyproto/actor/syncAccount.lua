@@ -20,8 +20,15 @@
 -- Customers and staff only: anyone else has no HappyProto account to record
 -- it against, and gets recorded = false rather than an error, since the
 -- dashboard calls this for everyone who signs in.
+--
+-- Then the account's preferences space (HAP-463): created if it does not
+-- exist yet, its contact record written from this address the first time
+-- there is one (and never again: after that only the owner changes it), and a
+-- change whose link was opened promoted. That part is best-effort and changes
+-- nothing in the reply: a sign-in never fails on it, and the next one tries
+-- again.
 
--- @prelude gate, validate, provisioner
+-- @prelude gate, validate, provisioner, preferences
 
 --- The caller's address and whether the PDS says it is confirmed, or nil.
 --- `require` raises when the library isn't installed, and `email` raises on
@@ -65,6 +72,11 @@ function handle(input, ctx)
   }, input.idempotencyKey)
   if status ~= 200 or type(body) ~= "table" then
     return provisioner_failure(status, body)
+  end
+
+  local synced, err = pcall(preferences.sync, ctx, email)
+  if not synced then
+    log.warn("preferences not synced", { error = tostring(err) })
   end
 
   -- The provisioner never sends the address back, and neither does this: an

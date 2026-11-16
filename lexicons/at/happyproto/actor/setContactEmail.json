@@ -1,0 +1,126 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.setContactEmail",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Set the caller's contact email in their preferences space, and send a link to it that proves it. Until the link is opened, the address they had stays in use. Setting the proven address they already have drops a change that is waiting. Customers and staff; anyone else is refused.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "email",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "email": {
+              "type": "string",
+              "maxLength": 254,
+              "description": "The new contact email."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per action and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "sent",
+            "verified"
+          ],
+          "properties": {
+            "sent": {
+              "type": "boolean",
+              "description": "Whether a link was sent. False when the address is already theirs and proven."
+            },
+            "verified": {
+              "type": "boolean",
+              "description": "Whether the address is already proven, so nothing waits."
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "When the link stops working; present when sent."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is neither a customer nor staff, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The input is malformed, or the provisioner refused it as malformed."
+        },
+        {
+          "name": "InvalidEmail",
+          "description": "The address is not an email address."
+        },
+        {
+          "name": "TooManyLinks",
+          "description": "Five links have been sent to this account in the last 24 hours."
+        },
+        {
+          "name": "EmailFailed",
+          "description": "The email could not be sent; nothing was recorded, so it is safe to try again."
+        },
+        {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is not switched on yet."
+        },
+        {
+          "name": "InvalidLink",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "ExpiredLink",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "Upstream",
+          "description": "The preferences space or the provisioner could not be reached, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

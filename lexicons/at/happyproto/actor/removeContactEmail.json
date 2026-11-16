@@ -1,0 +1,110 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.removeContactEmail",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Remove the caller's contact email. Their preferences space keeps a contact record with no address, so sign-in does not write one back, and every proof and open link is forgotten. The address on their PDS account is untouched. Customers and staff; anyone else is refused.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotencyKey"
+          ],
+          "properties": {
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per action and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "removed"
+          ],
+          "properties": {
+            "removed": {
+              "type": "boolean",
+              "description": "Always true on success."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is neither a customer nor staff, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The input is malformed, or the provisioner refused it as malformed."
+        },
+        {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is not switched on yet."
+        },
+        {
+          "name": "InvalidEmail",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "TooManyLinks",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "InvalidLink",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "ExpiredLink",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "EmailFailed",
+          "description": "Passed through from the provisioner. Not expected here; declared because every contact-email refusal is mapped the same way."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "Upstream",
+          "description": "The preferences space or the provisioner could not be reached, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

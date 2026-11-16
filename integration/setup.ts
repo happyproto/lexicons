@@ -392,6 +392,10 @@ async function setup(): Promise<Stack> {
     HAPPYPROTO_CLICKHOUSE_DB: "happyproto",
     PROVISIONER_URL: "http://fake-provisioner:8080",
     PROVISIONER_TOKEN,
+    // The managing app the preferences spaces defer to (HAP-463). The stack
+    // never answers checkUserAccess, so other apps are refused, as in
+    // production until HappyProto serves it.
+    HAPPYPROTO_APP: `${accounts.happyproto.did}#happyproto_app`,
   };
   for (const [key, value] of Object.entries(variables)) await setVariable(apiKey, key, value);
 

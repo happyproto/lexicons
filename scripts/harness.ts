@@ -60,6 +60,23 @@ package.preload["internal.json"] = function()
   }
 end
 
+__now = 1763251200000
+__tid = 0
+package.preload["internal.time"] = function()
+  return {
+    now = function() return __now end,
+    to_iso8601 = function(ms) return "2025-11-16T00:00:00.000Z" end,
+  }
+end
+package.preload["internal.tids"] = function()
+  return {
+    create = function()
+      __tid = __tid + 1
+      return string.format("3m%011d", __tid)
+    end,
+  }
+end
+
 package.preload["internal.logging"] = function()
   local function at(level)
     return function(message, fields)

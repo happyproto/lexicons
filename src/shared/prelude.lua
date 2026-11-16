@@ -10,7 +10,8 @@
 -- and `instance`; `metrics` implies `json`, `failure`, `provisioner` and
 -- `urlencode`; `jobs` implies `failure`; `release` implies
 -- `validate`, `json` and `urlencode`; `registry` implies `release`, `authority`,
--- `validate`, `failure`, `json` and `urlencode`.
+-- `validate`, `failure`, `json` and `urlencode`; `preferences` implies `json`,
+-- `failure`, `provisioner`, `gate`, `access`, `validate` and `authority`.
 --
 -- `gate` is deliberately separable from `failure`: actor.getProfile needs the
 -- failure helper but must NOT be admin-gated. It is the endpoint that tells a
@@ -448,6 +449,220 @@ local function owned_tenant(ctx, id, include_deleted)
     return nil, failure("NotFound", "instance not found")
   end
   return body
+end
+-- @endblock
+
+-- @block preferences
+-- The account's preferences space (HAP-463): `at.happyproto.preferences`,
+-- key `self`, one per account. The account creates it, through
+-- happyview.spaces as the caller, so it is the space's creator and the only
+-- DID besides these scripts that reads or writes it. HappyView gives it a
+-- did:plc of its own, and its read and write policy defers to HappyProto's
+-- managing app (the HAPPYPROTO_APP script variable), so no other app reads it
+-- without HappyProto's say. Scripts read it through spaces:read.
+--
+-- Its records, each at rkey `self`, written only as the owner:
+--   at.happyproto.preferences.contact  {email?, pendingEmail?, source, updatedAt}
+--   at.happyproto.preferences.notices  {maintenance, updatedAt}
+-- A contact record without `email` is an owner who removed theirs; with
+-- `pendingEmail`, a change waiting for its link. No record yet means sign-in
+-- has never seeded one. The provisioner keeps only the space's uri and proof
+-- of which addresses are the owner's, never an address.
+--
+-- Everything but the failure mapping hangs off one table, `preferences`: the
+-- whole prelude runs as one chunk in its tests, and Lua allows a chunk 200
+-- locals.
+
+-- The contact-email routes' own codes, passed through with their message.
+-- Anything else goes to provisioner_failure.
+local CONTACT_ERRORS = {
+  InvalidEmail = true,
+  TooManyLinks = true,
+  InvalidLink = true,
+  ExpiredLink = true,
+  EmailFailed = true,
+  EmailNotConfigured = true,
+}
+
+--- A contact-email route's refusal as a failure table.
+local function contact_failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and CONTACT_ERRORS[decoded.error] then
+    local message = type(decoded.message) == "string" and decoded.message ~= ""
+      and decoded.message or "The provisioner refused the request."
+    return failure(decoded.error, message)
+  end
+  return provisioner_failure(status, decoded)
+end
+
+local preferences = {
+  TYPE = "at.happyproto.preferences",
+  SKEY = "self",
+  CONTACT = "at.happyproto.preferences.contact",
+  NOTICES = "at.happyproto.preferences.notices",
+  RKEY = "self",
+}
+
+--- Enough to refuse garbage before anything is written; the provisioner and
+--- the link are the authority.
+function preferences.is_email(s)
+  return type(s) == "string" and #s <= 254 and not s:find("[%s%c]")
+    and s:match("^[^@]+@[^@]+%.[^@]+$") ~= nil
+end
+
+--- The same address, whatever its case or surrounding space, compared as the
+--- provisioner compares them.
+function preferences.same_email(a, b)
+  local function normal(s) return (s:lower():gsub("^%s+", ""):gsub("%s+$", "")) end
+  return type(a) == "string" and type(b) == "string" and normal(a) == normal(b)
+end
+
+--- The managing-app policy, or nil when HAPPYPROTO_APP is not a service
+--- identifier. Never a weaker policy in its place: a space created with one
+--- would stay open to whatever that policy admits.
+function preferences.policy(ctx)
+  local app = (ctx.env or {}).HAPPYPROTO_APP
+  if type(app) ~= "string" then return nil end
+  local did = app:match("^(did:[^#]+)#?[%w_%-]*$")
+  if not did or not is_did(did) then return nil end
+  return { ["$type"] = "com.atproto.simplespace.defs#managingAppPolicy", managingApp = app }
+end
+
+--- The caller's preferences space uri, or nil and why. With `create`, a
+--- space that does not exist yet is created and recorded; without, nil and
+--- no message means there is none.
+function preferences.space(ctx, create)
+  local status, body = provisioner(ctx, "GET", "/v1/account")
+  if status ~= 200 or type(body) ~= "table" then
+    return nil, "the account could not be read"
+  end
+  if type(body.preferences_space) == "string" and body.preferences_space ~= "" then
+    return body.preferences_space
+  end
+  if not create then return nil end
+
+  local policy = preferences.policy(ctx)
+  if not policy then
+    log.warn("HAPPYPROTO_APP is not a service identifier; no preferences space created", {})
+    return nil, "preferences are not configured"
+  end
+  local ok, made = pcall(spaces.create, {
+    spaceType = preferences.TYPE,
+    skey = preferences.SKEY,
+    display_name = "HappyProto preferences",
+    description = "Your contact email and notice settings for HappyProto.",
+    read_policy = policy,
+    write_policy = policy,
+  })
+  if not ok or type(made) ~= "table" or type(made.uri) ~= "string" then
+    -- CONFLICT here is a space that exists but was never recorded: a create
+    -- that won a race with this one records it, and otherwise nothing can
+    -- find it again (happyview.spaces has no lookup by creator and key).
+    log.warn("could not create the preferences space", { error = tostring(made) })
+    return nil, "the preferences space could not be created"
+  end
+  local put_status, put_body = provisioner(ctx, "PUT", "/v1/account/preferences-space",
+    { uri = made.uri }, "preferences-space:" .. made.uri)
+  if put_status ~= 200 then
+    log.warn("could not record the preferences space", { status = put_status, error = put_body })
+    return nil, "the preferences space could not be recorded"
+  end
+  return made.uri
+end
+
+--- The owner's record at `collection`/self in the space: the record, false
+--- when there is none, or nil and why when the space can't be read.
+function preferences.read(ctx, uri, collection)
+  local ok, page = pcall(function()
+    return spaces.get(uri):records({ collection = collection, limit = 50 })
+  end)
+  if not ok or type(page) ~= "table" then
+    log.warn("could not read the preferences space", { collection = collection, error = tostring(page) })
+    return nil, "the preferences space could not be read"
+  end
+  for _, r in ipairs(page.records or {}) do
+    if r.rkey == preferences.RKEY and r.author_did == ctx.caller_did and type(r.record) == "table" then
+      return r.record
+    end
+  end
+  return false
+end
+
+--- Write the owner's record at `collection`/self, as the owner. true, or nil
+--- and why.
+function preferences.write(uri, collection, record)
+  local clock = require("internal.time")
+  record["$type"] = collection
+  record.updatedAt = clock.to_iso8601(clock.now())
+  local ok, err = pcall(function()
+    return spaces.get(uri):put_record({ collection = collection, rkey = preferences.RKEY, record = record })
+  end)
+  if not ok then
+    log.warn("could not write the preferences space", { collection = collection, error = tostring(err) })
+    return nil, "the preferences space could not be written"
+  end
+  return true
+end
+
+--- Which of the addresses given (nils skipped) are proven to be the
+--- caller's: a table from each address to true or false, or nil and a
+--- failure table. The addresses go to the provisioner to hash and are not
+--- kept there. The call reads, so its key is fresh each time and a replay can
+--- never answer stale.
+function preferences.proven(ctx, ...)
+  local list = {}
+  for i = 1, select("#", ...) do
+    local e = select(i, ...)
+    if type(e) == "string" then list[#list + 1] = e end
+  end
+  local out = {}
+  if #list == 0 then return out end
+  local status, body = provisioner(ctx, "POST", "/v1/account/email-proofs/check",
+    { emails = json.to_array(list) }, "read-" .. require("internal.tids").create())
+  if status ~= 200 or type(body) ~= "table" or type(body.results) ~= "table" then
+    return nil, contact_failure(status, body)
+  end
+  for i, e in ipairs(list) do
+    out[e] = type(body.results[i]) == "table" and body.results[i].verified == true
+  end
+  return out
+end
+
+--- Move a proven `pendingEmail` to `email`. Answers the record as it now
+--- stands (unchanged when there was nothing to promote), or nil and why.
+function preferences.promote(ctx, uri, record)
+  if type(record) ~= "table" or type(record.pendingEmail) ~= "string" then return record end
+  local proofs, refused = preferences.proven(ctx, record.pendingEmail)
+  if not proofs then return nil, refused end
+  if not proofs[record.pendingEmail] then return record end
+  local promoted = { email = record.pendingEmail, source = "owner" }
+  local written, why = preferences.write(uri, preferences.CONTACT, promoted)
+  if not written then return nil, why end
+  return promoted
+end
+
+--- Sign-in's part (actor.syncAccount): make sure the space exists, write the
+--- contact record from the PDS address the first time there is one, and
+--- promote a change whose link was opened. Best-effort: answers nothing and
+--- logs what failed, never the address.
+function preferences.sync(ctx, pds_email)
+  local uri, why = preferences.space(ctx, true)
+  if not uri then
+    log.warn("preferences not synced", { reason = why })
+    return
+  end
+  local record, err = preferences.read(ctx, uri, preferences.CONTACT)
+  if record == nil then
+    log.warn("preferences not synced", { reason = err })
+    return
+  end
+  if record == false then
+    if preferences.is_email(pds_email) then
+      preferences.write(uri, preferences.CONTACT, { email = pds_email, source = "pds" })
+    end
+    return
+  end
+  preferences.promote(ctx, uri, record)
 end
 -- @endblock
 

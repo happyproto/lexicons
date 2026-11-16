@@ -146,6 +146,13 @@ const UNGATED: Record<string, string> = {
   // customer-or-staff itself and refuses anyone else.
   "at/happyproto/actor/getTerms": "signed-in only, its own customer-or-staff check",
   "at/happyproto/actor/acceptTerms": "signed-in only, its own customer-or-staff check",
+  // The caller's own preferences (HAP-463); each checks customer-or-staff
+  // itself and refuses anyone else.
+  "at/happyproto/actor/getContact": "signed-in only, its own customer-or-staff check",
+  "at/happyproto/actor/setContactEmail": "signed-in only, its own customer-or-staff check",
+  "at/happyproto/actor/confirmContactEmail": "signed-in only, its own customer-or-staff check",
+  "at/happyproto/actor/removeContactEmail": "signed-in only, its own customer-or-staff check",
+  "at/happyproto/actor/setNotices": "signed-in only, its own customer-or-staff check",
   // Its callers are not customers yet; the invite token is the authority.
   "at/happyproto/actor/acceptInvite": "signed-in only, the token is the authority",
 };
@@ -336,6 +343,16 @@ export function domainCodes(prelude: string): string[] {
 }
 
 /**
+ * The codes contact_failure passes through on top of provisioner_failure's,
+ * read from the prelude's CONTACT_ERRORS table.
+ */
+export function contactCodes(prelude: string): string[] {
+  const table = prelude.match(/local CONTACT_ERRORS\s*=\s*\{([\s\S]*?)\}/);
+  if (!table) throw new Error("prelude: no CONTACT_ERRORS table in the preferences block");
+  return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*true/g)].map((m) => m[1]);
+}
+
+/**
  * The codes scaler_failure passes through on top of provisioner_failure's,
  * read from the prelude's SCALER_ERRORS table.
  */
@@ -382,6 +399,7 @@ export function errorsReturned(
   keys: string[] = [],
   metrics: string[] = [],
   scriptMetrics: string[] = [],
+  contact: string[] = [],
 ): Set<string> {
   const code = stripLua(text, true);
   const bare = stripLua(text);
@@ -396,7 +414,10 @@ export function errorsReturned(
   // gate_owner refuses everyone it refuses, signed-out callers included, as
   // Forbidden.
   if (/(^|[^\w.])gate_owner\s*\(/.test(bare)) names.add("Forbidden");
-  if (/(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure|scaler_failure|key_failure|metrics_failure|script_metrics_failure)\s*\(/.test(bare)) {
+  // preferences.proven answers contact_failure's refusals, so a script that
+  // asks it can return them too.
+  const contactFailure = /(^|[^\w.])contact_failure\s*\(|(^|[^\w])preferences\.proven\s*\(/.test(bare);
+  if (contactFailure || /(^|[^\w.])(provisioner_failure|owned_tenant|domain_failure|scaler_failure|key_failure|metrics_failure|script_metrics_failure)\s*\(/.test(bare)) {
     for (const name of passthrough) names.add(name);
     names.add("Upstream");
   }
@@ -405,6 +426,9 @@ export function errorsReturned(
   }
   if (/(^|[^\w.])scaler_failure\s*\(/.test(bare)) {
     for (const name of scaler) names.add(name);
+  }
+  if (contactFailure) {
+    for (const name of contact) names.add(name);
   }
   if (/(^|[^\w.])key_failure\s*\(/.test(bare)) {
     for (const name of keys) names.add(name);
@@ -430,11 +454,12 @@ export function undeclaredErrorOffences(
   keys: string[] = [],
   metrics: string[] = [],
   scriptMetrics: string[] = [],
+  contact: string[] = [],
 ): string[] {
   const declared = new Set<string>(
     (lexicon?.defs?.main?.errors ?? []).map((e: { name: string }) => e.name),
   );
-  return [...errorsReturned(text, passthrough, domain, scaler, keys, metrics, scriptMetrics)]
+  return [...errorsReturned(text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact)]
     .filter((name) => !declared.has(name))
     .sort()
     .map((name) => `can return ${name}, which the lexicon does not declare`);
@@ -704,6 +729,21 @@ describe("each rule flags a bad fixture", () => {
     ).toEqual(["NotRetryable", "DispatchFailed"]);
   });
 
+  test("contact_failure, and preferences.proven, can return the contact codes and whatever provisioner_failure can", () => {
+    const lexicon = { defs: { main: { errors: [{ name: "Upstream" }, { name: "SlugTaken" }] } } };
+    for (const text of ["return contact_failure(status, body)", "local p, refused = preferences.proven(ctx, a)"]) {
+      expect(undeclaredErrorOffences(lexicon, text, ["SlugTaken"], [], [], [], [], [], ["InvalidLink"])).toEqual([
+        "can return InvalidLink, which the lexicon does not declare",
+      ]);
+    }
+  });
+
+  test("the contact codes are read from the prelude", () => {
+    expect(
+      contactCodes("local CONTACT_ERRORS = {\n  InvalidLink = true,\n  ExpiredLink = true,\n}\n"),
+    ).toEqual(["InvalidLink", "ExpiredLink"]);
+  });
+
   test("the domain codes are read from the prelude", () => {
     expect(
       domainCodes("local DOMAIN_ERRORS = {\n  DomainLimit = true,\n  TooSoon = true,\n}\n"),
@@ -811,12 +851,13 @@ describe("every script is deployable", () => {
     const keys = keyCodes(prelude);
     const metrics = metricsCodes(prelude);
     const scriptMetrics = metricsCodes(prelude, "SCRIPT_METRICS_ERRORS");
+    const contact = contactCodes(prelude);
     const offenders: string[] = [];
     for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
-      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys, metrics, scriptMetrics)) {
+      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact)) {
         offenders.push(`${script}: ${o}`);
       }
     }
