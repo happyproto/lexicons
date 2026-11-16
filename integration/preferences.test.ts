@@ -65,7 +65,7 @@ beforeAll(async () => {
 
 describe("the preferences space", () => {
   test("getContact answers the defaults before sign-in has made one", async () => {
-    expect(await ok(actor("getContact"), "customer")).toEqual({ verified: false, maintenance: true });
+    expect(await ok(actor("getContact"), "customer")).toEqual({ enabled: true, verified: false, maintenance: true });
     expect(await preferenceSpaces(s.accounts.customer)).toEqual([]);
   });
 
@@ -89,6 +89,7 @@ describe("the preferences space", () => {
     const set = await ok(actor("setContactEmail"), "customer", { input: { email: "first@example.com", ...key() } });
     expect(set.sent).toBe(true);
     expect(await ok(actor("getContact"), "customer")).toEqual({
+      enabled: true,
       email: "first@example.com",
       verified: false,
       maintenance: true,
@@ -100,6 +101,7 @@ describe("the preferences space", () => {
   test("a change waits for its link, then replaces the address", async () => {
     await ok(actor("setContactEmail"), "customer", { input: { email: "second@example.com", ...key() } });
     expect(await ok(actor("getContact"), "customer")).toEqual({
+      enabled: true,
       email: "first@example.com",
       verified: true,
       pendingEmail: "second@example.com",
@@ -108,6 +110,7 @@ describe("the preferences space", () => {
     });
     await ok(actor("confirmContactEmail"), "customer", { input: { token: await lastToken(), ...key() } });
     expect(await ok(actor("getContact"), "customer")).toEqual({
+      enabled: true,
       email: "second@example.com",
       verified: true,
       maintenance: true,
@@ -131,7 +134,7 @@ describe("the preferences space", () => {
   test("removing the address leaves none, and sign-in does not write one back", async () => {
     expect(await ok(actor("removeContactEmail"), "customer", { input: key() })).toEqual({ removed: true });
     await ok(actor("syncAccount"), "customer", { input: key() });
-    expect(await ok(actor("getContact"), "customer")).toEqual({ verified: false, maintenance: true });
+    expect(await ok(actor("getContact"), "customer")).toEqual({ enabled: true, verified: false, maintenance: true });
   });
 
   test("anyone who is neither a customer nor staff is refused before anything is sent", async () => {

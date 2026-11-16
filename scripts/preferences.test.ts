@@ -288,8 +288,13 @@ describe("sign-in (syncAccount)", () => {
 describe("getContact", () => {
   it("answers the defaults before the space exists, creating nothing", () => {
     const { out, calls } = run("getContact", "{}");
-    expect(out).toEqual({ verified: false, maintenance: true });
+    expect(out).toEqual({ enabled: true, verified: false, maintenance: true });
     expect(calls.filter((c) => c.fn === "create")).toEqual([]);
+  });
+
+  it("says when contact email is switched off", () => {
+    const { out } = run("getContact", "{}", { setup: "__email_on = false" });
+    expect(out).toEqual({ enabled: false, verified: false, maintenance: true });
   });
 
   it("reports both addresses and whether each is proven", () => {
@@ -298,6 +303,7 @@ describe("getContact", () => {
         `__records["at.happyproto.preferences.notices"] = { maintenance = false }`].join("\n"),
     });
     expect(out).toEqual({
+      enabled: true,
       email: "old@example.com",
       verified: true,
       pendingEmail: "new@example.com",

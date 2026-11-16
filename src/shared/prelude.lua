@@ -562,9 +562,13 @@ end
 --- call created it. With `create`, a space that does not exist yet is
 --- created and recorded, but only once the provisioner says contact email is
 --- on: until then no space is made. Without `create`, nil and no message
---- means there is none.
-function preferences.space(ctx, create)
-  local status, body = provisioner(ctx, "GET", "/v1/account")
+--- means there is none. `account`, when given, is the provisioner's
+--- `GET /v1/account` reply already read, so it isn't read twice.
+function preferences.space(ctx, create, account)
+  local status, body = 200, account
+  if type(body) ~= "table" then
+    status, body = provisioner(ctx, "GET", "/v1/account")
+  end
   if status ~= 200 or type(body) ~= "table" then
     return nil, "the account could not be read"
   end

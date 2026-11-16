@@ -22,8 +22,14 @@ function handle(input, ctx)
     return failure("Forbidden", "Only customers and staff have contact settings.")
   end
 
-  local out = { verified = false, maintenance = true }
-  local uri, why = preferences.space(ctx, false)
+  local status, account = provisioner(ctx, "GET", "/v1/account")
+  if status ~= 200 or type(account) ~= "table" then
+    return provisioner_failure(status, account)
+  end
+  -- Whether owner contact email is switched on at all: the dashboard asks
+  -- for an address only when it is.
+  local out = { enabled = account.contact_email == true, verified = false, maintenance = true }
+  local uri, why = preferences.space(ctx, false, account)
   if not uri then
     if why then return failure("Upstream", "Your preferences could not be read.") end
     return out

@@ -10,10 +10,15 @@
         "schema": {
           "type": "object",
           "required": [
+            "enabled",
             "verified",
             "maintenance"
           ],
           "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether owner contact email is switched on. While it is off, nothing can be set and nothing is mailed."
+            },
             "email": {
               "type": "string",
               "description": "The contact email in use. Absent when there is none: never set, or removed."
