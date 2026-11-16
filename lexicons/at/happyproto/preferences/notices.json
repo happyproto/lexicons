@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.preferences.notices",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An account's notice settings for HappyProto, at rkey self in the account's at.happyproto.preferences/self space, written only as its owner. No record: every notice is on. Kept in that space, never in a public repo: HappyProto drops any such record published to one.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "maintenance",
+          "updatedAt"
+        ],
+        "properties": {
+          "maintenance": {
+            "type": "boolean",
+            "description": "Whether to get emails before and after planned maintenance that affects the account's instances."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

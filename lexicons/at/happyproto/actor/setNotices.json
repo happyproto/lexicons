@@ -1,0 +1,95 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.setNotices",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Turn the caller's maintenance emails on or off, in their preferences space. Account email (links they ask for, a note when their contact email changes, changes to the terms) has no switch. Customers and staff; anyone else is refused.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "maintenance",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "maintenance": {
+              "type": "boolean",
+              "description": "Whether to get maintenance emails."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per action and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "maintenance"
+          ],
+          "properties": {
+            "maintenance": {
+              "type": "boolean",
+              "description": "The setting now saved."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is neither a customer nor staff, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "The input is malformed, or the provisioner refused it as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
+        },
+        {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is not switched on yet."
+        },
+        {
+          "name": "Upstream",
+          "description": "The preferences space or the provisioner could not be reached, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

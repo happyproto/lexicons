@@ -56,6 +56,7 @@ Each source declares which prelude blocks it needs:
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
+| `preferences` | `preferences.*` for the caller's preferences space (`space`, `read`, `write`, `proven`, `promote`, `sync`, `is_email`, `same_email`); `contact_failure(status, body)`, which passes the contact-email routes' own codes (`CONTACT_ERRORS`) and hands everything else to `provisioner_failure` | `json`, `failure`, `provisioner`, `gate`, `access`, `validate`, `authority` |
 | `domains` | `domain_failure(status, body)`, which passes the domain routes' own codes (`DOMAIN_ERRORS`) and hands everything else to `provisioner_failure`; `public_domain(d)` | `json`, `failure`, `provisioner` |
 | `metrics` | `metrics_params(input)`, which checks window, step and trigger and answers `{query, trigger}` with the trigger percent-encoded; `public_script_list(body)`, `public_script_series(body)` and `public_ingest(body)`, which turn HappyView's float milliseconds into whole microseconds and always carry every outcome; `metrics_failure(status, body)`, which passes the metrics routes' own codes (`METRICS_ERRORS`) and hands everything else to `provisioner_failure`; `script_metrics_failure`, which adds `ScriptNotRun` | `json`, `failure`, `provisioner`, `urlencode` |
 | `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), what each indexer asks of a first arrival (`project_record_problem`, `manifest_record_problem`, `version_record_problem`, `channel_record_problem`, `status_record_problem`) and the state it writes (`index_version`, `index_channel`), `pds_list`, `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
@@ -344,6 +345,39 @@ Two rules that matter more than they look:
    the way around that by letting a caller narrow a filter until the cohort is
    one other customer.
 
+## Preferences
+
+Every customer and staff account has a preferences space on this instance
+(HAP-463): type `at.happyproto.preferences`, key `self`. `actor.syncAccount`
+creates it at sign-in, through `happyview.spaces` as the caller, so the account
+is its creator; HappyView gives it a `did:plc` of its own, and its read and
+write policy is a managing-app policy naming `HAPPYPROTO_APP`. The provisioner
+records its uri, because a script cannot look a space up by creator, type and
+key.
+
+It holds two records, at rkey `self`, written only as the owner. Their
+lexicons are in `lexicons/at/happyproto/preferences/`; HappyView validates no
+space record against them, and each has a `record.index` script that stores
+nothing, so a copy published to a public repo is dropped:
+
+| Collection | Record |
+| --- | --- |
+| `at.happyproto.preferences.contact` | `{email?, pendingEmail?, source: "pds" \| "owner", updatedAt}`. No `email`: the owner removed theirs. `pendingEmail`: a change waiting for its link |
+| `at.happyproto.preferences.notices` | `{maintenance, updatedAt}`; none means maintenance emails are on |
+
+No space is created until the provisioner's `GET /v1/account` says
+`contact_email` is on (its `EMAIL_PROOF_KEY` is set). A new space's uri is
+recorded with up to three tries; if all fail, the uri is logged at error
+level for staff to record by hand (infrastructure `docs/accounts.md`).
+
+Only the sign-in that creates the space writes the contact record, from the
+PDS address, and never again, so nothing written later is overwritten. After that `actor.setContactEmail`,
+`confirmContactEmail` and `removeContactEmail` change it, and `actor.setNotices`
+the notices record; `actor.getContact` reads both. Whether an address is the
+owner's is the provisioner's to say: it keeps an HMAC of each proven address,
+never the address. Only an opened link proves one, so an address seeded from
+the PDS starts unproven and is not mailed until its owner confirms it.
+
 ## Script variables
 
 Secrets and configuration the scripts read from `ctx.env`. Set them on
@@ -362,6 +396,7 @@ works.
 | `HAPPYPROTO_CLICKHOUSE_DB` | `happyproto_telemetry` |
 | `PROVISIONER_URL` | the provisioner's base URL |
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
+| `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
 
 ClickHouse is reached over the shared Docker network by container name, which
 is why the URL is `http://clickhouse:8123` and not a public address —

@@ -71,6 +71,10 @@ export const provisioner = {
       | { http: number; error?: string }
     )[],
   ) => post(`${PROVISIONER_URL}/__progress`, states),
+  /** The contact-email links sent, oldest first: `{did, email, token, used}`. */
+  async links(): Promise<{ did: string; email: string; token: string; used: boolean }[]> {
+    return (await fetch(`${PROVISIONER_URL}/__links`)).json() as Promise<any>;
+  },
   async requests(): Promise<ProvisionerRequest[]> {
     return (await fetch(`${PROVISIONER_URL}/__requests`)).json() as Promise<ProvisionerRequest[]>;
   },

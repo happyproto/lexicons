@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.preferences.contact",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An account's contact email for HappyProto, at rkey self in the account's at.happyproto.preferences/self space, written only as its owner. Kept in that space, never in a public repo: HappyProto drops any such record published to one. HappyProto mails only an address proven through a link it sent.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "source",
+          "updatedAt"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "The contact email in use. Absent: the owner removed it."
+          },
+          "pendingEmail": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "An address waiting for its link to be opened. Until then email stays in use."
+          },
+          "source": {
+            "type": "string",
+            "knownValues": [
+              "pds",
+              "owner"
+            ],
+            "description": "pds: copied from the account's PDS when the space was created. owner: set or removed by the owner."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

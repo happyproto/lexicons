@@ -627,6 +627,12 @@ describe("provisioner_failure", () => {
     expect(JSON.stringify(log)).toContain("SECRET");
   });
 
+  it("logs the code and message, never the rest of the body", () => {
+    const { log } = run('return provisioner_failure(500, { error = "X", message = "m", extra = "PRIVATE" })');
+    expect(JSON.stringify(log)).not.toContain("PRIVATE");
+    expect(log[0].fields).toEqual({ status: 500, error: "X", message: "m" });
+  });
+
   it("a known code passes through with its message", () => {
     expect(run('return provisioner_failure(409, { error = "SlugTaken", message = "m" })').r1).toEqual({
       error: "SlugTaken",

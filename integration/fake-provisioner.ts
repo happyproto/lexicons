@@ -42,6 +42,7 @@
  *                    leaving the operation as it was. Without one, an operation succeeds
  *                    at its first read.
  *   GET  /__requests every request received since the last reset
+ *   GET  /__links    the contact-email links sent, oldest first, tokens included
  *   POST /__reset    clear state, scripts, progressions and requests
  *
  * Runs inside the stack (compose.yml), and is driven from the tests through
@@ -91,6 +92,14 @@ function fresh() {
     instanceLimit: 3,
     /** DID -> `{email, email_confirmed, email_seen_at}`, as accounts holds them. */
     accountEmails: {} as Record<string, Json>,
+    /** DID -> the uri of its preferences space, once recorded (HAP-463). */
+    preferencesSpaces: {} as Record<string, string>,
+    /** Whether owner contact email is on (EMAIL_PROOF_KEY set). */
+    contactEmail: true,
+    /** DID -> the lowercase addresses proven to be its own. */
+    emailProofs: {} as Record<string, string[]>,
+    /** Links sent: `{did, email, token, used}`, oldest first. */
+    emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
     accountTerms: {} as Record<string, string>,
     entitlementMode: "invite" as "invite" | "staff",
@@ -557,6 +566,8 @@ function accountBody(actor: string): Json {
     email: recorded.email ?? null,
     email_confirmed: recorded.email_confirmed ?? null,
     email_seen_at: recorded.email_seen_at ?? null,
+    preferences_space: state.preferencesSpaces[actor] ?? null,
+    contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
   };
@@ -714,6 +725,51 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       email_confirmed: now?.email_confirmed ?? null,
       email_seen_at: now?.email_seen_at ?? null,
     });
+  }
+
+  // The contact-email routes (HAP-463): addresses are proven, never kept as
+  // the account's, and no reply names one.
+  if (resource === "account" && parts[2] === "preferences-space" && req.method === "PUT") {
+    const uri = typeof body?.uri === "string" ? body.uri.trim() : "";
+    if (!uri.startsWith("at://")) return error(400, "InvalidUri", "uri must be an at:// space uri");
+    const held = state.preferencesSpaces[actor];
+    if (held && held !== uri) {
+      return error(409, "PreferencesSpaceRecorded", "this account already has a preferences space");
+    }
+    state.preferencesSpaces[actor] = uri;
+    return reply(200, { preferences_space: uri });
+  }
+  if (resource === "account" && parts[2] === "email-proofs") {
+    if (req.method === "DELETE" && parts.length === 3) {
+      delete state.emailProofs[actor];
+      for (const link of state.emailLinks) if (link.did === actor) link.used = true;
+      return reply(200, { removed: true });
+    }
+    if (req.method === "POST" && parts[3] === "check") {
+      const emails: unknown[] = Array.isArray(body?.emails) ? body.emails : [];
+      if (emails.length < 1 || emails.length > 4) return error(400, "InvalidRequest", "emails must list 1 to 4 addresses");
+      const proofs = state.emailProofs[actor] ?? [];
+      return reply(200, {
+        results: emails.map((e) => ({ verified: typeof e === "string" && proofs.includes(e.trim().toLowerCase()) })),
+      });
+    }
+  }
+  if (resource === "account" && parts[2] === "contact-email" && req.method === "POST") {
+    if (parts[3] === "verification") {
+      const email = typeof body?.email === "string" ? body.email.trim() : "";
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return error(400, "InvalidEmail", "email must be an email address");
+      for (const link of state.emailLinks) if (link.did === actor) link.used = true;
+      const token = crypto.randomUUID();
+      state.emailLinks.push({ did: actor, email: email.toLowerCase(), token, used: false });
+      return reply(200, { expires_at: new Date(Date.now() + 86_400_000).toISOString() });
+    }
+    if (parts[3] === "confirm") {
+      const link = state.emailLinks.find((l) => l.token === body?.token);
+      if (!link || link.did !== actor || link.used) return error(400, "InvalidLink", "this link is not valid");
+      link.used = true;
+      state.emailProofs[actor] = [...(state.emailProofs[actor] ?? []), link.email];
+      return reply(200, { confirmed: true });
+    }
   }
 
   if (req.method === "GET" && resource === "slugs" && parts.length === 3) {
@@ -1036,6 +1092,8 @@ async function control(req: Request, url: URL): Promise<Response> {
       return reply(200, { ok: true });
     case "GET /__requests":
       return reply(200, requests);
+    case "GET /__links":
+      return reply(200, state.emailLinks);
     case "POST /__reset":
       state = fresh();
       scripts = [];
