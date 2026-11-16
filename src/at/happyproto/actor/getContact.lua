@@ -6,7 +6,7 @@
 -- read for the caller, never for a DID the client names.
 --
 -- `verified` and `pendingVerified` say whether each address is proven to be
--- the caller's (by their PDS at sign-in, or by a link). A pending address
+-- the caller's, which only an opened link does. A pending address
 -- whose link was opened is reported as verified here and promoted by the
 -- next write or sign-in; a query writes nothing.
 --

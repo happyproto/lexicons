@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "The caller's contact email and notice settings, from their preferences space on HappyProto (at.happyproto.preferences/self). Only the caller's own. verified and pendingVerified say whether each address is proven to be theirs, by their PDS at sign-in or by a link. Customers and staff; anyone else is refused.",
+      "description": "The caller's contact email and notice settings, from their preferences space on HappyProto (at.happyproto.preferences/self). Only the caller's own. verified and pendingVerified say whether each address is proven to be theirs, which only an opened link does: an address seeded from the PDS at sign-in starts unproven. Customers and staff; anyone else is refused.",
       "output": {
         "encoding": "application/json",
         "schema": {

@@ -367,7 +367,8 @@ there is one, and never again. After that `actor.setContactEmail`,
 `confirmContactEmail` and `removeContactEmail` change it, and `actor.setNotices`
 the notices record; `actor.getContact` reads both. Whether an address is the
 owner's is the provisioner's to say: it keeps an HMAC of each proven address,
-never the address.
+never the address. Only an opened link proves one, so an address seeded from
+the PDS starts unproven and is not mailed until its owner confirms it.
 
 ## Script variables
 
