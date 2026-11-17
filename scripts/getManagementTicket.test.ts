@@ -106,11 +106,15 @@ describe("getManagementTicket", () => {
   });
 
   it("a refused key proof is the caller's to fix; any other refusal means signing in again", () => {
-    const refusedProof = run({ assertion: `return nil, "the key proof was refused: bad signature"` });
+    const refusedProof = run({ assertion: `return nil, "the key proof was refused: bad signature", "BAD_INPUT"` });
     expect(refusedProof.out.error).toBe("InvalidRequest");
     expect(called(refusedProof.calls, "post")).toHaveLength(0);
 
-    const notDpop = run({ assertion: `return nil, "a caller assertion needs a caller who authenticated with DPoP"` });
+    // Matched on the code, not the wording.
+    const worded = run({ assertion: `return nil, "the key proof was refused", "NO_SESSION"` });
+    expect(worded.out.error).toBe("Unavailable");
+
+    const notDpop = run({ assertion: `return nil, "a caller assertion needs a caller who authenticated with DPoP", "NO_SESSION"` });
     expect(notDpop.out.error).toBe("Unavailable");
     expect(called(notDpop.calls, "post")).toHaveLength(0);
   });

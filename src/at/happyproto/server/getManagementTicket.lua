@@ -32,12 +32,12 @@ function handle(input, ctx)
   if not audience or audience == "" or not ctx.caller_assertion then
     return failure("Upstream", "Management tickets are not configured.")
   end
-  local assertion, why = ctx.caller_assertion(audience, proof)
+  local assertion, why, code = ctx.caller_assertion(audience, proof)
   if not assertion then
-    log.warn("no caller assertion", { reason = why })
-    -- HappyView names a refused proof in its reason; anything else means the
-    -- sign-in can't be asserted.
-    if type(why) == "string" and why:find("key proof", 1, true) then
+    log.warn("no caller assertion", { reason = why, code = code })
+    -- The only caller input HappyView checks here is the proof, so BAD_INPUT
+    -- is a refused proof; anything else means the sign-in can't be asserted.
+    if code == "BAD_INPUT" then
       return failure("InvalidRequest", "keyProof was refused.")
     end
     return failure("Unavailable", "Sign in again to manage this instance.")
