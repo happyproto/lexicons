@@ -319,8 +319,11 @@ local log = require("internal.logging")
 --- the token alone. A mutating call passes `idempotency_key`, so a retry gets
 --- the original reply back rather than a second tenant or SlugTaken.
 ---
+--- `extra_headers`, when given, are added to the request (the ticket route's
+--- caller assertion).
+---
 --- The transport message is fixed text, safe to show; the cause is logged.
-local function provisioner(ctx, method, path, body, idempotency_key)
+local function provisioner(ctx, method, path, body, idempotency_key, extra_headers)
   local env = ctx.env or {}
   local base, token = env.PROVISIONER_URL, env.PROVISIONER_TOKEN
   if not base or base == "" or not token or token == "" then
@@ -342,6 +345,9 @@ local function provisioner(ctx, method, path, body, idempotency_key)
   }
   if idempotency_key ~= nil then
     headers["Idempotency-Key"] = idempotency_key
+  end
+  for name, value in pairs(extra_headers or {}) do
+    headers[name] = value
   end
   local opts = { headers = headers }
   if body ~= nil then
@@ -458,6 +464,24 @@ local function owned_tenant(ctx, id, include_deleted)
     return nil, failure("NotFound", "instance not found")
   end
   return body
+end
+
+--- A management ticket for the instance `id` (HAP-472), or nil and a failure
+--- table. `id` must already be a UUID. `assertion` is the caller assertion
+--- HappyView signed; the provisioner takes the actor from it and checks that
+--- they own the instance. It issues a credential rather than changing a
+--- tenant, and keeps nothing to replay, so it takes no idempotency key.
+local function management_ticket(ctx, id, assertion)
+  local status, body = provisioner(ctx, "POST", "/v1/tenants/" .. id .. "/management-ticket", nil, nil,
+    { ["HV-Caller-Assertion"] = assertion })
+  if status == 200 and type(body) == "table" and type(body.ticket) == "string" then
+    return body
+  end
+  -- Two refusals only this route gives, each a fixed literal there.
+  if type(body) == "table" and (body.error == "UnsupportedRelease" or body.error == "TicketsDisabled") then
+    return nil, failure(body.error, type(body.message) == "string" and body.message or "No ticket can be issued.")
+  end
+  return nil, provisioner_failure(status, body)
 end
 -- @endblock
 
