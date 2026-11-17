@@ -65,7 +65,7 @@
         },
         {
           "name": "Unavailable",
-          "description": "No ticket can be issued for this sign-in: it isn't a DPoP session from the HappyProto dashboard. Signing in again fixes it."
+          "description": "HappyView made no caller assertion for this sign-in, for example because it isn't a DPoP session. Signing in again may fix it. A sign-in from another app is refused by the provisioner and comes back as Upstream."
         },
         {
           "name": "NotFound",
