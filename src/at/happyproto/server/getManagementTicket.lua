@@ -5,10 +5,12 @@
 --
 -- A procedure, not a query: a query script runs without the caller's
 -- session, and the caller assertion needs it. The assertion is HappyView's
--- own statement of who is calling and with which DPoP key; the provisioner
--- takes the actor from it, checks ownership itself (staff get tickets only
--- for their own instances), and binds the ticket to that key. So nothing
--- here decides who the ticket is for.
+-- own statement of who is calling and with which key: the ticket key that
+-- `keyProof` proves, which HappyView verifies, never the DPoP key. The
+-- provisioner takes the actor from it, checks ownership itself (staff get
+-- tickets only for their own instances), and binds the ticket to that key.
+-- So nothing here decides who the ticket is for, or which key it binds to;
+-- the proof passes through untouched.
 
 -- @prelude gate, validate, provisioner
 
@@ -21,13 +23,23 @@ function handle(input, ctx)
     return failure("InvalidRequest", "instance must be a UUID.")
   end
 
+  local proof = input.keyProof
+  if type(proof) ~= "string" or proof == "" then
+    return failure("InvalidRequest", "keyProof is required.")
+  end
+
   local audience = (ctx.env or {}).PROVISIONER_AUDIENCE
   if not audience or audience == "" or not ctx.caller_assertion then
     return failure("Upstream", "Management tickets are not configured.")
   end
-  local assertion, why = ctx.caller_assertion(audience)
+  local assertion, why, code = ctx.caller_assertion(audience, proof)
   if not assertion then
-    log.warn("no caller assertion", { reason = why })
+    log.warn("no caller assertion", { reason = why, code = code })
+    -- The only caller input HappyView checks here is the proof, so BAD_INPUT
+    -- is a refused proof; anything else means the sign-in can't be asserted.
+    if code == "BAD_INPUT" then
+      return failure("InvalidRequest", "keyProof was refused.")
+    end
     return failure("Unavailable", "Sign in again to manage this instance.")
   end
 

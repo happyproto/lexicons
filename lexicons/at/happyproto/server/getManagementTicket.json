@@ -4,18 +4,23 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "A 60-second management ticket for one of the caller's instances, bound to the DPoP key the caller signed in with. Send it to the instance as `Authorization: HV-Ticket <ticket>` with an `HV-Ticket-Proof` for each request. Customers only.",
+      "description": "A 60-second management ticket for one of the caller's instances, bound to the ticket key `keyProof` proves: a key the caller's browser generated and can't export. Send it to the instance as `Authorization: HV-Ticket <ticket>` with an `HV-Ticket-Proof` signed by that key for each request. Customers only.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
           "required": [
-            "instance"
+            "instance",
+            "keyProof"
           ],
           "properties": {
             "instance": {
               "type": "string",
               "description": "The instance's UUID."
+            },
+            "keyProof": {
+              "type": "string",
+              "description": "A compact JWS signed by the ticket key, with `typ: hv-key-proof+jwt` and its public JWK in the header. Claims: `aud`, HappyProto's instance's issuer URL; `lxm`, `at.happyproto.server.getManagementTicket`; `dpop_jkt`, the thumbprint of the DPoP key signing this request; `iat`; `jti`."
             }
           }
         }
@@ -61,7 +66,7 @@
         },
         {
           "name": "InvalidRequest",
-          "description": "instance is missing or not a UUID."
+          "description": "instance is missing or not a UUID, keyProof is missing, or HappyView refused keyProof."
         },
         {
           "name": "Unavailable",
