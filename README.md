@@ -396,6 +396,7 @@ works.
 | `HAPPYPROTO_CLICKHOUSE_DB` | `happyproto_telemetry` |
 | `PROVISIONER_URL` | the provisioner's base URL |
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
+| `PROVISIONER_AUDIENCE` | the provisioner's name for caller assertions (its `MANAGEMENT_TICKET_ISSUER`); `getManagementTicket` answers `Upstream` without it |
 | `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
 
 ClickHouse is reached over the shared Docker network by container name, which

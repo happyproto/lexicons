@@ -1,0 +1,89 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getManagementTicket",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "A 60-second management ticket for one of the caller's instances, bound to the DPoP key the caller signed in with. Send it to the instance as `Authorization: HV-Ticket <ticket>` with an `HV-Ticket-Proof` for each request. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "instance"
+          ],
+          "properties": {
+            "instance": {
+              "type": "string",
+              "description": "The instance's UUID."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "ticket",
+            "expiresAt",
+            "audience",
+            "url"
+          ],
+          "properties": {
+            "ticket": {
+              "type": "string",
+              "description": "The ticket, a compact JWS."
+            },
+            "expiresAt": {
+              "type": "integer",
+              "description": "When the ticket expires, in Unix seconds."
+            },
+            "audience": {
+              "type": "string",
+              "description": "The instance the ticket names, as hpy:instance:<uuid>."
+            },
+            "url": {
+              "type": "string",
+              "description": "The instance's public URL, which the request proofs name."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "instance is missing or not a UUID."
+        },
+        {
+          "name": "Unavailable",
+          "description": "HappyView made no caller assertion for this sign-in, for example because it isn't a DPoP session. Signing in again may fix it. A sign-in from another app is refused by the provisioner and comes back as Upstream."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "UnsupportedRelease",
+          "description": "Passed through from the provisioner: the instance's HappyView release predates tickets."
+        },
+        {
+          "name": "TicketsDisabled",
+          "description": "Passed through from the provisioner: tickets are not turned on."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
