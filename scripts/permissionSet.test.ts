@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { permissionSetProblems } from "./permissionSet";
-import { lexiconFiles } from "./publishing";
+
+async function lexiconFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const out: string[] = [];
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await lexiconFiles(full)));
+    else if (entry.name.endsWith(".json")) out.push(full);
+  }
+  return out.sort();
+}
 
 const RPC = {
   type: "permission",

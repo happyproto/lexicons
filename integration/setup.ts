@@ -266,8 +266,7 @@ async function deploy(apiKey: string): Promise<void> {
   }
 
   const types = new Map<string, string>();
-  // The vendored lexicons are deployed so the registry can index them; only
-  // the workflow's lexicon-publish step ever decides what gets published.
+  // The vendored lexicons are deployed so the registry can index them.
   const lexiconFiles = [
     ...(await walk("lexicons", ".json")),
     ...(await walk("vendor/lexicons", ".json")),

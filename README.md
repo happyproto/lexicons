@@ -257,20 +257,23 @@ lexicon.
 Push to `main` deploys. Pull requests lint and then dry-run, so a review shows
 what a merge would actually replace rather than only that the files parse.
 
-Four things must be configured on the repo:
+Two things must be configured on the repo:
 
 | Kind | Name | Value |
 | --- | --- | --- |
 | Variable | `HAPPYVIEW_URL` | `https://api.happyproto.at` |
 | Secret | `HAPPYVIEW_API_KEY` | an `hv_` admin API key from the instance |
-| Secret | `LEXICON_APP_PASSWORD` | an app password for `@happyproto.at` |
-| Secret | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` | an app password for `@happyview.dev` |
 
-After a deploy, the lexicons are published as `com.atproto.lexicon.schema`
-records in `@happyproto.at`'s repo, with
-[`happyproto/actions/lexicon-publish`](https://github.com/happyproto/actions#lexicon-publish).
+### Publishing
+
+This repo doesn't publish lexicons. api.happyproto.at publishes the ones it
+owns as `com.atproto.lexicon.schema` records, with HappyView's Lexicon
+Publishing, into the account repos linked to it (`@happyproto.at`). Its
+publishing rules decide which lexicon goes to which repo. Check them there,
+not here.
+
 A PDS that resolves lexicons on demand finds them through DNS, so each NSID
-authority needs a TXT record naming that account:
+authority needs a TXT record naming the account whose repo holds it:
 
 | Name | Value |
 | --- | --- |
@@ -281,35 +284,13 @@ authority needs a TXT record naming that account:
 | `_lexicon.registry.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
 | `_lexicon.server.happyproto.at` | `did=did:plc:mo7vq4jbioxwafy5zkcc3eux` |
 
-A new authority (`at.happyproto.<new>.*`) needs its own record: the publish
-step fails until it exists, naming the record to add, and so does the pull
-request's dry run.
+A new authority (`at.happyproto.<new>.*`) needs its own record. `dev.happyview.*`
+belongs to `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`), so its
+schemas go to that account's repo, not HappyProto's.
 
-### Other accounts
-
-Some lexicons in `lexicons/` belong to an authority HappyProto doesn't own, so
-they're published to that authority's account instead. Each account has an
-entry in `scripts/publishing.ts`, and a matching entry in the Deploy workflow's
-`publish-lexicons` matrix and in the pull request plan. Each run of
-lexicon-publish selects its share with `include` or `exclude`:
-
-| NSIDs | Account | Selected by | Secret |
-| --- | --- | --- | --- |
-| everything else (`at.happyproto.*`) | `@happyproto.at` | `exclude: dev.happyview` | `LEXICON_APP_PASSWORD` |
-| `dev.happyview.*` | `@happyview.dev` (`did:plc:qneu5uamqs6cug7sjobbaexm`) | `include: dev.happyview` | `HAPPYVIEW_DEV_LEXICON_APP_PASSWORD` |
-
-They're all deployed to HappyView like any other lexicon. The tests check that
-every lexicon is published to exactly one account, its owner, and keep the
-workflow in step with the table. If anything slips past, lexicon-publish
-refuses any selected NSID whose `_lexicon` DNS names a different account. Permission sets are also
-checked against the [permission spec](https://atproto.com/specs/permission#permission-sets)
-before they're published, because a PDS silently ignores a permission it
-can't read.
-
-To add an account, create an app password on it and save it as a repo secret.
-Then add the account to `scripts/publishing.ts`, to the workflow matrix and to
-the plan, add its namespace to HappyProto's `exclude`, and add its `_lexicon`
-TXT records.
+Permission sets are checked against the
+[permission spec](https://atproto.com/specs/permission#permission-sets) in this
+repo's tests, because a PDS silently ignores a permission it can't read.
 
 `prune` is deliberately **off**. With it on, deleting a file here deletes the
 live lexicon or script — and for a record-type lexicon that also orphans
