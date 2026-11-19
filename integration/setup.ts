@@ -392,6 +392,9 @@ async function setup(): Promise<Stack> {
     HAPPYPROTO_CLICKHOUSE_DB: "happyproto",
     PROVISIONER_URL: "http://fake-provisioner:8080",
     PROVISIONER_TOKEN,
+    // Who getManagementTicket's caller assertions are addressed to. Without
+    // it the script stops before asking HappyView for one.
+    PROVISIONER_AUDIENCE: "https://fake-provisioner.integration",
     // The managing app the preferences spaces defer to (HAP-463). The stack
     // never answers checkUserAccess, so other apps are refused, as in
     // production until HappyProto serves it.
