@@ -1,0 +1,11 @@
+{
+  "lexicon": 1,
+  "id": "dev.happyview.admin.manage",
+  "description": "The permission HappyView's admin API asks for. An app gets it when you approve dev.happyview.adminFull at sign-in. It names a permission, not an endpoint: HappyView's admin API isn't XRPC, so there is nothing to call here.",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Manage HappyView instances as an admin: deploy projects, install plugins and change settings, with the permissions you hold on each instance."
+    }
+  }
+}
