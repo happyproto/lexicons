@@ -3,7 +3,7 @@
 # Infrastructure copies this file into happyview_plugin_urls, so the stack
 # tests exactly what production installs. Digests from:
 #   gh release download <tag> --repo happyproto/plugins -p '*.wasm' -O - | shasum -a 256
-happyview-lua|https://github.com/happyproto/plugins/releases/download/happyview-lua-v1.0.0-alpha.4/manifest.json|sha256:0690ca277ec9a04115084c9ae0231cd47d85fda871665eecf656c3a84a6ff38e
+happyview-lua|https://github.com/happyproto/plugins/releases/download/happyview-lua-v1.0.0-beta.3/manifest.json|sha256:0000afc10ca5510950867378ab3d88de53dce9bc55fa728d1fcf2c191d54ddb9
 happyview-http|https://github.com/happyproto/plugins/releases/download/happyview-http-v1.0.0-alpha.4/manifest.json|sha256:4b5156a26104627c28b7f4c2b34687a85d55ef1e41e4f5119e7b0df80e982732
 happyview-spaces|https://github.com/happyproto/plugins/releases/download/happyview-spaces-v1.0.0-alpha.4/manifest.json|sha256:b5495c0797e409d06a9bb4b46de90a9fcad29085cb06fe8da7dfce9f5f086f0a
 happyview-xrpc|https://github.com/happyproto/plugins/releases/download/happyview-xrpc-v1.0.0-alpha.4/manifest.json|sha256:f8723db2360c96bf1cc580007a85cefd2b1585a1a0adaae41edac43ecdd394fb
