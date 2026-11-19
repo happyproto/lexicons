@@ -1,0 +1,10 @@
+{
+  "lexicon": 1,
+  "id": "dev.happyview.admin.manage",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Manage HappyView instances as an admin: deploy projects, install plugins and change settings, with the permissions you hold on each instance."
+    }
+  }
+}
