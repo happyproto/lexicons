@@ -23,10 +23,16 @@ let s: Stack;
 let entryId: number | undefined;
 let priorIdentity: any = null;
 
+// As the operator, a super user: the service identity and entries need
+// settings:manage, which the deploy's API key doesn't have.
 const admin = (path: string, init: RequestInit = {}) =>
   fetch(`${HAPPYVIEW_URL}/admin${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${s.apiKey}`, "content-type": "application/json", ...(init.headers ?? {}) },
+    headers: {
+      ...sessionHeaders(s.accounts.happyproto.did),
+      "content-type": "application/json",
+      ...(init.headers ?? {}),
+    },
   });
 
 async function must(res: Response, what: string): Promise<any> {
