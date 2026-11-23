@@ -26,9 +26,21 @@ function handle(input, ctx)
     or type(body.instance_count) ~= "number" or type(body.instance_limit) ~= "number" then
     return provisioner_failure(status, body)
   end
+  local wait = nil
+  if type(body.capacity_wait) == "table" and type(body.capacity_wait.plan) == "string" then
+    wait = {
+      plan = body.capacity_wait.plan,
+      queuedAt = body.capacity_wait.queued_at,
+      notified = type(body.capacity_wait.notified_at) == "string",
+    }
+  end
   return {
     isCustomer = true,
     instanceCount = body.instance_count,
     instanceLimit = body.instance_limit,
+    -- Fields a provisioner from before the open beta leaves out.
+    deletedInstanceCount = type(body.deleted_instance_count) == "number" and body.deleted_instance_count or 0,
+    suspended = body.suspended == true,
+    capacityWait = wait,
   }
 end

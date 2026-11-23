@@ -104,6 +104,8 @@ function fresh() {
     accountTerms: {} as Record<string, string>,
     /** DID -> its suspension's reason, while staff have it suspended. */
     suspended: {} as Record<string, string>,
+    /** DID -> `{plan, queued_at, notified_at}`, its place in the capacity queue. */
+    capacityWaits: {} as Record<string, Json>,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -572,6 +574,9 @@ function accountBody(actor: string): Json {
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    deleted_instance_count: 0,
+    suspended: Boolean(state.suspended[actor]),
+    capacity_wait: state.capacityWaits[actor] ?? null,
   };
 }
 
@@ -697,6 +702,13 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
+  // DELETE /v1/account/capacity-wait: leave the capacity queue.
+  if (req.method === "DELETE" && resource === "account" && parts[2] === "capacity-wait" && parts.length === 3) {
+    const removed = Boolean(state.capacityWaits[actor]);
+    delete state.capacityWaits[actor];
+    return reply(200, { removed });
   }
 
   // POST /v1/account/signup: the account signs itself up in the open beta,
