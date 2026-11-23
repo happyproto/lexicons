@@ -106,6 +106,8 @@ function fresh() {
     suspended: {} as Record<string, string>,
     /** DID -> `{plan, queued_at, notified_at}`, its place in the capacity queue. */
     capacityWaits: {} as Record<string, Json>,
+    /** DIDs that signed up in the open beta. */
+    signedUp: [] as string[],
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -590,6 +592,7 @@ function accountBody(actor: string): Json {
     })),
     suspended: Boolean(state.suspended[actor]),
     capacity_wait: state.capacityWaits[actor] ?? null,
+    signed_up: state.signedUp.includes(actor),
   };
 }
 
@@ -742,6 +745,7 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     const refused = termsRefusal(body);
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
+    if (!state.signedUp.includes(actor)) state.signedUp.push(actor);
     return reply(200, { cohort: "open_beta", terms_version: TERMS_VERSION, terms_accepted: true });
   }
 

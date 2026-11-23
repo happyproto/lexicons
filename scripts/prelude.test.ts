@@ -100,6 +100,11 @@ describe("open signup", () => {
     expect(run(`return gate_admin({ caller_did = "did:plc:stranger", env = ${OPEN} })`).r1.error).toBe("Forbidden");
   });
 
+  it("while open, a missing HAPPYPROTO_DID still fails closed", () => {
+    const { r1 } = run(`return gate_customer({ caller_did = "did:plc:stranger", env = { HAPPYPROTO_SIGNUP = "open" } })`);
+    expect(r1.error).toBe("Forbidden");
+  });
+
   it("anything but exactly open keeps the gate to members", () => {
     for (const value of ['"Open"', '"true"', '""', "nil"]) {
       const env = `{ HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_SIGNUP = ${value} }`;

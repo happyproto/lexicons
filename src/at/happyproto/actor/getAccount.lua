@@ -27,11 +27,13 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
   local wait = nil
-  if type(body.capacity_wait) == "table" and type(body.capacity_wait.plan) == "string" then
+  local w = body.capacity_wait
+  if type(w) == "table" and type(w.plan) == "string" and type(w.queued_at) == "string" then
     wait = {
-      plan = body.capacity_wait.plan,
-      queuedAt = body.capacity_wait.queued_at,
-      notified = type(body.capacity_wait.notified_at) == "string",
+      plan = w.plan,
+      queuedAt = w.queued_at,
+      notified = type(w.notified_at) == "string",
+      room = w.room == true,
     }
   end
   local deleted = {}

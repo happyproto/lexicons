@@ -86,6 +86,14 @@ describe("staff account scripts", () => {
     expect(run("unsuspendAccount", `{ did = "did:plc:x" }`).out.error).toBe("InvalidRequest");
   });
 
+  it("suspendAccount says so when the account is staff", () => {
+    const { out } = run("suspendAccount", `{ did = "did:plc:x", reason = "spam", idempotencyKey = "${KEY}" }`, {
+      reply: `return { status = 400, body = '{"ok":1}', headers = {} }`,
+      decoded: `{ error = "CannotSuspendStaff", message = "a staff account can't be suspended" }`,
+    });
+    expect(out.error).toBe("CannotSuspendStaff");
+  });
+
   it("getAccount answers Upstream for a reply missing what its output requires", () => {
     const good = run("getAccount", `{ did = "did:plc:x" }`, {
       decoded: `{ account = { did = "did:plc:x", cohort = "open_beta", created_at = "2026-12-07T15:00:00Z", instance_count = 1 } }`,
