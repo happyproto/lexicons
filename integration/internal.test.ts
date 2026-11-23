@@ -11,6 +11,7 @@
  * aud, lxm and the service entry are checked, then the issuer's #atproto key.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { provisioner } from "./fakes";
 import { sessionHeaders } from "./session";
 import { HAPPYVIEW_URL, PDS_URL, setVariable, stack, type Account, type Stack } from "./setup";
 import { fails, ok } from "./xrpc";
@@ -128,6 +129,20 @@ describe("internal.getOwnerContacts", () => {
 
   test("answers the provisioner's service-auth call with the owner's contact", async () => {
     const staff = s.accounts.staff;
+    // Start from no space: another file's sign-ins may have made one that a
+    // reset fake provisioner no longer has on record.
+    const prior = await preferencesSpace(staff);
+    if (prior) {
+      await must(
+        await fetch(`${HAPPYVIEW_URL}/xrpc/com.atproto.space.deleteSpace`, {
+          method: "POST",
+          headers: headers(staff),
+          body: JSON.stringify({ space: prior }),
+        }),
+        "delete staff's earlier preferences space",
+      );
+    }
+    await provisioner.reset();
     await ok("at.happyproto.actor.syncAccount", "staff", { input: { idempotencyKey: crypto.randomUUID() } });
     await ok("at.happyproto.actor.setContactEmail", "staff", {
       input: { email: "staff-notices@example.com", idempotencyKey: crypto.randomUUID() },
