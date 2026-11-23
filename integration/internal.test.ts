@@ -78,7 +78,14 @@ beforeAll(async () => {
   await must(
     await admin("/service-identity", {
       method: "PUT",
-      body: JSON.stringify({ mode: "attach_account", attached_account_did: s.accounts.happyproto.did }),
+      // `did` as well: the stack's HappyView (beta.20) reads the instance
+      // DID only from it; beta.24, which api.happyproto.at runs, also falls
+      // back to attached_account_did.
+      body: JSON.stringify({
+        mode: "attach_account",
+        did: s.accounts.happyproto.did,
+        attached_account_did: s.accounts.happyproto.did,
+      }),
     }),
     "attach the service identity",
   );
