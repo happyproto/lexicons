@@ -82,6 +82,14 @@
           "description": "Another operation is in progress for the instance."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "RotationInProgress",
           "description": "The instance is already part-way through a rotation: its old key is not retired yet."
         },

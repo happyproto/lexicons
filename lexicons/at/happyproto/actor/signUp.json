@@ -122,6 +122,14 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The customers space or the provisioner is unreachable or not configured, the standing signup invite is misconfigured, or the provisioner answered with an error it does not explain to callers."
         }
