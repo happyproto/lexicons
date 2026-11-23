@@ -62,6 +62,29 @@ describe("deleted instances in their grace period", () => {
       input: { id: GONE, idempotencyKey: crypto.randomUUID() },
     });
   });
+
+  test("Delete now refuses another owner's instance and a live one", async () => {
+    const LIVE = "88888888-8888-4888-8888-888888888888";
+    const base = {
+      plan_id: "small", host_id: null, happyview_version: "3.0.0-alpha.4",
+      image: "ghcr.io/gamesgamesgamesgamesgames/happyview", routed: true, observed_state: "running",
+      spec_hash: null, created_at: "2026-10-01T12:00:00Z", purged_at: null, owner_confirmed_at: null,
+    };
+    await provisioner.state({
+      tenants: [
+        { ...base, id: GONE, slug: "staff-gone", owner_did: s.accounts.staff.did, public_url: "https://staff-gone.happyview.app",
+          desired_state: "deleted", deleted_at: "2026-12-07T15:00:00Z", purge_after: later },
+        { ...base, id: LIVE, slug: "cust-live", owner_did: s.accounts.customer.did, public_url: "https://cust-live.happyview.app",
+          desired_state: "running", deleted_at: null, purge_after: null },
+      ],
+    });
+    await fails("at.happyproto.server.deleteInstanceNow", "customer", "NotFound", {
+      input: { id: GONE, idempotencyKey: crypto.randomUUID() },
+    });
+    await fails("at.happyproto.server.deleteInstanceNow", "customer", "NotInGrace", {
+      input: { id: LIVE, idempotencyKey: crypto.randomUUID() },
+    });
+  });
 });
 
 describe("capacity queue", () => {

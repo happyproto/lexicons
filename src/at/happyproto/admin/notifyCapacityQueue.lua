@@ -16,14 +16,19 @@
 local MAX_PER_CALL = 15
 local CONTACT = "at.happyproto.preferences.contact"
 
---- The owner's in-use contact address, or nil. Only a record the owner wrote
---- at `self` counts.
+--- The owner's in-use contact address; nil when they have none; and false
+--- when their preferences space couldn't be read. Only a record the owner
+--- wrote at `self` counts.
 local function contact_address(space_uri, owner)
   if type(space_uri) ~= "string" or space_uri == "" then return nil end
   local ok, page = pcall(function()
     return spaces.get(space_uri):records({ collection = CONTACT, limit = 50 })
   end)
-  if not ok or type(page) ~= "table" then return nil end
+  if not ok or type(page) ~= "table" then
+    -- The error, never the address (it was never read).
+    log.warn("could not read a queued owner's preferences space", { error = tostring(page):sub(1, 200) })
+    return false
+  end
   for _, r in ipairs(page.records or {}) do
     if r.rkey == "self" and r.author_did == owner and type(r.record) == "table"
       and type(r.record.email) == "string" and r.record.email ~= "" then
@@ -45,7 +50,7 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
 
-  local result = { sent = 0, noContact = 0, notVerified = 0, failed = 0, remaining = 0 }
+  local result = { sent = 0, noContact = 0, notVerified = 0, unreadable = 0, failed = 0, remaining = 0 }
   local notices = {}
   for _, w in ipairs(body.waits) do
     if type(w) == "table" and is_did(w.did) then
@@ -55,6 +60,8 @@ function handle(input, ctx)
         local email = contact_address(w.preferences_space, w.did)
         if email then
           notices[#notices + 1] = { did = w.did, email = email }
+        elseif email == false then
+          result.unreadable = result.unreadable + 1
         else
           result.noContact = result.noContact + 1
         end
@@ -65,6 +72,9 @@ function handle(input, ctx)
 
   local s, b = provisioner(ctx, "POST", "/v1/admin/capacity-waits/notify",
     { notices = json.to_array(notices) }, input.idempotencyKey)
+  if s == 503 and type(b) == "table" and b.error == "EmailNotConfigured" then
+    return failure("EmailNotConfigured", "Owner email is switched off.")
+  end
   if s ~= 200 or type(b) ~= "table" or type(b.results) ~= "table" then
     return provisioner_failure(s, b)
   end
@@ -80,7 +90,8 @@ function handle(input, ctx)
     elseif outcome == "failed" then
       result.failed = result.failed + 1
     end
-    -- not_waiting and not_due: told already, or room went again. Nothing to do.
+    -- not_waiting, not_due and held: told already, room went again, or the
+    -- account is suspended. Nothing to do.
   end
   return result
 end

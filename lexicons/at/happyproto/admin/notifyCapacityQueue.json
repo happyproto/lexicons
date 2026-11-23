@@ -28,6 +28,7 @@
             "sent",
             "noContact",
             "notVerified",
+            "unreadable",
             "failed",
             "remaining"
           ],
@@ -43,6 +44,10 @@
             "notVerified": {
               "type": "integer",
               "description": "Due owners whose contact address isn't proven to be theirs."
+            },
+            "unreadable": {
+              "type": "integer",
+              "description": "Due owners whose preferences space couldn't be read; try again."
             },
             "failed": {
               "type": "integer",
@@ -108,6 +113,10 @@
         {
           "name": "PlanNotOffered",
           "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is switched off at the provisioner."
         },
         {
           "name": "Upstream",
