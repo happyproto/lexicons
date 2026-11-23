@@ -219,6 +219,11 @@ local function gate_customer(ctx)
     if not ctx.caller_did or ctx.caller_did == "" then
       return failure("AuthRequired", "This endpoint requires an authenticated caller.")
     end
+    -- Fail closed as the membership check does: with no authority
+    -- configured, nobody is a customer, open or not.
+    if not happyproto_did(ctx) then
+      return failure("Forbidden", "No customer space is configured.")
+    end
     return nil
   end
   return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer")

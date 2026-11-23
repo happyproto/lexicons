@@ -87,6 +87,12 @@ describe("actor.acceptTerms", () => {
     expect(posted(calls)).toEqual([]);
   });
 
+  it("an unreadable admin space is Upstream, not a signup", () => {
+    const { out, calls } = run({ access: `uri == "${ADMINS}" and error("spaces down") or nil` });
+    expect(out.error).toBe("Upstream");
+    expect(posted(calls)).toEqual([]);
+  });
+
   it("passes the signup route's refusals through", () => {
     const cases: [string, number, string][] = [
       ['{"closed":1}', 403, "SignupsClosed"],
