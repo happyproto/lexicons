@@ -38,7 +38,11 @@ package.preload["happyview.spaces"] = function()
       if __raise[uri] then error("stubbed outage") end
       local s = __spaces[uri]
       if not s then return nil end
-      return { uri = uri, creator_did = s.creator, type_nsid = s.type or "at.happyproto.preferences", skey = s.skey or "self" }
+      -- As happyview.spaces answers: the type is spaceType.
+      if s.old_shape then
+        return { uri = uri, creator_did = s.creator, type_nsid = s.type or "at.happyproto.preferences", skey = s.skey or "self" }
+      end
+      return { uri = uri, creator_did = s.creator, spaceType = s.type or "at.happyproto.preferences", skey = s.skey or "self" }
     end,
     get = function(uri)
       return {
@@ -102,6 +106,14 @@ describe("internal.getOwnerContacts", () => {
       ],
     });
     expect(log).toEqual([]);
+  });
+
+  it("reads the space type under either name happyview.spaces has used", () => {
+    const setup = [
+      space(A, "did:plc:alice", `{ ${contact("did:plc:alice", `{ email = "alice@example.com" }`)} }`),
+      `__spaces["${A}"].old_shape = true`,
+    ].join("\n");
+    expect(run(`{ spaces = { "${A}" } }`, { setup }).out.contacts[0].status).toBe("ok");
   });
 
   it("takes a single space as a plain string, as HappyView passes one query value", () => {

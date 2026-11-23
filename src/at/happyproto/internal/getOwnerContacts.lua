@@ -40,7 +40,10 @@ end
 local function contact_of(uri)
   local ok, info = pcall(spaces.info, uri)
   if not ok then return { space = uri, status = "unreadable" } end
-  if type(info) ~= "table" or info.type_nsid ~= preferences.TYPE or info.skey ~= preferences.SKEY
+  -- happyview.spaces names the type `spaceType`; older builds said
+  -- `type_nsid`.
+  local space_type = type(info) == "table" and (info.spaceType or info.type_nsid) or nil
+  if type(info) ~= "table" or space_type ~= preferences.TYPE or info.skey ~= preferences.SKEY
     or not is_did(info.creator_did) then
     return { space = uri, status = "missing" }
   end
