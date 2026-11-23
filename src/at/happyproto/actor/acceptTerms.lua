@@ -32,7 +32,14 @@ function handle(input, ctx)
     return failure("Forbidden", "Only customers and staff accept the beta terms.")
   end
 
-  local signing_up = signup_open(ctx) and gate_admin(ctx) ~= nil and not in_customers_space(ctx)
+  local staff_refusal = gate_admin(ctx)
+  -- An admin space that can't be read says nothing about who this is; don't
+  -- sign staff up because of it.
+  if staff_refusal and type(staff_refusal.message) == "string"
+    and staff_refusal.message:find("unavailable", 1, true) then
+    return failure("Upstream", "The admin space could not be read.")
+  end
+  local signing_up = signup_open(ctx) and staff_refusal ~= nil and not in_customers_space(ctx)
   local status, body = provisioner(ctx, "POST", signing_up and "/v1/account/signup" or "/v1/account/terms", {
     terms_version = input.termsVersion,
     text_version = input.textVersion,
