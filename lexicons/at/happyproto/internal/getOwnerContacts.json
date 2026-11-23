@@ -16,10 +16,9 @@
             "minLength": 1,
             "maxLength": 50,
             "items": {
-              "type": "string",
-              "format": "at-uri"
+              "type": "string"
             },
-            "description": "Preferences space uris (at.happyproto.preferences, key self), 1 to 50. Repeats are answered once."
+            "description": "Preferences space uris (at://<space DID>/space/at.happyproto.preferences/self), 1 to 50. Repeats are answered once. Not format at-uri: a space uri has three path segments, which that format refuses."
           }
         }
       },
@@ -61,7 +60,6 @@
       "properties": {
         "space": {
           "type": "string",
-          "format": "at-uri",
           "description": "The space asked about."
         },
         "status": {
