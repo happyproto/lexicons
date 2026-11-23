@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Record that the caller accepted the beta terms in force for their account, with the exact wording they were shown. The dashboard calls it from the terms screen after sign-in. Accepting terms already accepted records nothing new. Each acceptance is kept, append-only. Customers and staff; anyone else is refused.",
+      "description": "Record that the caller accepted the beta terms in force for their account, with the exact wording they were shown. The dashboard calls it from the terms screen after sign-in. Accepting terms already accepted records nothing new. Each acceptance is kept, append-only. Customers and staff; anyone else is refused. While signup is open, a caller who isn't a member of the customers space, nor staff, signs up by accepting: the provisioner may refuse (SignupsClosed, AccountSuspended, SignupsPaused).",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -73,6 +73,18 @@
           "description": "The wording or its version is blank."
         },
         {
+          "name": "SignupsClosed",
+          "description": "Signup is open on HappyProto's HappyView but closed at the provisioner, or the open beta hasn't started."
+        },
+        {
+          "name": "SignupsPaused",
+          "description": "Too many accounts signed up in the last hour or day. Try again later."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Staff have suspended this account."
+        },
+        {
           "name": "TermsOutdated",
           "description": "termsVersion is not the terms in force: the client is showing old terms, and should read getTerms again."
         },
@@ -103,10 +115,6 @@
         {
           "name": "OperationInProgress",
           "description": "Passed through from the provisioner."
-        },
-        {
-          "name": "AccountSuspended",
-          "description": "Passed through from the provisioner: staff have suspended the account."
         },
         {
           "name": "PlanNotOffered",

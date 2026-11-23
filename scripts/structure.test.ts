@@ -155,9 +155,6 @@ const UNGATED: Record<string, string> = {
   "at/happyproto/actor/setNotices": "signed-in only, its own customer-or-staff check",
   // Its callers are not customers yet; the invite token is the authority.
   "at/happyproto/actor/acceptInvite": "signed-in only, the token is the authority",
-  // Its callers are not customers yet; signup must be open, and the
-  // provisioner decides whether the account may join.
-  "at/happyproto/actor/signUp": "signed-in only, open signup and the provisioner are the authority",
 };
 
 /**

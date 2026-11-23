@@ -82,8 +82,8 @@ describe("expand", () => {
     "provisioner", "instance", "jobs", "release",
   ];
 
-  test("gate implies failure, access, validate and authority", () => {
-    expect(expand(["gate"], order)).toEqual(["failure", "validate", "access", "authority", "gate"]);
+  test("gate implies failure, access, validate, authority and signup", () => {
+    expect(expand(["gate"], order)).toEqual(["failure", "validate", "access", "authority", "signup", "gate"]);
   });
 
   test("authority implies validate, and stands without the gate", () => {
@@ -126,6 +126,7 @@ describe("expand", () => {
       "validate",
       "access",
       "authority",
+      "signup",
       "gate",
       "provisioner",
       "instance",

@@ -41,7 +41,7 @@ const DIRECTIVE = /^--\s*@prelude\s+(.+)$/m;
 const IMPLIES: Record<string, string[]> = {
   // Not transitive: `gate` lists `validate` itself because `authority` needs it.
   authority: ["validate"],
-  gate: ["failure", "access", "validate", "authority"],
+  gate: ["failure", "access", "validate", "authority", "signup"],
   clickhouse: ["json", "failure", "urlencode"],
   provisioner: ["json", "failure"],
   instance: ["json"],
@@ -50,7 +50,7 @@ const IMPLIES: Record<string, string[]> = {
   domains: ["json", "failure", "provisioner"],
   // The space through `gate`'s spaces handle, the account through
   // `provisioner`, the DID check through `validate`.
-  preferences: ["json", "failure", "provisioner", "gate", "access", "validate", "authority"],
+  preferences: ["json", "failure", "provisioner", "gate", "access", "validate", "authority", "signup"],
   // public_operation lives in `instance`; provisioner_failure is
   // key_failure's fallback.
   keys: ["json", "failure", "provisioner", "instance"],
