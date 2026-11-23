@@ -17,8 +17,15 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
   local a = body.account
+  -- The output requires these; a reply without them is the provisioner's
+  -- fault, not the caller's, and must not fail output validation instead.
+  if type(a.did) ~= "string" or type(a.cohort) ~= "string" or type(a.created_at) ~= "string"
+    or type(a.instance_count) ~= "number" then
+    return provisioner_failure(502, body)
+  end
   local suspension = nil
-  if type(a.suspension) == "table" then
+  if type(a.suspension) == "table" and type(a.suspension.suspended_at) == "string"
+    and type(a.suspension.suspended_by) == "string" and type(a.suspension.reason) == "string" then
     suspension = {
       suspendedAt = a.suspension.suspended_at,
       suspendedBy = a.suspension.suspended_by,
