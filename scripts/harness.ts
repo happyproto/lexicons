@@ -47,7 +47,6 @@ __calls = {}
 __access = function(uri, did) return nil end
 __reply = function(method, url, opts) return { status = 200, body = "", headers = {} } end
 __decoded = {}
-__accept = function(token) error("NOT_FOUND - invalid invite") end
 
 package.preload["internal.json"] = function()
   return {
@@ -96,10 +95,6 @@ package.preload["happyview.spaces"] = function()
           return __access(uri, did)
         end,
       }
-    end,
-    accept_invite = function(opts)
-      __calls[#__calls + 1] = { fn = "accept_invite", token = opts.token }
-      return __accept(opts.token)
     end,
   }
 end
