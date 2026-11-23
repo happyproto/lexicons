@@ -474,3 +474,5 @@ space's creator or a HappyView super user. A staff member who is neither gets
 `Forbidden`. The admin endpoints that read the provisioner also need the
 caller's DID in the provisioner's `STAFF_DIDS`; without it they get the
 provisioner's `Forbidden`.
+
+`admin.suspendAccount` suspends an account at the provisioner (HAP-511): its running instances are stopped, and its owner is refused creates, starts, plan or version changes, upgrades and new custom domains (`AccountSuspended`) until `admin.unsuspendAccount` lifts it, which starts again only what the suspension stopped. The account stays in the customers space, so it can still sign in and read why; to take that away too, also `admin.removeCustomer` it. A suspended account can't sign up again either (`actor.signUp`). `admin.getAccount` shows an account's cohort, instance count and suspension.

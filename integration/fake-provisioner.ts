@@ -102,6 +102,8 @@ function fresh() {
     emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
     accountTerms: {} as Record<string, string>,
+    /** DID -> its suspension's reason, while staff have it suspended. */
+    suspended: {} as Record<string, string>,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -875,6 +877,58 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {
     if (!staff) return error(403, "Forbidden", "staff only");
     return reply(200, hostsList());
+  }
+
+  // api/suspension.rs: an account's cohort and suspension, and staff
+  // suspending it or lifting that. Accounts here are any DID asked about.
+  if (resource === "admin" && id === "accounts" && parts.length >= 4) {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    const did = decodeURIComponent(parts[3]);
+    if (!did.startsWith("did:")) return error(400, "InvalidRequest", "did must be a DID");
+    const owned = state.tenants.filter((t) => t.owner_did === did && !t.deleted_at);
+    if (req.method === "GET" && parts.length === 4) {
+      if (!state.accountTerms[did] && !state.suspended[did] && owned.length === 0) {
+        return error(404, "NotFound", "no account has this DID");
+      }
+      const reason = state.suspended[did];
+      return reply(200, {
+        account: {
+          did,
+          cohort: "closed_beta",
+          created_at: "2026-11-01T00:00:00Z",
+          instance_count: owned.length,
+          suspension: reason ? { suspended_at: "2026-11-23T00:00:00Z", suspended_by: actor, reason } : null,
+        },
+      });
+    }
+    if (req.method === "POST" && parts[4] === "suspend" && parts.length === 5) {
+      const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+      if (!reason) return error(400, "InvalidRequest", "reason must be 1 to 500 characters");
+      state.suspended[did] ??= reason;
+      let stopped = 0;
+      for (const t of owned) {
+        if (t.desired_state === "running") {
+          t.desired_state = "stopped";
+          t.stopped_by_suspension = true;
+          stopped++;
+        }
+      }
+      return reply(200, { suspended: true, stopped });
+    }
+    if (req.method === "POST" && parts[4] === "unsuspend" && parts.length === 5) {
+      let started = 0;
+      if (state.suspended[did]) {
+        delete state.suspended[did];
+        for (const t of owned) {
+          if (t.stopped_by_suspension && t.desired_state === "stopped") {
+            t.desired_state = "running";
+            t.stopped_by_suspension = false;
+            started++;
+          }
+        }
+      }
+      return reply(200, { suspended: false, started });
+    }
   }
 
   if (req.method === "GET" && resource === "admin" && parts.length === 3) {
