@@ -398,6 +398,10 @@ async function setup(): Promise<Stack> {
     // never answers checkUserAccess, so other apps are refused, as in
     // production until HappyProto serves it.
     HAPPYPROTO_APP: `${accounts.happyproto.did}#happyproto_app`,
+    // The identity the provisioner signs service-auth tokens as (HAP-463
+    // phase 2). Set, so internal.* is configured and refuses on the caller,
+    // not on a missing variable. Nothing in the stack can sign as it.
+    PROVISIONER_DID: "did:web:fake-provisioner.integration",
   };
   for (const [key, value] of Object.entries(variables)) await setVariable(apiKey, key, value);
 

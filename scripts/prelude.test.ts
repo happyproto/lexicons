@@ -249,6 +249,36 @@ describe("gate_owner", () => {
   });
 });
 
+describe("gate_provisioner", () => {
+  const PROV = "did:web:notices.happyproto.at";
+  const env = (v: string) => `{ HAPPYPROTO_DID = "${HAPPYPROTO}", PROVISIONER_DID = ${v} }`;
+
+  it("admits exactly PROVISIONER_DID, without asking any space", () => {
+    const { r1, calls } = run(`return gate_provisioner({ caller_did = "${PROV}", env = ${env(`"${PROV}"`)} })`);
+    expect(r1).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses anyone else, HappyProto's own account, and a signed-out caller", () => {
+    for (const caller of ['"did:plc:alice"', `"${HAPPYPROTO}"`, `"${PROV}x"`, '""', "nil"]) {
+      const { r1, calls } = run(`return gate_provisioner({ caller_did = ${caller}, env = ${env(`"${PROV}"`)} })`);
+      expect([caller, r1?.error]).toEqual([caller, "Forbidden"]);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("refuses everyone when PROVISIONER_DID is missing, empty, malformed or HAPPYPROTO_DID", () => {
+    for (const v of ["nil", '""', '"notices"', `"${HAPPYPROTO}"`]) {
+      for (const caller of [`"${PROV}"`, `"${HAPPYPROTO}"`, '"notices"', '""', "nil"]) {
+        const { r1 } = run(`return gate_provisioner({ caller_did = ${caller}, env = ${env(v)} })`);
+        expect([v, caller, r1?.error]).toEqual([v, caller, "Forbidden"]);
+      }
+    }
+    const { r1 } = run(`return gate_provisioner({ caller_did = "${PROV}" })`);
+    expect(r1?.error).toBe("Forbidden");
+  });
+});
+
 describe("instance_state", () => {
   const state = (tenant: string, op: string) =>
     run(`return instance_state(${tenant}, ${op})`).r1;

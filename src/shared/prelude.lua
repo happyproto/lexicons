@@ -207,6 +207,21 @@ local function gate_owner(ctx)
   end
   return nil
 end
+
+--- The provisioner: the caller is exactly PROVISIONER_DID, the identity it
+--- signs service-auth tokens as (HAP-463). For `at.happyproto.internal.*`,
+--- which HappyView reaches only through a `specific` service entry listing
+--- them. Everyone else, a signed-out caller, and an unset or malformed
+--- PROVISIONER_DID are all Forbidden, so the endpoints are inert until the
+--- variable is set. HAPPYPROTO_DID is refused even if the variable names it:
+--- HappyProto's account signs in to the dashboard and must not reach these.
+local function gate_provisioner(ctx)
+  local did = (ctx.env or {}).PROVISIONER_DID
+  if not is_did(did) or ctx.caller_did ~= did or did == happyproto_did(ctx) then
+    return failure("Forbidden", "Only the provisioner can do this.")
+  end
+  return nil
+end
 -- @endblock
 
 -- @block urlencode
