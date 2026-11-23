@@ -39,7 +39,11 @@
             },
             "signupOpen": {
               "type": "boolean",
-              "description": "Caller only. Whether signup is open, so a caller who isn't a customer may join with actor.signUp."
+              "description": "Caller only. Whether signup is open: the customer gate then admits anyone signed in, so isCustomer is true for every caller."
+            },
+            "inCustomersSpace": {
+              "type": "boolean",
+              "description": "Caller only. Whether the caller is a member of the customers space. While signup is open, a caller who isn't joins by accepting the terms (actor.acceptTerms)."
             },
             "access": {
               "type": "string",

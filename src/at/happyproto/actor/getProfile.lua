@@ -89,8 +89,11 @@ function handle(input, ctx)
   -- closed: no valid HAPPYPROTO_DID, a space that cannot be read, or no
   -- space at all is "not a customer".
   profile.isCustomer = gate_customer(ctx) == nil
-  -- Whether a caller who isn't a customer may sign up (actor.signUp).
-  profile.signupOpen = signup_invite(ctx) ~= nil
+  -- Whether signup is open, so isCustomer is true for anyone signed in, and
+  -- whether the caller is a member of the customers space all the same: one
+  -- who isn't joins by accepting the terms.
+  profile.signupOpen = signup_open(ctx)
+  profile.inCustomersSpace = in_customers_space(ctx)
 
   local space_uri = happyproto_space(ctx, ADMIN_SPACE_TYPE)
   if not space_uri then

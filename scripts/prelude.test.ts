@@ -86,6 +86,35 @@ describe("toolchain", () => {
   });
 });
 
+describe("open signup", () => {
+  const OPEN = `{ HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_SIGNUP = "open" }`;
+
+  it("while open, the customer gate admits any signed-in caller without asking the space", () => {
+    const { r1, calls } = run(`return gate_customer({ caller_did = "did:plc:stranger", env = ${OPEN} })`);
+    expect(r1).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("while open, a signed-out caller is still AuthRequired, and staff still need the admin space", () => {
+    expect(run(`return gate_customer({ caller_did = nil, env = ${OPEN} })`).r1.error).toBe("AuthRequired");
+    expect(run(`return gate_admin({ caller_did = "did:plc:stranger", env = ${OPEN} })`).r1.error).toBe("Forbidden");
+  });
+
+  it("anything but exactly open keeps the gate to members", () => {
+    for (const value of ['"Open"', '"true"', '""', "nil"]) {
+      const env = `{ HAPPYPROTO_DID = "${HAPPYPROTO}", HAPPYPROTO_SIGNUP = ${value} }`;
+      const { r1 } = run(`return gate_customer({ caller_did = "did:plc:stranger", env = ${env} })`);
+      expect(r1.error).toBe("Forbidden");
+    }
+  });
+
+  it("in_customers_space reports membership whatever signup says", () => {
+    const member = `__access = function(uri, did) return uri == "${CUSTOMERS}" and "read" or nil end`;
+    expect(run(`return in_customers_space({ caller_did = "did:plc:x", env = ${OPEN} })`).r1).toBe(false);
+    expect(run(`${member}\nreturn in_customers_space({ caller_did = "did:plc:x", env = ${OPEN} })`).r1).toBe(true);
+  });
+});
+
 describe("gate", () => {
   it("no caller is AuthRequired", () => {
     for (const caller of ["nil", '""']) {
