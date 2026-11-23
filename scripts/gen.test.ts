@@ -48,7 +48,7 @@ describe("parsePrelude", () => {
     // must come after it.
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
-      "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
+      "json", "failure", "validate", "access", "authority", "signup", "gate", "urlencode", "clickhouse",
       "provisioner", "preferences", "instance", "deployments", "jobs", "domains", "scaler", "keys", "usage", "metrics", "release",
       "registry",
     ]);
@@ -78,7 +78,7 @@ describe("parseDirective", () => {
 
 describe("expand", () => {
   const order = [
-    "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
+    "json", "failure", "validate", "access", "authority", "signup", "gate", "urlencode", "clickhouse",
     "provisioner", "instance", "jobs", "release",
   ];
 

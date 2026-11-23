@@ -1,0 +1,131 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.signUp",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Sign up for HappyProto in the open beta: accept the beta terms in force and join the customers space. Any signed-in caller while signup is open. A caller who is already a customer has the terms recorded and joins nothing. Safe to retry with the same idempotencyKey.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "termsVersion",
+            "textVersion",
+            "text",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "termsVersion": {
+              "type": "string",
+              "description": "The terms the caller accepted, as getTerms reported them. Anything but the terms in force is refused (TermsOutdated)."
+            },
+            "textVersion": {
+              "type": "string",
+              "description": "The version of the wording the caller was shown, chosen by the client."
+            },
+            "text": {
+              "type": "string",
+              "description": "The exact wording the caller accepted."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per signup and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "isCustomer",
+            "joined",
+            "termsVersion"
+          ],
+          "properties": {
+            "isCustomer": {
+              "type": "boolean",
+              "description": "Always true: the caller is a customer now."
+            },
+            "joined": {
+              "type": "boolean",
+              "description": "Whether this call joined the caller to the customers space; false when they already were a member."
+            },
+            "termsVersion": {
+              "type": "string",
+              "description": "The beta terms in force, which the caller has now accepted."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "termsVersion, textVersion, text or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "SignupClosed",
+          "description": "Signup is not open: HappyProto is invite-only."
+        },
+        {
+          "name": "SignupsPaused",
+          "description": "Too many accounts signed up in the last hour or day. Try again later."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Staff have suspended this account."
+        },
+        {
+          "name": "TermsRequired",
+          "description": "The wording or its version is blank."
+        },
+        {
+          "name": "TermsOutdated",
+          "description": "termsVersion is not the terms in force: the client is showing old terms, and should read getTerms again."
+        },
+        {
+          "name": "Forbidden",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The customers space or the provisioner is unreachable or not configured, the standing signup invite is misconfigured, or the provisioner answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

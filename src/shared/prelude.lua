@@ -156,6 +156,32 @@ local function happyproto_space(ctx, space_type)
 end
 -- @endblock
 
+-- @block signup
+-- Open signup (HAP-509). Two script variables switch it on, so the standing
+-- invite can be put in place before launch and does nothing until then:
+--
+--   HAPPYPROTO_SIGNUP         "open" lets actor.signUp join callers;
+--                             anything else, or unset, keeps signup closed.
+--   HAPPYPROTO_SIGNUP_INVITE  the token of a standing customers-space invite
+--                             (unlimited uses, no expiry, read access) that
+--                             staff mint as the space's creator.
+--
+-- Closing signup is setting HAPPYPROTO_SIGNUP to anything but "open" and
+-- revoking the invite; everyone who joined stays a customer.
+
+--- The standing invite's token while signup is open, else nil. A token that
+--- isn't an invite token's shape counts as none, so a typo fails closed.
+local function signup_invite(ctx)
+  local env = ctx.env or {}
+  if env.HAPPYPROTO_SIGNUP ~= "open" then return nil end
+  local token = env.HAPPYPROTO_SIGNUP_INVITE
+  if type(token) ~= "string" or #token == 0 or #token > 128 or not token:match("^%x+$") then
+    return nil
+  end
+  return token
+end
+-- @endblock
+
 -- @block gate
 local spaces = require("happyview.spaces")
 

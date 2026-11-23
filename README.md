@@ -50,6 +50,7 @@ Each source declares which prelude blocks it needs:
 | `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
 | `access` | `MEMBER_ACCESS`, the space access levels that admit | — |
 | `authority` | `happyproto_did(ctx)`, `happyproto_space(ctx, type)`, `ADMIN_SPACE_TYPE`, `CUSTOMERS_SPACE_TYPE` | `validate` |
+| `signup` | `signup_invite(ctx)`: the standing signup invite's token while signup is open, else nil (see [Open signup](#open-signup)) | — |
 | `gate` | `gate_admin(ctx)`, `gate_customer(ctx)`, `gate_owner(ctx)` | `failure`, `access`, `validate`, `authority` |
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
@@ -379,6 +380,8 @@ works.
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
 | `PROVISIONER_AUDIENCE` | the provisioner's name for caller assertions (its `MANAGEMENT_TICKET_ISSUER`); `getManagementTicket` answers `Upstream` without it |
 | `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
+| `HAPPYPROTO_SIGNUP` | `open` lets `actor.signUp` join callers; anything else, or unset, keeps signup closed (see [Open signup](#open-signup)) |
+| `HAPPYPROTO_SIGNUP_INVITE` | the standing signup invite's token, as `admin.createSignupInvite` answers it |
 
 ClickHouse is reached over the shared Docker network by container name, which
 is why the URL is `http://clickhouse:8123` and not a public address —
@@ -429,6 +432,20 @@ fallback uris are under it.
 Scripts fail closed when no space is configured: nobody is a member of
 anything. A missing `PROVISIONER_URL` or
 `PROVISIONER_TOKEN` answers `Upstream` rather than raising.
+
+### Open signup
+
+In the open beta, anyone signed in can become a customer with `actor.signUp`, without an invite (HAP-509). Membership of the customers space stays the one entitlement, so nothing gated changes: signing up joins the caller to the space through a **standing invite**, a customers-space invite with read access, no use limit and no expiry. Signup is open only while `HAPPYPROTO_SIGNUP` is `open` and `HAPPYPROTO_SIGNUP_INVITE` holds a token of an invite token's shape; `actor.getProfile` reports the same as `signupOpen`.
+
+`actor.signUp` takes the beta terms acceptance (as `acceptTerms` does) and asks the provisioner first (`POST /v1/account/signup`), which refuses a suspended account (`AccountSuspended`) and pauses signups past its breaker (`SignupsPaused`). Only once the provisioner agrees is the caller joined, so a refused signup joins nothing. A caller who is already a customer has the terms recorded and joins nothing.
+
+To open signup:
+
+1. As the customers space's creator or a HappyView super user, call `admin.createSignupInvite` and keep the token it answers. It is answered once.
+2. Set `HAPPYPROTO_SIGNUP_INVITE` to the token. This can be done ahead of time: it does nothing until the next step.
+3. Set `HAPPYPROTO_SIGNUP` to `open`.
+
+To close it, set `HAPPYPROTO_SIGNUP` to `closed` (anything but `open`), and revoke the invite through HappyView's `dev.happyview.space.revokeInvite` with the `inviteId` `admin.createSignupInvite` answered. Everyone who signed up stays a customer.
 
 ### Bootstrapping the spaces
 

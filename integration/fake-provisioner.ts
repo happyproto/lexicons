@@ -697,6 +697,16 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
   }
 
+  // POST /v1/account/signup: the account signs itself up in the open beta,
+  // accepting the terms in force. Refusals (SignupsPaused, AccountSuspended)
+  // are scripted with /__script.
+  if (req.method === "POST" && resource === "account" && parts[2] === "signup" && parts.length === 3) {
+    const refused = termsRefusal(body);
+    if (refused) return refused;
+    state.accountTerms[actor] = TERMS_VERSION;
+    return reply(200, { cohort: "open_beta", terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
   // PUT /v1/account/email: a blank or missing address keeps the last one, and
   // an unconfirmed one never replaces a confirmed one. The reply says what is
   // held, never the address.

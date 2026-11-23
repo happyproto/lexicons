@@ -37,6 +37,10 @@
               "type": "boolean",
               "description": "Caller only. Whether the actor is a member of the customers space, the same rule the customer endpoints apply."
             },
+            "signupOpen": {
+              "type": "boolean",
+              "description": "Caller only. Whether signup is open, so a caller who isn't a customer may join with actor.signUp."
+            },
             "access": {
               "type": "string",
               "knownValues": ["read", "write"],
