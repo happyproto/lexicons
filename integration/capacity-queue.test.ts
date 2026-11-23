@@ -71,7 +71,12 @@ describe("capacity queue", () => {
       },
     });
     const account = await ok("at.happyproto.actor.getAccount", "customer");
-    expect(account.capacityWait).toEqual({ plan: "small", queuedAt: "2026-12-07T15:00:00Z", notified: false });
+    expect(account.capacityWait).toEqual({
+      plan: "small",
+      queuedAt: "2026-12-07T15:00:00Z",
+      notified: false,
+      room: false,
+    });
     expect(account.suspended).toBe(false);
     expect(account.deletedInstanceCount).toBe(0);
 
