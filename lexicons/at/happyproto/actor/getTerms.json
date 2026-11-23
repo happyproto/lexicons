@@ -21,6 +21,10 @@
             "accepted": {
               "type": "boolean",
               "description": "Whether the caller has accepted termsVersion for their account."
+            },
+            "signedUp": {
+              "type": "boolean",
+              "description": "Whether the account signed up in the open beta. A terms change then asks it to accept again, not to join."
             }
           }
         }

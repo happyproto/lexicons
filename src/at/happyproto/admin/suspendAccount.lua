@@ -25,6 +25,9 @@ function handle(input, ctx)
 
   local status, body = provisioner(ctx, "POST", "/v1/admin/accounts/" .. url_encode(input.did) .. "/suspend",
     { reason = reason }, input.idempotencyKey)
+  if status == 400 and type(body) == "table" and body.error == "CannotSuspendStaff" then
+    return failure("CannotSuspendStaff", "A staff account can't be suspended.")
+  end
   if status ~= 200 or type(body) ~= "table" or type(body.stopped) ~= "number" then
     return provisioner_failure(status, body)
   end
