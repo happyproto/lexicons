@@ -4,6 +4,11 @@
 -- preferences space. Account email (links they ask for, a note when their
 -- contact email changes, changes to the terms) has no switch.
 --
+-- Turning them on also clears a one-click unsubscribe from a notice's link,
+-- which the provisioner keeps (the link has no session to write the space
+-- with) and which would otherwise keep them off. It is cleared first: if the
+-- space can't then be written, the owner is told and tries again.
+--
 -- Customers and staff only, either gate admitting; each fails closed.
 
 -- @prelude gate, validate, provisioner, preferences
@@ -27,6 +32,10 @@ function handle(input, ctx)
     return failure("EmailNotConfigured", "Contact email isn't switched on yet.")
   end
   if not uri then return failure("Upstream", "Your preferences could not be saved.") end
+  if input.maintenance then
+    local status, body = provisioner(ctx, "DELETE", "/v1/account/maintenance-unsubscribe", nil, input.idempotencyKey)
+    if status ~= 200 then return provisioner_failure(status, body) end
+  end
   if not preferences.write(uri, preferences.NOTICES, { maintenance = input.maintenance }) then
     return failure("Upstream", "Your preferences could not be saved.")
   end

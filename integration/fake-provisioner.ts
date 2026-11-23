@@ -14,7 +14,9 @@
  *
  * Control routes, all under /__:
  *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
- *                    entitlementMode?, invites?, accountTerms? }. accountTerms maps a DID to
+ *                    entitlementMode?, invites?, accountTerms?,
+ *                    maintenanceUnsubscribed? }. maintenanceUnsubscribed lists
+ *                    the DIDs that used a notice's one-click unsubscribe. accountTerms maps a DID to
  *                    the terms version its account accepted at sign-in. invites are rows as the
  *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
@@ -98,6 +100,8 @@ function fresh() {
     contactEmail: true,
     /** DID -> the lowercase addresses proven to be its own. */
     emailProofs: {} as Record<string, string[]>,
+    /** DIDs that used a notice's one-click unsubscribe (HAP-463 phase 2). */
+    maintenanceUnsubscribed: [] as string[],
     /** Links sent: `{did, email, token, used}`, oldest first. */
     emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
@@ -567,6 +571,7 @@ function accountBody(actor: string): Json {
     email_confirmed: recorded.email_confirmed ?? null,
     email_seen_at: recorded.email_seen_at ?? null,
     preferences_space: state.preferencesSpaces[actor] ?? null,
+    maintenance_unsubscribed: state.maintenanceUnsubscribed.includes(actor),
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
@@ -738,6 +743,12 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     }
     state.preferencesSpaces[actor] = uri;
     return reply(200, { preferences_space: uri });
+  }
+  // DELETE /v1/account/maintenance-unsubscribe: clears the caller's one-click
+  // unsubscribe; the same answer when there is none.
+  if (resource === "account" && parts[2] === "maintenance-unsubscribe" && parts.length === 3 && req.method === "DELETE") {
+    state.maintenanceUnsubscribed = state.maintenanceUnsubscribed.filter((d) => d !== actor);
+    return reply(200, { maintenance_unsubscribed: false });
   }
   if (resource === "account" && parts[2] === "email-proofs") {
     if (req.method === "DELETE" && parts.length === 3) {
