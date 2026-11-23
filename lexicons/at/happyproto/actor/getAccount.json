@@ -31,6 +31,14 @@
               "type": "integer",
               "description": "Deleted instances still in their grace period that also count against the limit. 0 unless the provisioner counts them."
             },
+            "deletedInstances": {
+              "type": "array",
+              "description": "The deleted instances deletedInstanceCount counts, oldest first, which the caller can delete now (server.deleteInstanceNow).",
+              "items": {
+                "type": "ref",
+                "ref": "#deletedInstance"
+              }
+            },
             "suspended": {
               "type": "boolean",
               "description": "Whether staff have suspended the account."
@@ -116,6 +124,32 @@
         "notified": {
           "type": "boolean",
           "description": "Whether they have been told there's room."
+        }
+      }
+    },
+    "deletedInstance": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "deletedAt",
+        "purgeAfter"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "purgeAfter": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When it is purged unless deleted now; until then it can be restored on request."
         }
       }
     }

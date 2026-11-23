@@ -424,6 +424,7 @@ describe("actor.getAccount", () => {
       instanceCount: 2,
       instanceLimit: 3,
       deletedInstanceCount: 0,
+      deletedInstances: [],
       suspended: false,
     });
     const [request] = await provisioner.requests();
