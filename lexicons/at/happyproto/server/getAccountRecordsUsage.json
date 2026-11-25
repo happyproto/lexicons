@@ -1,0 +1,220 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getAccountRecordsUsage",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Records delivered over the current billing period across all of the caller's instances: each one's totals and their sum. Display only: nothing is billed. Customers only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "period",
+            "totals",
+            "overage",
+            "overageCents",
+            "instances"
+          ],
+          "properties": {
+            "period": {
+              "type": "ref",
+              "ref": "#period"
+            },
+            "totals": {
+              "type": "ref",
+              "ref": "#totals"
+            },
+            "overage": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "overageCents": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "instances": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#instance"
+              }
+            },
+            "source": {
+              "type": "string",
+              "knownValues": [
+                "tenant_ingest"
+              ]
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner could not complete the request."
+        }
+      ]
+    },
+    "period": {
+      "type": "object",
+      "description": "The billing period: the calendar month in UTC until accounts have their own.",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "description": "The period's first day, YYYY-MM-DD."
+        },
+        "end": {
+          "type": "string",
+          "description": "The first day after the period, YYYY-MM-DD."
+        }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "live",
+        "backfill"
+      ],
+      "properties": {
+        "live": {
+          "type": "integer"
+        },
+        "backfill": {
+          "type": "integer"
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "liveActual",
+        "liveBillable",
+        "backfill",
+        "storePass",
+        "retry",
+        "unknown"
+      ],
+      "properties": {
+        "liveActual": {
+          "type": "integer",
+          "description": "Live records delivered."
+        },
+        "liveBillable": {
+          "type": "integer",
+          "description": "Live records after the surge cap: each day at most three times the trailing week's average, and never less than the plan's daily share."
+        },
+        "backfill": {
+          "type": "integer",
+          "description": "Records from backfills and store passes, which share the backfill allowance."
+        },
+        "storePass": {
+          "type": "integer",
+          "description": "The store passes' part of backfill."
+        },
+        "retry": {
+          "type": "integer",
+          "description": "Dead-letter retries. Not billed."
+        },
+        "unknown": {
+          "type": "integer",
+          "description": "Counted before the instance kept where records came from."
+        }
+      }
+    },
+    "instance": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "totals",
+        "gapDays"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "knownValues": [
+            "hobby",
+            "starter",
+            "pro",
+            "scale"
+          ]
+        },
+        "included": {
+          "type": "ref",
+          "ref": "#pair"
+        },
+        "totals": {
+          "type": "ref",
+          "ref": "#totals"
+        },
+        "overage": {
+          "type": "ref",
+          "ref": "#pair"
+        },
+        "overageCents": {
+          "type": "ref",
+          "ref": "#pair"
+        },
+        "projectedMonthEnd": {
+          "type": "ref",
+          "ref": "#pair"
+        },
+        "gapDays": {
+          "type": "integer",
+          "description": "Days of the period whose counts may read low."
+        }
+      }
+    }
+  }
+}

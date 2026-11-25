@@ -1338,6 +1338,119 @@ local function usage_query(input)
 end
 -- @endblock
 
+-- @block records
+-- Records delivered over the current billing period, as the provisioner's
+-- records-usage routes answer them (an owner's /tenants/:id/records-usage,
+-- and /account/records-usage), mapped to the lexicons' shapes. Each field is
+-- listed explicitly, so a field the provisioner adds later is never passed
+-- along by accident. Dollars become whole cents: lexicons have no floats.
+
+-- The helpers share one local: the prelude is near Lua's 200-local limit.
+local R = {}
+
+-- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+function R.only(v, kind)
+  if type(v) == kind then
+    return v
+  end
+  return nil
+end
+
+function R.pair(v)
+  if type(v) ~= "table" then return nil end
+  return {
+    live = R.only(v.live, "number"),
+    backfill = R.only(v.backfill, "number"),
+  }
+end
+
+function R.cents(v)
+  if type(v) ~= "table" then return nil end
+  local function cents(usd)
+    if type(usd) ~= "number" then return nil end
+    return math.floor(usd * 100 + 0.5)
+  end
+  return { live = cents(v.live), backfill = cents(v.backfill) }
+end
+
+function R.totals(t)
+  t = type(t) == "table" and t or {}
+  return {
+    liveActual = R.only(t.live_actual, "number") or 0,
+    liveBillable = R.only(t.live_billable, "number") or 0,
+    backfill = R.only(t.backfill, "number") or 0,
+    storePass = R.only(t.store_pass, "number") or 0,
+    retry = R.only(t.retry, "number") or 0,
+    unknown = R.only(t.unknown, "number") or 0,
+  }
+end
+
+function R.period(p)
+  p = type(p) == "table" and p or {}
+  return { start = R.only(p.start, "string"), ["end"] = R.only(p["end"], "string") }
+end
+
+--- One instance's period, from /tenants/:id/records-usage.
+local function public_records(body)
+  local days = {}
+  for _, d in ipairs(type(body.days) == "table" and body.days or {}) do
+    days[#days + 1] = {
+      day = d.day,
+      live = R.only(d.live, "number") or 0,
+      backfill = R.only(d.backfill, "number") or 0,
+      storePass = R.only(d.store_pass, "number") or 0,
+      retry = R.only(d.retry, "number") or 0,
+      unknown = R.only(d.unknown, "number") or 0,
+      billableLive = R.only(d.billable_live, "number") or 0,
+      capped = d.capped == true,
+      gap = d.gap == true,
+    }
+  end
+  local capped = {}
+  for _, day in ipairs(type(body.capped_days) == "table" and body.capped_days or {}) do
+    if type(day) == "string" then capped[#capped + 1] = day end
+  end
+  return {
+    period = R.period(body.period),
+    tier = R.only(body.tier, "string"),
+    included = R.pair(body.included),
+    totals = R.totals(body.totals),
+    overage = R.pair(body.overage),
+    overageCents = R.cents(body.overage_usd),
+    cappedDays = json.to_array(capped),
+    projectedMonthEnd = R.pair(body.projected_month_end),
+    days = json.to_array(days),
+    source = R.only(body.source, "string"),
+  }
+end
+
+--- Every instance's totals and their sum, from /account/records-usage.
+local function public_account_records(body)
+  local instances = {}
+  for _, i in ipairs(type(body.instances) == "table" and body.instances or {}) do
+    instances[#instances + 1] = {
+      id = i.id,
+      slug = i.slug,
+      tier = R.only(i.tier, "string"),
+      included = R.pair(i.included),
+      totals = R.totals(i.totals),
+      overage = R.pair(i.overage),
+      overageCents = R.cents(i.overage_usd),
+      projectedMonthEnd = R.pair(i.projected_month_end),
+      gapDays = R.only(i.gap_days, "number") or 0,
+    }
+  end
+  return {
+    period = R.period(body.period),
+    totals = R.totals(body.totals),
+    overage = R.pair(body.overage),
+    overageCents = R.cents(body.overage_usd),
+    instances = json.to_array(instances),
+    source = R.only(body.source, "string"),
+  }
+end
+-- @endblock
+
 -- @block metrics
 -- A tenant's script and ingest metrics, as HappyView's /admin/metrics routes
 -- answer them through the provisioner's /metrics relay, mapped to the shapes

@@ -1,0 +1,252 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.getRecordsUsage",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One of the caller's instances' records delivered over the current billing period, by day and against the plan's allowance. Display only: nothing is billed. Customers only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The instance's UUID."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "period",
+            "totals",
+            "cappedDays",
+            "days"
+          ],
+          "properties": {
+            "period": {
+              "type": "ref",
+              "ref": "#period"
+            },
+            "tier": {
+              "type": "string",
+              "description": "The plan's tier, when it has one.",
+              "knownValues": [
+                "hobby",
+                "starter",
+                "pro",
+                "scale"
+              ]
+            },
+            "included": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "totals": {
+              "type": "ref",
+              "ref": "#totals"
+            },
+            "overage": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "overageCents": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "cappedDays": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Days the surge cap held live records back, YYYY-MM-DD."
+            },
+            "projectedMonthEnd": {
+              "type": "ref",
+              "ref": "#pair"
+            },
+            "days": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#day"
+              }
+            },
+            "source": {
+              "type": "string",
+              "knownValues": [
+                "tenant_ingest"
+              ]
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id is not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or it is not the caller's. The two are indistinguishable."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner could not complete the request."
+        }
+      ]
+    },
+    "period": {
+      "type": "object",
+      "description": "The billing period: the calendar month in UTC until accounts have their own.",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "description": "The period's first day, YYYY-MM-DD."
+        },
+        "end": {
+          "type": "string",
+          "description": "The first day after the period, YYYY-MM-DD."
+        }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "live",
+        "backfill"
+      ],
+      "properties": {
+        "live": {
+          "type": "integer"
+        },
+        "backfill": {
+          "type": "integer"
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "liveActual",
+        "liveBillable",
+        "backfill",
+        "storePass",
+        "retry",
+        "unknown"
+      ],
+      "properties": {
+        "liveActual": {
+          "type": "integer",
+          "description": "Live records delivered."
+        },
+        "liveBillable": {
+          "type": "integer",
+          "description": "Live records after the surge cap: each day at most three times the trailing week's average, and never less than the plan's daily share."
+        },
+        "backfill": {
+          "type": "integer",
+          "description": "Records from backfills and store passes, which share the backfill allowance."
+        },
+        "storePass": {
+          "type": "integer",
+          "description": "The store passes' part of backfill."
+        },
+        "retry": {
+          "type": "integer",
+          "description": "Dead-letter retries. Not billed."
+        },
+        "unknown": {
+          "type": "integer",
+          "description": "Counted before the instance kept where records came from."
+        }
+      }
+    },
+    "day": {
+      "type": "object",
+      "required": [
+        "day",
+        "live",
+        "backfill",
+        "storePass",
+        "retry",
+        "unknown",
+        "billableLive",
+        "capped",
+        "gap"
+      ],
+      "properties": {
+        "day": {
+          "type": "string",
+          "description": "UTC date, YYYY-MM-DD."
+        },
+        "live": {
+          "type": "integer"
+        },
+        "backfill": {
+          "type": "integer"
+        },
+        "storePass": {
+          "type": "integer"
+        },
+        "retry": {
+          "type": "integer"
+        },
+        "unknown": {
+          "type": "integer"
+        },
+        "billableLive": {
+          "type": "integer"
+        },
+        "capped": {
+          "type": "boolean",
+          "description": "The surge cap held some of the day's live records back."
+        },
+        "gap": {
+          "type": "boolean",
+          "description": "The day is over and no read covered all of it, so its counts may read low."
+        }
+      }
+    }
+  }
+}
