@@ -906,6 +906,10 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       });
     }
     if (req.method === "POST" && parts[4] === "suspend" && parts.length === 5) {
+      // provisioner#95: only an account it already knows.
+      if (!state.accountTerms[did] && !state.suspended[did] && owned.length === 0) {
+        return error(404, "NotFound", "no account has this DID");
+      }
       const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
       if (!reason) return error(400, "InvalidRequest", "reason must be 1 to 500 characters");
       state.suspended[did] ??= reason;
