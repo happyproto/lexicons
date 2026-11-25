@@ -41,5 +41,6 @@ function handle(input, ctx)
   if status ~= 200 or not url then
     return billing.failure(status, body)
   end
-  return { url = url, expiresAt = billing.time(body.expires_at) }
+  local session = type(body.session_id) == "string" and body.session_id:match("^cs_[%w_]+$") and body.session_id or nil
+  return { url = url, sessionId = session, expiresAt = billing.time(body.expires_at) }
 end

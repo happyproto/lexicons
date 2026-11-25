@@ -29,7 +29,11 @@ describe("billing", () => {
     const started = await ok(billing("createCheckout"), "customer", {
       input: { plan: "small", code: "WL-1", idempotencyKey: key() },
     });
-    expect(started).toEqual({ url: "https://checkout.stripe.com/c/pay/cs_test_1", expiresAt: "2026-11-26T15:00:00Z" });
+    expect(started).toEqual({
+      url: "https://checkout.stripe.com/c/pay/cs_test_1",
+      sessionId: "cs_test_1",
+      expiresAt: "2026-11-26T15:00:00Z",
+    });
     const [asked] = (await provisioner.requests()).filter((r: { path: string }) => r.path === "/v1/billing/checkout");
     expect(asked.body).toEqual({ plan: "small", code: "WL-1", with_card: false });
 

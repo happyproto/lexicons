@@ -123,7 +123,11 @@ describe("billing.createCheckout", () => {
 
   it("asks the provisioner for a Checkout and returns only its URL", () => {
     const { out, calls } = run("billing/createCheckout", input(`, code = "WL-12345678"`), checkout);
-    expect(out).toEqual({ url: "https://checkout.stripe.com/c/pay/cs_test_1", expiresAt: "2026-11-26T15:00:00Z" });
+    expect(out).toEqual({
+      url: "https://checkout.stripe.com/c/pay/cs_test_1",
+      sessionId: "cs_test_1",
+      expiresAt: "2026-11-26T15:00:00Z",
+    });
     const post = calls.find((c) => c.fn === "post");
     expect(post.url).toBe("http://provisioner:8080/v1/billing/checkout");
     expect(post.opts.headers["Idempotency-Key"]).toBe(KEY);
@@ -219,6 +223,13 @@ describe("billing.confirmCheckout", () => {
       expect(out.error).toBe("InvalidRequest");
       expect(calls.filter((c) => c.fn === "post")).toEqual([]);
     }
+  });
+
+  it("someone else's session is refused in the provisioner's terms", () => {
+    const { out } = run("billing/confirmCheckout", input(), {
+      "/v1/billing/checkout/confirm": { status: 403, body: refusal("Forbidden", "not yours") },
+    });
+    expect(out.error).toBe("Forbidden");
   });
 
   it("passes CheckoutNotComplete and CheckoutExpired through", () => {

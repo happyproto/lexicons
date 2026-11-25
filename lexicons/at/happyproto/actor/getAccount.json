@@ -203,7 +203,8 @@
         },
         "trialEndsAt": {
           "type": "string",
-          "format": "datetime"
+          "format": "datetime",
+          "description": "When the trial ends and the first invoice is due."
         },
         "billingStartsAt": {
           "type": "string",
@@ -212,7 +213,8 @@
         },
         "currentPeriodEnd": {
           "type": "string",
-          "format": "datetime"
+          "format": "datetime",
+          "description": "When the current billing period ends: the subscription renews then, or ends if cancelAtPeriodEnd."
         },
         "discountStage": {
           "type": "string",

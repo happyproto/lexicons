@@ -52,6 +52,10 @@
               "type": "string",
               "format": "datetime",
               "description": "When the Checkout stops accepting payment."
+            },
+            "sessionId": {
+              "type": "string",
+              "description": "The Checkout Session id, which Stripe puts on the return URL; the dashboard checks the two match."
             }
           }
         }

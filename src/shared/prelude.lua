@@ -526,8 +526,9 @@ end
 -- @block billing
 -- The account's subscription, through the provisioner's /v1/billing routes
 -- and the billing object on GET /v1/account. The provisioner talks to
--- Stripe; no Stripe object, id or key reaches this API, only the URL the
--- caller is sent to and the account's own state.
+-- Stripe. No Stripe secret, customer or subscription id is returned: only
+-- the Checkout or Portal URL the caller is sent to, the Checkout Session id
+-- it comes back with, and the account's own state.
 --
 -- One table, not a local per helper: Lua allows 200 locals in a chunk, and
 -- a script with every block is near that.
