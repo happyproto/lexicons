@@ -1,0 +1,128 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.notifyCapacityQueue",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Tell the owners in the capacity queue who are due a notice that there's room again, at most 15 a call, at their proven contact address. Stops when the email budget is full. Staff only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotencyKey"
+          ],
+          "properties": {
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per press and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "sent",
+            "noContact",
+            "notVerified",
+            "unreadable",
+            "failed",
+            "remaining"
+          ],
+          "properties": {
+            "sent": {
+              "type": "integer",
+              "description": "Owners told."
+            },
+            "noContact": {
+              "type": "integer",
+              "description": "Due owners with no contact address; the dashboard tells them."
+            },
+            "notVerified": {
+              "type": "integer",
+              "description": "Due owners whose contact address isn't proven to be theirs."
+            },
+            "unreadable": {
+              "type": "integer",
+              "description": "Due owners whose preferences space couldn't be read; try again."
+            },
+            "failed": {
+              "type": "integer",
+              "description": "Sends that failed; try again."
+            },
+            "remaining": {
+              "type": "integer",
+              "description": "Due owners not tried this call: past the per-call limit, or the budget is full. Press again."
+            },
+            "retryAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "When the email budget has room again, if it filled."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not know them as staff."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "EmailNotConfigured",
+          "description": "Owner email is switched off at the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}
