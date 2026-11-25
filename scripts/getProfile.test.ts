@@ -115,3 +115,22 @@ describe("isCustomer", () => {
     expect(out).not.toHaveProperty("access");
   });
 });
+
+describe("signupOpen", () => {
+  const withEnv = (extra: string) =>
+    `{ caller_did = "did:plc:me", env = { HAPPYPROTO_DID = "${HP}", ${extra} } }`;
+
+  it("is false unless HAPPYPROTO_SIGNUP is exactly open", () => {
+    expect(run()).toMatchObject({ signupOpen: false, isCustomer: false });
+    expect(run({ ctx: withEnv(`HAPPYPROTO_SIGNUP = "Open"`) })).toMatchObject({ signupOpen: false, isCustomer: false });
+  });
+
+  it("while open, makes everyone a customer and says who is in the space", () => {
+    const open = withEnv(`HAPPYPROTO_SIGNUP = "open"`);
+    expect(run({ ctx: open })).toMatchObject({ signupOpen: true, isCustomer: true, inCustomersSpace: false });
+    expect(run({ ctx: open, access: only(CUSTOMERS, "read") })).toMatchObject({
+      isCustomer: true,
+      inCustomersSpace: true,
+    });
+  });
+});

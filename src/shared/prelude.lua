@@ -156,6 +156,19 @@ local function happyproto_space(ctx, space_type)
 end
 -- @endblock
 
+-- @block signup
+-- Open signup (HAP-509): with the HAPPYPROTO_SIGNUP script variable set to
+-- "open", the customer gate admits any signed-in caller, not only members of
+-- the customers space. Anything else, or unset, keeps it to members. The
+-- provisioner has its own switch (SIGNUP_ENABLED) for the signups it records,
+-- and the two are flipped together.
+
+--- Whether signup is open. Exactly "open": a typo keeps it closed.
+local function signup_open(ctx)
+  return (ctx.env or {}).HAPPYPROTO_SIGNUP == "open"
+end
+-- @endblock
+
 -- @block gate
 local spaces = require("happyview.spaces")
 
@@ -191,8 +204,28 @@ local function gate_admin(ctx)
   return gate_member(ctx, ADMIN_SPACE_TYPE, "admin")
 end
 
---- Customers: membership of HappyProto's customers space.
+--- Whether the caller is a member of HappyProto's customers space, whatever
+--- signup says: false for anyone else, and when the space can't be read.
+local function in_customers_space(ctx)
+  return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer") == nil
+end
+
+--- Customers: membership of HappyProto's customers space, or, while signup
+--- is open, any signed-in caller. Suspension isn't checked here: the
+--- provisioner refuses a suspended account's every change, and reads must
+--- not depend on it being up.
 local function gate_customer(ctx)
+  if signup_open(ctx) then
+    if not ctx.caller_did or ctx.caller_did == "" then
+      return failure("AuthRequired", "This endpoint requires an authenticated caller.")
+    end
+    -- Fail closed as the membership check does: with no authority
+    -- configured, nobody is a customer, open or not.
+    if not happyproto_did(ctx) then
+      return failure("Forbidden", "No customer space is configured.")
+    end
+    return nil
+  end
   return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer")
 end
 

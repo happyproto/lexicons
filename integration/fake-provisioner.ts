@@ -102,6 +102,8 @@ function fresh() {
     emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
     accountTerms: {} as Record<string, string>,
+    /** DIDs that signed up in the open beta. */
+    signedUp: [] as string[],
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -570,6 +572,7 @@ function accountBody(actor: string): Json {
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    signed_up: state.signedUp.includes(actor),
   };
 }
 
@@ -695,6 +698,17 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
+  // POST /v1/account/signup: the account signs itself up in the open beta,
+  // accepting the terms in force. Refusals (SignupsPaused, AccountSuspended)
+  // are scripted with /__script.
+  if (req.method === "POST" && resource === "account" && parts[2] === "signup" && parts.length === 3) {
+    const refused = termsRefusal(body);
+    if (refused) return refused;
+    state.accountTerms[actor] = TERMS_VERSION;
+    if (!state.signedUp.includes(actor)) state.signedUp.push(actor);
+    return reply(200, { cohort: "open_beta", terms_version: TERMS_VERSION, terms_accepted: true });
   }
 
   // PUT /v1/account/email: a blank or missing address keeps the last one, and
