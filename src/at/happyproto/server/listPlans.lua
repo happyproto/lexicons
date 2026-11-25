@@ -40,7 +40,7 @@ function handle(input, ctx)
       includedBackfillRecords = whole(p.included_backfill_records),
       -- The plan row's own limits (limit_*), never hard-coded here.
       seats = whole(p.limit_seats),
-      logRetentionDays = whole(p.limit_log_retention_days) or whole(p.log_retention_days),
+      logRetentionDays = whole(p.limit_log_retention_days),
       -- Processing: the hook workers the plan's CPU derives, and its job workers.
       hookWorkers = whole(p.hook_workers),
       jobWorkers = whole(p.job_worker_concurrency),
