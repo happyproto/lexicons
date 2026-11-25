@@ -48,6 +48,8 @@ const IMPLIES: Record<string, string[]> = {
   jobs: ["failure"],
   // provisioner_failure is domain_failure's fallback.
   domains: ["json", "failure", "provisioner"],
+  // provisioner_failure is billing_failure's fallback.
+  billing: ["json", "failure", "provisioner"],
   // The space through `gate`'s spaces handle, the account through
   // `provisioner`, the DID check through `validate`.
   preferences: ["json", "failure", "provisioner", "gate", "access", "validate", "authority", "signup"],

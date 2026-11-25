@@ -90,6 +90,42 @@
           "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
         },
         {
+          "name": "PaymentRequired",
+          "description": "Passed through from the provisioner: no subscription covers this. Start a Checkout (actor.createCheckout)."
+        },
+        {
+          "name": "CardRequired",
+          "description": "Passed through from the provisioner: a trial without a card covers one instance. Add a card (actor.createBillingPortal) for more."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Passed through from the provisioner: every trial slot without a card is taken. A Checkout with payment \"card\" starts now; otherwise the caller joins the capacity queue."
+        },
+        {
+          "name": "AccountOnHold",
+          "description": "Passed through from the provisioner: payments failed, and the account's instances stay stopped until the card is fixed."
+        },
+        {
+          "name": "CheckoutIncomplete",
+          "description": "Passed through from the provisioner: Stripe hasn't finished the Checkout yet. Try again shortly."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "Passed through from the provisioner: the Checkout was abandoned or expired. Start another."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Passed through from the provisioner: billing is switched off."
+        },
+        {
+          "name": "CodeInvalid",
+          "description": "Passed through from the provisioner: no such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "Passed through from the provisioner: that waitlist code has been used."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
         }

@@ -9,7 +9,7 @@
 -- endpoint. Another owner's instance, a deleted one and one that does not
 -- exist are the same NotFound, and nothing is changed.
 
--- @prelude gate, validate, provisioner, jobs
+-- @prelude gate, validate, provisioner, billing, jobs
 
 function handle(input, ctx)
   local refused = gate_customer(ctx)
@@ -48,8 +48,9 @@ function handle(input, ctx)
     and type(body.message) == "string" then
     return failure("PlanTooSmall", body.message)
   end
+  -- Billing's refusals pass through: a plan change can need a card first.
   if status ~= 202 or type(body) ~= "table" then
-    return provisioner_failure(status, body)
+    return billing.failure(status, body)
   end
 
   local job_id, failed = follow_operation(body.operation)

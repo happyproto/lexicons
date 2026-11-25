@@ -186,6 +186,22 @@
             "failed"
           ],
           "description": "Where its encryption key is in a rotation: none, rotating (the new key is not live yet), sealing (HappyView is re-sealing with it), retiring (the old key is being removed) or failed (a rotate_key or retire_key failed and the instance with it). From the provisioner's database alone."
+        },
+        "servedPlan": {
+          "type": "string",
+          "description": "The plan whose resources the instance runs on, when it isn't plan: hobby while a trial has no card."
+        },
+        "waitingForRoom": {
+          "type": "boolean",
+          "description": "A card was added, but the instance's host has no room for plan yet."
+        },
+        "stoppedFor": {
+          "type": "string",
+          "knownValues": [
+            "billing",
+            "trialIdle"
+          ],
+          "description": "Why the provisioner stopped it, when it did."
         }
       }
     },

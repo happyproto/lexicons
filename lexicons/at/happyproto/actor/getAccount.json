@@ -46,6 +46,14 @@
             "capacityWait": {
               "type": "ref",
               "ref": "#capacityWait"
+            },
+            "billing": {
+              "type": "ref",
+              "ref": "#billing"
+            },
+            "trialPoolFull": {
+              "type": "boolean",
+              "description": "Every trial slot without a card is taken, so a new trial must start with a card or wait in the queue."
             }
           }
         }
@@ -154,6 +162,88 @@
           "type": "string",
           "format": "datetime",
           "description": "When it is purged unless deleted now; until then it can be restored on request."
+        }
+      }
+    },
+    "billing": {
+      "type": "object",
+      "description": "The account's subscription. Absent while billing is off.",
+      "required": [
+        "status",
+        "exempt",
+        "hold",
+        "hasPaymentMethod",
+        "cancelAtPeriodEnd",
+        "creditBalanceCents",
+        "plans"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "trialing",
+            "active",
+            "past_due",
+            "paused",
+            "unpaid",
+            "canceled"
+          ],
+          "description": "The subscription's Stripe status; none before the first Checkout."
+        },
+        "exempt": {
+          "type": "boolean",
+          "description": "Staff exempted the account from billing."
+        },
+        "hold": {
+          "type": "boolean",
+          "description": "Payments failed past the retries, and the instances are stopped until the card is fixed."
+        },
+        "hasPaymentMethod": {
+          "type": "boolean",
+          "description": "A usable card is on file. While false, a trial runs every instance at Hobby resources."
+        },
+        "cancelAtPeriodEnd": {
+          "type": "boolean",
+          "description": "The subscription ends at currentPeriodEnd."
+        },
+        "creditBalanceCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Credit left on the account, in cents, used up by the next invoices."
+        },
+        "trialEndsAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "currentPeriodEnd": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "plans": {
+          "type": "array",
+          "description": "The plans the subscription bills, with a quantity each.",
+          "items": {
+            "type": "ref",
+            "ref": "#billedPlan"
+          }
+        }
+      }
+    },
+    "billedPlan": {
+      "type": "object",
+      "required": [
+        "plan",
+        "quantity"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string",
+          "description": "The plan's id."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

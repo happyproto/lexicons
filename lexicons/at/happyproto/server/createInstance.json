@@ -113,6 +113,42 @@
           "description": "The caller accepted only older beta terms than the ones in force: accept the current ones and try again."
         },
         {
+          "name": "PaymentRequired",
+          "description": "Passed through from the provisioner: no subscription covers this. Start a Checkout (actor.createCheckout)."
+        },
+        {
+          "name": "CardRequired",
+          "description": "Passed through from the provisioner: a trial without a card covers one instance. Add a card (actor.createBillingPortal) for more."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Passed through from the provisioner: every trial slot without a card is taken. A Checkout with payment \"card\" starts now; otherwise the caller joins the capacity queue."
+        },
+        {
+          "name": "AccountOnHold",
+          "description": "Passed through from the provisioner: payments failed, and the account's instances stay stopped until the card is fixed."
+        },
+        {
+          "name": "CheckoutIncomplete",
+          "description": "Passed through from the provisioner: Stripe hasn't finished the Checkout yet. Try again shortly."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "Passed through from the provisioner: the Checkout was abandoned or expired. Start another."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Passed through from the provisioner: billing is switched off."
+        },
+        {
+          "name": "CodeInvalid",
+          "description": "Passed through from the provisioner: no such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "Passed through from the provisioner: that waitlist code has been used."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
         }
@@ -177,6 +213,22 @@
           "type": "ref",
           "ref": "#operation",
           "description": "The change in progress, if any."
+        },
+        "servedPlan": {
+          "type": "string",
+          "description": "The plan whose resources the instance runs on, when it isn't plan: hobby while a trial has no card."
+        },
+        "waitingForRoom": {
+          "type": "boolean",
+          "description": "A card was added, but the instance's host has no room for plan yet, so it runs at servedPlan and waits in the capacity queue."
+        },
+        "stoppedFor": {
+          "type": "string",
+          "knownValues": [
+            "billing",
+            "trialIdle"
+          ],
+          "description": "Why the provisioner stopped it, when it did: billing, for a paused or held subscription; trialIdle, for a trial instance with no traffic for 72 hours."
         }
       }
     },

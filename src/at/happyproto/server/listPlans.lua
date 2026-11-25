@@ -2,7 +2,8 @@
 --
 -- The plans a customer can pick for a new or changed instance. Customers only.
 -- The provisioner lists only active plans; this renames the fields and passes
--- nothing else along.
+-- nothing else along. A priced plan also carries its tier, monthly price and
+-- the records a month it includes, so the dashboard never hard-codes a price.
 
 -- @prelude gate, provisioner
 
@@ -15,6 +16,14 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
 
+  -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+  local function whole(v)
+    return type(v) == "number" and v >= 0 and math.floor(v) or nil
+  end
+  local function named(v)
+    return type(v) == "string" and v ~= "" and v or nil
+  end
+
   local plans = {}
   for _, p in ipairs(body.plans) do
     plans[#plans + 1] = {
@@ -23,6 +32,12 @@ function handle(input, ctx)
       memoryMb = p.memory_mb,
       cpuMillis = p.cpu_millis,
       diskGb = p.disk_gb,
+      tier = named(p.tier),
+      priceCents = whole(p.price_cents),
+      currency = named(p.currency),
+      includedLiveRecords = whole(p.included_live_records),
+      includedBackfillRecords = whole(p.included_backfill_records),
+      logRetentionDays = whole(p.log_retention_days),
     }
   end
   return { plans = json.to_array(plans) }

@@ -103,6 +103,39 @@
         },
         "diskGb": {
           "type": "integer"
+        },
+        "tier": {
+          "type": "string",
+          "knownValues": [
+            "hobby",
+            "starter",
+            "pro",
+            "scale"
+          ],
+          "description": "The priced tier the plan is. Absent for a plan without a price."
+        },
+        "priceCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The monthly price, in the smallest unit of currency, before tax."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217, lower case, e.g. usd."
+        },
+        "includedLiveRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Live records delivered a month that the price includes."
+        },
+        "includedBackfillRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Backfill records delivered a month that the price includes."
+        },
+        "logRetentionDays": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

@@ -7,7 +7,7 @@
 --
 -- Only a customer costs a provisioner call; anyone else gets zeros.
 
--- @prelude gate, provisioner, json
+-- @prelude gate, provisioner, billing, json
 
 function handle(input, ctx)
   if not ctx.caller_did or ctx.caller_did == "" then
@@ -54,5 +54,8 @@ function handle(input, ctx)
     deletedInstances = json.to_array(deleted),
     suspended = body.suspended == true,
     capacityWait = wait,
+    -- Absent while billing is off.
+    billing = billing.public(body.billing),
+    trialPoolFull = body.trial_pool_full == true,
   }
 end

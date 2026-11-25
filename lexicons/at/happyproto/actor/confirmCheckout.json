@@ -1,0 +1,218 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.actor.confirmCheckout",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Confirm a Checkout the caller came back from, so the account's subscription is current before the webhook arrives. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "sessionId",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "maxLength": 255,
+              "description": "The Checkout Session id Stripe put on the return URL."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per request and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "billing"
+          ],
+          "properties": {
+            "billing": {
+              "type": "ref",
+              "ref": "#billing"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "sessionId or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PaymentRequired",
+          "description": "Passed through from the provisioner: no subscription covers this. Start a Checkout (actor.createCheckout)."
+        },
+        {
+          "name": "CardRequired",
+          "description": "Passed through from the provisioner: a trial without a card covers one instance. Add a card (actor.createBillingPortal) for more."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Passed through from the provisioner: every trial slot without a card is taken. A Checkout with payment \"card\" starts now; otherwise the caller joins the capacity queue."
+        },
+        {
+          "name": "AccountOnHold",
+          "description": "Passed through from the provisioner: payments failed, and the account's instances stay stopped until the card is fixed."
+        },
+        {
+          "name": "CheckoutIncomplete",
+          "description": "Passed through from the provisioner: Stripe hasn't finished the Checkout yet. Try again shortly."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "Passed through from the provisioner: the Checkout was abandoned or expired. Start another."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Passed through from the provisioner: billing is switched off."
+        },
+        {
+          "name": "CodeInvalid",
+          "description": "Passed through from the provisioner: no such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "Passed through from the provisioner: that waitlist code has been used."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "billing": {
+      "type": "object",
+      "description": "The account's subscription. Absent while billing is off.",
+      "required": [
+        "status",
+        "exempt",
+        "hold",
+        "hasPaymentMethod",
+        "cancelAtPeriodEnd",
+        "creditBalanceCents",
+        "plans"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "trialing",
+            "active",
+            "past_due",
+            "paused",
+            "unpaid",
+            "canceled"
+          ],
+          "description": "The subscription's Stripe status; none before the first Checkout."
+        },
+        "exempt": {
+          "type": "boolean",
+          "description": "Staff exempted the account from billing."
+        },
+        "hold": {
+          "type": "boolean",
+          "description": "Payments failed past the retries, and the instances are stopped until the card is fixed."
+        },
+        "hasPaymentMethod": {
+          "type": "boolean",
+          "description": "A usable card is on file. While false, a trial runs every instance at Hobby resources."
+        },
+        "cancelAtPeriodEnd": {
+          "type": "boolean",
+          "description": "The subscription ends at currentPeriodEnd."
+        },
+        "creditBalanceCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Credit left on the account, in cents, used up by the next invoices."
+        },
+        "trialEndsAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "currentPeriodEnd": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "plans": {
+          "type": "array",
+          "description": "The plans the subscription bills, with a quantity each.",
+          "items": {
+            "type": "ref",
+            "ref": "#billedPlan"
+          }
+        }
+      }
+    },
+    "billedPlan": {
+      "type": "object",
+      "required": [
+        "plan",
+        "quantity"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string",
+          "description": "The plan's id."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
