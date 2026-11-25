@@ -9,11 +9,11 @@ function handle(input, ctx)
   local refused = gate_admin(ctx)
   if refused then return refused end
 
-  local query = usage_query(input)
+  local query = usage.query(input)
   table.insert(query, 1, "tenant=" .. url_encode(input.tenant))
   local status, body = provisioner(ctx, "GET", "/v1/admin/usage?" .. table.concat(query, "&"))
   if status ~= 200 or type(body) ~= "table" then
     return provisioner_failure(status, body)
   end
-  return public_usage(body)
+  return usage.public(body)
 end

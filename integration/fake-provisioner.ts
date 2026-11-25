@@ -102,6 +102,12 @@ function fresh() {
     emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
     accountTerms: {} as Record<string, string>,
+    /** DID -> its suspension's reason, while staff have it suspended. */
+    suspended: {} as Record<string, string>,
+    /** DID -> `{plan, queued_at, notified_at}`, its place in the capacity queue. */
+    capacityWaits: {} as Record<string, Json>,
+    /** DIDs that signed up in the open beta. */
+    signedUp: [] as string[],
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -557,6 +563,13 @@ function upgradeTenant(tenant: Json, body: Json, actor: string): Response {
 }
 
 /** GET /v1/account's body for `actor`. */
+/** The actor's deleted tenants still in their grace period. */
+function inGrace(actor: string): Json[] {
+  return state.tenants.filter(
+    (t) => t.owner_did === actor && t.deleted_at && !t.purged_at && t.purge_after && Date.parse(t.purge_after) > Date.now(),
+  );
+}
+
 function accountBody(actor: string): Json {
   const count = state.tenants.filter((t) => t.owner_did === actor && !t.deleted_at).length;
   const recorded = state.accountEmails[actor] ?? {};
@@ -570,6 +583,16 @@ function accountBody(actor: string): Json {
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    deleted_instance_count: inGrace(actor).length,
+    deleted_instances: inGrace(actor).map((t) => ({
+      id: t.id,
+      slug: t.slug,
+      deleted_at: t.deleted_at,
+      purge_after: t.purge_after,
+    })),
+    suspended: Boolean(state.suspended[actor]),
+    capacity_wait: state.capacityWaits[actor] ?? null,
+    signed_up: state.signedUp.includes(actor),
   };
 }
 
@@ -695,6 +718,35 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
+  // POST /v1/tenants/:id/purge-now: give up a deleted tenant's grace period.
+  if (req.method === "POST" && resource === "tenants" && parts[3] === "purge-now" && parts.length === 4) {
+    const t = state.tenants.find((x) => x.id === id);
+    if (!t || !can(t.owner_did)) return error(404, "NotFound", "tenant not found");
+    if (!t.deleted_at || t.purged_at) {
+      return error(409, "NotInGrace", "only a deleted instance that hasn't been purged can be deleted now");
+    }
+    t.purge_after = new Date().toISOString();
+    return reply(200, { purging: true });
+  }
+
+  // DELETE /v1/account/capacity-wait: leave the capacity queue.
+  if (req.method === "DELETE" && resource === "account" && parts[2] === "capacity-wait" && parts.length === 3) {
+    const removed = Boolean(state.capacityWaits[actor]);
+    delete state.capacityWaits[actor];
+    return reply(200, { removed });
+  }
+
+  // POST /v1/account/signup: the account signs itself up in the open beta,
+  // accepting the terms in force. Refusals (SignupsPaused, AccountSuspended)
+  // are scripted with /__script.
+  if (req.method === "POST" && resource === "account" && parts[2] === "signup" && parts.length === 3) {
+    const refused = termsRefusal(body);
+    if (refused) return refused;
+    state.accountTerms[actor] = TERMS_VERSION;
+    if (!state.signedUp.includes(actor)) state.signedUp.push(actor);
+    return reply(200, { cohort: "open_beta", terms_version: TERMS_VERSION, terms_accepted: true });
   }
 
   // PUT /v1/account/email: a blank or missing address keeps the last one, and
@@ -865,6 +917,88 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
   if (req.method === "GET" && resource === "hosts" && parts.length === 2) {
     if (!staff) return error(403, "Forbidden", "staff only");
     return reply(200, hostsList());
+  }
+
+  // api/fleet.rs and api/capacity_notify.rs: the capacity queue. Every
+  // waiting row counts as due here; there's no placement to ask.
+  if (resource === "admin" && id === "capacity-waits") {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    if (req.method === "GET" && parts.length === 3) {
+      const due = url.searchParams.get("due") === "true";
+      const waits = Object.entries(state.capacityWaits)
+        .filter(([, w]) => !due || !w.notified_at)
+        .map(([did, w]) => ({ did, ...w, preferences_space: state.preferencesSpaces[did] ?? null }));
+      return reply(200, { waits, waiting: {} });
+    }
+    if (req.method === "POST" && parts[3] === "notify" && parts.length === 4) {
+      const notices = Array.isArray(body?.notices) ? body.notices : [];
+      if (notices.length < 1 || notices.length > 15) return error(400, "InvalidRequest", "notices must hold 1 to 15 notices");
+      const results = notices.map((n: Json) => {
+        const w = state.capacityWaits[n.did];
+        if (!w || w.notified_at) return { did: n.did, outcome: "not_waiting" };
+        const proven = (state.emailProofs[n.did] ?? []).includes(String(n.email).trim().toLowerCase());
+        if (!proven) return { did: n.did, outcome: "not_verified" };
+        w.notified_at = new Date().toISOString();
+        return { did: n.did, outcome: "sent" };
+      });
+      return reply(200, { results });
+    }
+  }
+
+  // api/suspension.rs: an account's cohort and suspension, and staff
+  // suspending it or lifting that. Accounts here are any DID asked about.
+  if (resource === "admin" && id === "accounts" && parts.length >= 4) {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    const did = decodeURIComponent(parts[3]);
+    if (!did.startsWith("did:")) return error(400, "InvalidRequest", "did must be a DID");
+    const owned = state.tenants.filter((t) => t.owner_did === did && !t.deleted_at);
+    if (req.method === "GET" && parts.length === 4) {
+      if (!state.accountTerms[did] && !state.suspended[did] && owned.length === 0) {
+        return error(404, "NotFound", "no account has this DID");
+      }
+      const reason = state.suspended[did];
+      return reply(200, {
+        account: {
+          did,
+          cohort: "closed_beta",
+          created_at: "2026-11-01T00:00:00Z",
+          instance_count: owned.length,
+          suspension: reason ? { suspended_at: "2026-11-23T00:00:00Z", suspended_by: actor, reason } : null,
+        },
+      });
+    }
+    if (req.method === "POST" && parts[4] === "suspend" && parts.length === 5) {
+      // provisioner#95: only an account it already knows.
+      if (!state.accountTerms[did] && !state.suspended[did] && owned.length === 0) {
+        return error(404, "NotFound", "no account has this DID");
+      }
+      const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+      if (!reason) return error(400, "InvalidRequest", "reason must be 1 to 500 characters");
+      state.suspended[did] ??= reason;
+      let stopped = 0;
+      for (const t of owned) {
+        if (t.desired_state === "running") {
+          t.desired_state = "stopped";
+          t.stopped_by_suspension = true;
+          stopped++;
+        }
+      }
+      return reply(200, { suspended: true, stopped });
+    }
+    if (req.method === "POST" && parts[4] === "unsuspend" && parts.length === 5) {
+      let started = 0;
+      if (state.suspended[did]) {
+        delete state.suspended[did];
+        for (const t of owned) {
+          if (t.stopped_by_suspension && t.desired_state === "stopped") {
+            t.desired_state = "running";
+            t.stopped_by_suspension = false;
+            started++;
+          }
+        }
+      }
+      return reply(200, { suspended: false, started });
+    }
   }
 
   if (req.method === "GET" && resource === "admin" && parts.length === 3) {

@@ -529,6 +529,9 @@ describe("actor.getAccount", () => {
       isCustomer: true,
       instanceCount: 2,
       instanceLimit: 3,
+      deletedInstanceCount: 0,
+      deletedInstances: [],
+      suspended: false,
     });
     const [request] = await provisioner.requests();
     expect(request.path).toBe("/v1/account");
@@ -563,7 +566,7 @@ describe("actor.getTerms", () => {
   const GET_TERMS = "at.happyproto.actor.getTerms";
 
   test("a customer who hasn't accepted is told so, with the terms in force", async () => {
-    expect(await ok(GET_TERMS, "customer")).toEqual({ termsVersion: TERMS.termsVersion, accepted: false });
+    expect(await ok(GET_TERMS, "customer")).toEqual({ termsVersion: TERMS.termsVersion, accepted: false, signedUp: false });
     const [request, ...rest] = await provisioner.requests();
     expect(rest).toEqual([]);
     expect(`${request.method} ${request.path}`).toBe("GET /v1/account");

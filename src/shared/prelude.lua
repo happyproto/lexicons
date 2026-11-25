@@ -156,6 +156,19 @@ local function happyproto_space(ctx, space_type)
 end
 -- @endblock
 
+-- @block signup
+-- Open signup (HAP-509): with the HAPPYPROTO_SIGNUP script variable set to
+-- "open", the customer gate admits any signed-in caller, not only members of
+-- the customers space. Anything else, or unset, keeps it to members. The
+-- provisioner has its own switch (SIGNUP_ENABLED) for the signups it records,
+-- and the two are flipped together.
+
+--- Whether signup is open. Exactly "open": a typo keeps it closed.
+local function signup_open(ctx)
+  return (ctx.env or {}).HAPPYPROTO_SIGNUP == "open"
+end
+-- @endblock
+
 -- @block gate
 local spaces = require("happyview.spaces")
 
@@ -191,8 +204,28 @@ local function gate_admin(ctx)
   return gate_member(ctx, ADMIN_SPACE_TYPE, "admin")
 end
 
---- Customers: membership of HappyProto's customers space.
+--- Whether the caller is a member of HappyProto's customers space, whatever
+--- signup says: false for anyone else, and when the space can't be read.
+local function in_customers_space(ctx)
+  return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer") == nil
+end
+
+--- Customers: membership of HappyProto's customers space, or, while signup
+--- is open, any signed-in caller. Suspension isn't checked here: the
+--- provisioner refuses a suspended account's every change, and reads must
+--- not depend on it being up.
 local function gate_customer(ctx)
+  if signup_open(ctx) then
+    if not ctx.caller_did or ctx.caller_did == "" then
+      return failure("AuthRequired", "This endpoint requires an authenticated caller.")
+    end
+    -- Fail closed as the membership check does: with no authority
+    -- configured, nobody is a customer, open or not.
+    if not happyproto_did(ctx) then
+      return failure("Forbidden", "No customer space is configured.")
+    end
+    return nil
+  end
   return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer")
 end
 
@@ -204,6 +237,21 @@ local function gate_owner(ctx)
   local did = happyproto_did(ctx)
   if not did or ctx.caller_did ~= did then
     return failure("Forbidden", "Only HappyProto's own account can do this.")
+  end
+  return nil
+end
+
+--- The provisioner: the caller is exactly PROVISIONER_DID, the identity it
+--- signs service-auth tokens as (HAP-463). For `at.happyproto.internal.*`,
+--- which HappyView reaches only through a `specific` service entry listing
+--- them. Everyone else, a signed-out caller, and an unset or malformed
+--- PROVISIONER_DID are all Forbidden, so the endpoints are inert until the
+--- variable is set. HAPPYPROTO_DID is refused even if the variable names it:
+--- HappyProto's account signs in to the dashboard and must not reach these.
+local function gate_provisioner(ctx)
+  local did = (ctx.env or {}).PROVISIONER_DID
+  if not is_did(did) or ctx.caller_did ~= did or did == happyproto_did(ctx) then
+    return failure("Forbidden", "Only the provisioner can do this.")
   end
   return nil
 end
@@ -383,6 +431,10 @@ local PASSTHROUGH = {
   InstanceLimit = true,
   NoCapacity = true,
   OperationInProgress = true,
+  -- Staff suspended the owner's account (HAP-511).
+  AccountSuspended = true,
+  -- A plan owners may not pick for themselves (SELF_SERVE_PLANS).
+  PlanNotOffered = true,
 }
 
 -- Provisioner codes that mean something to a caller under another name:
@@ -537,6 +589,29 @@ local preferences = {
   -- preferences.space's reason while contact email is switched off.
   OFF = "contact email is not switched on",
 }
+
+--- The caller's PDS address and whether the PDS says it is confirmed, or
+--- nil, read through their own session with happyview.account's email()
+--- (behind HappyView's caller:email capability). `require` raises when the
+--- library isn't installed, and `email` raises on any failure, so both run
+--- under pcall and any failure reads as "no address". Never logs it.
+function preferences.pds_email()
+  local ok, address = pcall(function() return require("happyview.account").email() end)
+  if not ok then
+    log.info("could not read the caller's PDS email", { error = tostring(address) })
+    return nil, nil
+  end
+  if type(address) ~= "table" then
+    return nil, nil
+  end
+  local email = address.email
+  if type(email) ~= "string" or email == "" then
+    return nil, nil
+  end
+  local confirmed = address.email_confirmed
+  if type(confirmed) ~= "boolean" then confirmed = nil end
+  return email, confirmed
+end
 
 --- Enough to refuse garbage before anything is written; the provisioner and
 --- the link are the authority.
@@ -1287,7 +1362,10 @@ end
 -- provisioner adds later is never passed along by accident.
 
 -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
-local function usage_only(v, kind)
+-- One local, `usage`: the prelude is near Lua's 200-local limit.
+local usage = {}
+
+function usage.only(v, kind)
   if type(v) == kind then
     return v
   end
@@ -1295,22 +1373,22 @@ local function usage_only(v, kind)
 end
 
 --- `{tenant, grain, rows, gaps}` from a usage route's body.
-local function public_usage(body)
+function usage.public(body)
   local rows = {}
   for _, r in ipairs(type(body.rows) == "table" and body.rows or {}) do
     rows[#rows + 1] = {
-      hour = usage_only(r.hour, "string"),
-      day = usage_only(r.day, "string"),
+      hour = usage.only(r.hour, "string"),
+      day = usage.only(r.day, "string"),
       runningSeconds = r.running_seconds,
       cpuUsec = r.cpu_usec,
       memByteSeconds = r.mem_byte_seconds,
       memPeakBytes = r.mem_peak_bytes,
       egressBytes = r.egress_bytes,
       ingressBytes = r.ingress_bytes,
-      diskAvgBytes = usage_only(r.disk_avg_bytes, "number"),
-      diskPeakBytes = usage_only(r.disk_peak_bytes, "number"),
-      seats = usage_only(r.seats, "number"),
-      apiClients = usage_only(r.api_clients, "number"),
+      diskAvgBytes = usage.only(r.disk_avg_bytes, "number"),
+      diskPeakBytes = usage.only(r.disk_peak_bytes, "number"),
+      seats = usage.only(r.seats, "number"),
+      apiClients = usage.only(r.api_clients, "number"),
       partial = r.partial,
     }
   end
@@ -1327,7 +1405,7 @@ local function public_usage(body)
 end
 
 --- The query string a usage read forwards: from, to and grain, when given.
-local function usage_query(input)
+function usage.query(input)
   local query = {}
   for _, key in ipairs({ "from", "to", "grain" }) do
     if type(input[key]) == "string" and input[key] ~= "" then

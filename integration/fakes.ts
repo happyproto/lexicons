@@ -36,6 +36,8 @@ export const provisioner = {
     staff?: string[];
     instanceLimit?: number;
     entitlementMode?: "invite" | "staff";
+    /** DID -> `{plan, queued_at, notified_at}`: the capacity queue. */
+    capacityWaits?: Record<string, any>;
     invites?: any[];
     /** CUSTOM_DOMAINS_ENABLED; off unless set. */
     customDomains?: boolean;
