@@ -27,5 +27,5 @@ function handle(input, ctx)
   if status ~= 200 or type(body) ~= "table" then
     return provisioner_failure(status, body)
   end
-  return public_records(body)
+  return records.public(body)
 end

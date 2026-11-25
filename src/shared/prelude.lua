@@ -1345,11 +1345,12 @@ end
 -- listed explicitly, so a field the provisioner adds later is never passed
 -- along by accident. Dollars become whole cents: lexicons have no floats.
 
--- The helpers share one local: the prelude is near Lua's 200-local limit.
-local R = {}
+-- The whole block is one local, `records`: the prelude is near Lua's
+-- 200-local limit.
+local records = {}
 
 -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
-function R.only(v, kind)
+function records.only(v, kind)
   if type(v) == kind then
     return v
   end
@@ -1357,14 +1358,14 @@ function R.only(v, kind)
 end
 
 -- Both halves or nothing: the lexicons require both.
-function R.pair(v)
+function records.pair(v)
   if type(v) ~= "table" or type(v.live) ~= "number" or type(v.backfill) ~= "number" then
     return nil
   end
   return { live = v.live, backfill = v.backfill }
 end
 
-function R.cents(v)
+function records.cents(v)
   if type(v) ~= "table" then return nil end
   local function cents(usd)
     if type(usd) ~= "number" then return nil end
@@ -1375,35 +1376,35 @@ function R.cents(v)
   return { live = live, backfill = backfill }
 end
 
-function R.totals(t)
+function records.totals(t)
   t = type(t) == "table" and t or {}
   return {
-    liveActual = R.only(t.live_actual, "number") or 0,
-    liveBillable = R.only(t.live_billable, "number") or 0,
-    backfill = R.only(t.backfill, "number") or 0,
-    storePass = R.only(t.store_pass, "number") or 0,
-    retry = R.only(t.retry, "number") or 0,
-    unknown = R.only(t.unknown, "number") or 0,
+    liveActual = records.only(t.live_actual, "number") or 0,
+    liveBillable = records.only(t.live_billable, "number") or 0,
+    backfill = records.only(t.backfill, "number") or 0,
+    storePass = records.only(t.store_pass, "number") or 0,
+    retry = records.only(t.retry, "number") or 0,
+    unknown = records.only(t.unknown, "number") or 0,
   }
 end
 
-function R.period(p)
+function records.period(p)
   p = type(p) == "table" and p or {}
-  return { start = R.only(p.start, "string"), ["end"] = R.only(p["end"], "string") }
+  return { start = records.only(p.start, "string"), ["end"] = records.only(p["end"], "string") }
 end
 
 --- One instance's period, from /tenants/:id/records-usage.
-local function public_records(body)
+function records.public(body)
   local days = {}
   for _, d in ipairs(type(body.days) == "table" and body.days or {}) do
     days[#days + 1] = {
-      day = R.only(d.day, "string"),
-      live = R.only(d.live, "number") or 0,
-      backfill = R.only(d.backfill, "number") or 0,
-      storePass = R.only(d.store_pass, "number") or 0,
-      retry = R.only(d.retry, "number") or 0,
-      unknown = R.only(d.unknown, "number") or 0,
-      billableLive = R.only(d.billable_live, "number") or 0,
+      day = records.only(d.day, "string"),
+      live = records.only(d.live, "number") or 0,
+      backfill = records.only(d.backfill, "number") or 0,
+      storePass = records.only(d.store_pass, "number") or 0,
+      retry = records.only(d.retry, "number") or 0,
+      unknown = records.only(d.unknown, "number") or 0,
+      billableLive = records.only(d.billable_live, "number") or 0,
       capped = d.capped == true,
       gap = d.gap == true,
     }
@@ -1413,42 +1414,42 @@ local function public_records(body)
     if type(day) == "string" then capped[#capped + 1] = day end
   end
   return {
-    period = R.period(body.period),
-    tier = R.only(body.tier, "string"),
-    included = R.pair(body.included),
-    totals = R.totals(body.totals),
-    overage = R.pair(body.overage),
-    overageCents = R.cents(body.overage_usd),
+    period = records.period(body.period),
+    tier = records.only(body.tier, "string"),
+    included = records.pair(body.included),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
     cappedDays = json.to_array(capped),
-    projectedMonthEnd = R.pair(body.projected_month_end),
+    projectedMonthEnd = records.pair(body.projected_month_end),
     days = json.to_array(days),
-    source = R.only(body.source, "string"),
+    source = records.only(body.source, "string"),
   }
 end
 
 --- Every instance's totals and their sum, from /account/records-usage.
-local function public_account_records(body)
+function records.account(body)
   local instances = {}
   for _, i in ipairs(type(body.instances) == "table" and body.instances or {}) do
     instances[#instances + 1] = {
-      id = R.only(i.id, "string"),
-      slug = R.only(i.slug, "string"),
-      tier = R.only(i.tier, "string"),
-      included = R.pair(i.included),
-      totals = R.totals(i.totals),
-      overage = R.pair(i.overage),
-      overageCents = R.cents(i.overage_usd),
-      projectedMonthEnd = R.pair(i.projected_month_end),
-      gapDays = R.only(i.gap_days, "number") or 0,
+      id = records.only(i.id, "string"),
+      slug = records.only(i.slug, "string"),
+      tier = records.only(i.tier, "string"),
+      included = records.pair(i.included),
+      totals = records.totals(i.totals),
+      overage = records.pair(i.overage),
+      overageCents = records.cents(i.overage_usd),
+      projectedMonthEnd = records.pair(i.projected_month_end),
+      gapDays = records.only(i.gap_days, "number") or 0,
     }
   end
   return {
-    period = R.period(body.period),
-    totals = R.totals(body.totals),
-    overage = R.pair(body.overage),
-    overageCents = R.cents(body.overage_usd),
+    period = records.period(body.period),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
     instances = json.to_array(instances),
-    source = R.only(body.source, "string"),
+    source = records.only(body.source, "string"),
   }
 end
 -- @endblock

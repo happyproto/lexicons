@@ -918,10 +918,10 @@ describe("follow_operation", () => {
 });
 
 describe("records", () => {
-  it("public_records leaves nulls absent, rounds dollars to cents, and drops what it doesn't know", () => {
+  it("records.public leaves nulls absent, rounds dollars to cents, and drops what it doesn't know", () => {
     const { r1 } = run(`
       local null = setmetatable({}, { __name = "null" })
-      return public_records({
+      return records.public({
         period = { start = "2026-12-01", ["end"] = "2027-01-01" },
         tier = null, included = null, overage = { live = 5, backfill = null },
         overage_usd = { live = 0.125, backfill = 2.004 },
@@ -942,10 +942,10 @@ describe("records", () => {
     });
   });
 
-  it("public_account_records keeps each instance's own nulls absent", () => {
+  it("records.account keeps each instance's own nulls absent", () => {
     const { r1 } = run(`
       local null = setmetatable({}, { __name = "null" })
-      return public_account_records({
+      return records.account({
         period = { start = "2026-12-01", ["end"] = "2027-01-01" },
         totals = {}, overage = { live = 0, backfill = 0 }, overage_usd = { live = 0, backfill = 0 },
         instances = { { id = "i-1", slug = "one", tier = null, included = null, totals = {},
