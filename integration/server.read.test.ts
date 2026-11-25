@@ -461,8 +461,7 @@ describe("server.getRecordsUsage", () => {
     await fails(server("getRecordsUsage"), "customer", "InvalidRequest", { params: { id: "../plans" } });
   });
 
-  test("staff reach only their own instances here, and someone else's records are never read", async () => {
-    await fails(server("getRecordsUsage"), "staff", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
+  test("someone else's instance is NotFound, and its records are never read", async () => {
     await fails(server("getRecordsUsage"), "customer", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
     const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/records-usage"));
     expect(reads).toEqual([]);
@@ -470,6 +469,21 @@ describe("server.getRecordsUsage", () => {
 
   test("is Forbidden to non-customers", async () => {
     await fails(server("getRecordsUsage"), "outsider", "Forbidden", { params: { id: RUNNING_ID } });
+  });
+
+  describe("for staff who are customers too", () => {
+    beforeEach(async () => {
+      await putMember(s.accounts.happyproto, s.client.key, s.spaces.customers, s.accounts.staff.did);
+    });
+    afterEach(async () => {
+      await removeMember(s.accounts.happyproto, s.client.key, s.spaces.customers, s.accounts.staff.did);
+    });
+
+    test("only their own instances, though the provisioner would answer for any", async () => {
+      await fails(server("getRecordsUsage"), "staff", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
+      const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/records-usage"));
+      expect(reads).toEqual([]);
+    });
   });
 });
 
