@@ -590,6 +590,29 @@ local preferences = {
   OFF = "contact email is not switched on",
 }
 
+--- The caller's PDS address and whether the PDS says it is confirmed, or
+--- nil, read through their own session with happyview.account's email()
+--- (behind HappyView's caller:email capability). `require` raises when the
+--- library isn't installed, and `email` raises on any failure, so both run
+--- under pcall and any failure reads as "no address". Never logs it.
+function preferences.pds_email()
+  local ok, address = pcall(function() return require("happyview.account").email() end)
+  if not ok then
+    log.info("could not read the caller's PDS email", { error = tostring(address) })
+    return nil, nil
+  end
+  if type(address) ~= "table" then
+    return nil, nil
+  end
+  local email = address.email
+  if type(email) ~= "string" or email == "" then
+    return nil, nil
+  end
+  local confirmed = address.email_confirmed
+  if type(confirmed) ~= "boolean" then confirmed = nil end
+  return email, confirmed
+end
+
 --- Enough to refuse garbage before anything is written; the provisioner and
 --- the link are the authority.
 function preferences.is_email(s)
