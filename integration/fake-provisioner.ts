@@ -14,11 +14,8 @@
  *
  * Control routes, all under /__:
  *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
- *                    entitlementMode?, invites?, accountTerms?, termsPrevious? }. accountTerms maps a DID to
- *                    the terms version its account accepted at sign-in. termsPrevious is
- *                    {version, until} (TERMS_PREVIOUS_VERSION and TERMS_PREVIOUS_UNTIL): an
- *                    account on that version still counts as accepted before until, and is
- *                    told of the terms to come. invites are rows as the
+ *                    entitlementMode?, invites?, accountTerms? }. accountTerms maps a DID to
+ *                    the terms version its account accepted at sign-in. invites are rows as the
  *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
  *                    change) or "staff" (entitlement.rs today: only staff may,
@@ -105,8 +102,8 @@ function fresh() {
     emailLinks: [] as Json[],
     /** DID -> the terms version its account last accepted at sign-in. */
     accountTerms: {} as Record<string, string>,
-    /** The previous terms and when they stop counting, during a change. */
-    termsPrevious: null as { version: string; until: string } | null,
+    /** DIDs that signed up in the open beta. */
+    signedUp: [] as string[],
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -469,7 +466,7 @@ function termsRefusal(terms: Json): Response | null {
 function accountTermsRefusal(actor: string): Response | null {
   const accepted = state.accountTerms[actor];
   if (accepted === undefined) return error(400, "TermsRequired", "accept the beta terms to create an instance");
-  if (accepted !== TERMS_VERSION && !onPreviousTerms(actor)) {
+  if (accepted !== TERMS_VERSION) {
     return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
   }
   return null;
@@ -574,19 +571,9 @@ function accountBody(actor: string): Json {
     preferences_space: state.preferencesSpaces[actor] ?? null,
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
-    terms_accepted: state.accountTerms[actor] === TERMS_VERSION || onPreviousTerms(actor),
-    ...(onPreviousTerms(actor)
-      ? { terms_upcoming: { terms_version: TERMS_VERSION, effective_at: state.termsPrevious!.until } }
-      : {}),
+    terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    signed_up: state.signedUp.includes(actor),
   };
-}
-
-/** Whether the account is on the previous terms, while they still count. */
-function onPreviousTerms(actor: string): boolean {
-  const previous = state.termsPrevious;
-  return previous !== null
-    && state.accountTerms[actor] === previous.version
-    && Date.now() < Date.parse(previous.until);
 }
 
 /**
@@ -711,6 +698,17 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
+  // POST /v1/account/signup: the account signs itself up in the open beta,
+  // accepting the terms in force. Refusals (SignupsPaused, AccountSuspended)
+  // are scripted with /__script.
+  if (req.method === "POST" && resource === "account" && parts[2] === "signup" && parts.length === 3) {
+    const refused = termsRefusal(body);
+    if (refused) return refused;
+    state.accountTerms[actor] = TERMS_VERSION;
+    if (!state.signedUp.includes(actor)) state.signedUp.push(actor);
+    return reply(200, { cohort: "open_beta", terms_version: TERMS_VERSION, terms_accepted: true });
   }
 
   // PUT /v1/account/email: a blank or missing address keeps the last one, and
