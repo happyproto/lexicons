@@ -524,48 +524,38 @@ end
 -- @endblock
 
 -- @block billing
--- The account's subscription, through the provisioner's /billing routes and
--- the billing object on GET /v1/account. The provisioner talks to Stripe; no
--- Stripe object, id or key ever reaches this API, only the URL the caller is
--- sent to and the account's own state.
+-- The account's subscription, through the provisioner's /v1/billing routes
+-- and the billing object on GET /v1/account. The provisioner talks to
+-- Stripe; no Stripe object, id or key reaches this API, only the URL the
+-- caller is sent to and the account's own state.
 --
 -- One table, not a local per helper: Lua allows 200 locals in a chunk, and
 -- a script with every block is near that.
 local billing = {}
 
--- Codes the provisioner's billing checks chose to say to a caller, passed
--- through with their message. Anything else goes to provisioner_failure.
---   PaymentRequired: no subscription covers this; start a Checkout.
---   CardRequired: a trial without a card holds one instance; add a card for
---     more.
---   TrialPoolFull: every trial slot without a card is taken; add a card to
---     start now, or wait in the queue.
---   AccountOnHold: payments failed, and instances stay stopped until the
---     card is fixed.
---   CheckoutIncomplete: Stripe hasn't finished the Checkout yet; try again.
---   CheckoutExpired: the Checkout was abandoned or ran out of time.
---   BillingUnavailable: billing is switched off.
---   CodeInvalid / CodeUsed: a waitlist code that doesn't exist, or was used.
+-- Codes the provisioner's billing checks say to a caller, each with our own
+-- fixed message; the provisioner's text is never passed on. Anything else
+-- goes to provisioner_failure.
 billing.ERRORS = {
-  PaymentRequired = true,
-  CardRequired = true,
-  TrialPoolFull = true,
-  AccountOnHold = true,
-  CheckoutIncomplete = true,
-  CheckoutExpired = true,
-  BillingUnavailable = true,
-  CodeInvalid = true,
-  CodeUsed = true,
+  PaymentRequired = "No subscription covers this yet. Start a Checkout first.",
+  AlreadySubscribed = "This account already has a subscription.",
+  CardRequired = "A trial without a card covers one instance. Add a card for more.",
+  TrialPoolFull = "Every trial place without a card is taken. Add a card to start now.",
+  CheckoutNotComplete = "Stripe hasn't finished this Checkout yet. Try again shortly.",
+  CheckoutExpired = "This Checkout expired. Start another.",
+  NoBillingAccount = "This account has no billing account yet. Start a Checkout first.",
+  BillingUnavailable = "Billing is unavailable right now. Try again later.",
+  InvalidCode = "That waitlist code doesn't exist.",
+  CodeUsed = "That waitlist code has been used.",
+  CodeExpired = "That waitlist code has expired.",
 }
 
---- A refusal mapped to a failure table: a billing.ERRORS code with its
---- message, otherwise whatever provisioner_failure makes of it.
+--- A refusal mapped to a failure table: a billing.ERRORS code with our
+--- message for it, otherwise whatever provisioner_failure makes of it.
 function billing.failure(status, decoded)
   if type(status) == "number" and status >= 400 and type(decoded) == "table"
-    and billing.ERRORS[decoded.error] then
-    local message = type(decoded.message) == "string" and decoded.message ~= ""
-      and decoded.message or "Billing refused the request."
-    return failure(decoded.error, message)
+    and type(decoded.error) == "string" and billing.ERRORS[decoded.error] then
+    return failure(decoded.error, billing.ERRORS[decoded.error])
   end
   return provisioner_failure(status, decoded)
 end
@@ -575,43 +565,69 @@ function billing.text(v)
   return type(v) == "string" and v ~= "" and v or nil
 end
 
---- The URL the provisioner made for a Checkout or a Portal session, or nil
---- when it isn't an https URL. The dashboard navigates to it, so nothing else
---- may pass.
-function billing.url(v)
-  if type(v) == "string" and v:match("^https://[%w%-%.]+%.%a+/") then
+--- An RFC 3339 timestamp string, or nil.
+function billing.time(v)
+  if type(v) == "string" and v:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d") then
     return v
   end
   return nil
 end
 
---- The customer `billing`: `{status, exempt, hold, hasPaymentMethod,
---- cancelAtPeriodEnd, creditBalanceCents, trialEndsAt?, currentPeriodEnd?,
---- plans}`, or nil when the provisioner sent none (billing off, or a
---- provisioner from before billing). Each field is listed explicitly, so a
---- field the provisioner adds later is never passed along by accident.
+-- Stripe's hosted pages. BILLING_URL_HOSTS (comma-separated) replaces the
+-- list, for a custom Checkout or Portal domain.
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
+
+--- The URL the provisioner made for a Checkout or a Portal session, or nil
+--- unless it is https on one of the allowed hosts. The dashboard navigates
+--- to it.
+function billing.url(ctx, v)
+  if type(v) ~= "string" then return nil end
+  local host = v:match("^https://([%w%-%.]+)/")
+  if not host then return nil end
+  host = host:lower()
+  local env = ctx.env or {}
+  local list = type(env.BILLING_URL_HOSTS) == "string" and env.BILLING_URL_HOSTS ~= ""
+    and env.BILLING_URL_HOSTS or billing.HOSTS
+  for allowed in list:gmatch("[^,%s]+") do
+    if host == allowed:lower() then return v end
+  end
+  return nil
+end
+
+--- The customer `billing`: `{status, exempt, hasPaymentMethod,
+--- cancelAtPeriodEnd, plans, trialEndsAt?, billingStartsAt?,
+--- currentPeriodEnd?, discountStage?, creditCode?}`, or nil when the
+--- provisioner sent none (billing off, or not billing this account). Each
+--- field is listed explicitly, so a field the provisioner adds later is never
+--- passed along by accident.
 function billing.public(b)
   if type(b) ~= "table" then
     return nil
   end
   local plans = {}
-  if type(b.plans) == "table" then
-    for _, p in ipairs(b.plans) do
-      if type(p) == "table" and type(p.plan) == "string" and type(p.quantity) == "number" then
-        plans[#plans + 1] = { plan = p.plan, quantity = p.quantity }
+  local listed = b.plans_on_subscription
+  if type(listed) == "table" then
+    for _, p in ipairs(listed) do
+      local q = type(p) == "table" and p.quantity
+      if type(p) == "table" and type(p.plan) == "string" and math.type(q) == "integer" and q >= 0 then
+        plans[#plans + 1] = { plan = p.plan, quantity = q }
       end
     end
   end
-  local credit = b.credit_balance_cents
+  local code = nil
+  if type(b.credit_code) == "table" then
+    code = { reserved = b.credit_code.reserved == true, applied = b.credit_code.applied == true }
+  end
   return {
     status = billing.text(b.status) or "none",
     exempt = b.exempt == true,
-    hold = b.hold == true,
     hasPaymentMethod = b.has_payment_method == true,
     cancelAtPeriodEnd = b.cancel_at_period_end == true,
-    creditBalanceCents = type(credit) == "number" and credit > 0 and math.floor(credit) or 0,
-    trialEndsAt = billing.text(b.trial_ends_at),
-    currentPeriodEnd = billing.text(b.current_period_end),
+    trialEndsAt = billing.time(b.trial_ends_at),
+    billingStartsAt = billing.time(b.billing_starts_at),
+    currentPeriodEnd = billing.time(b.current_period_end),
+    discountStage = billing.text(b.discount_stage),
+    creditCode = code,
     plans = json.to_array(plans),
   }
 end
@@ -958,7 +974,8 @@ local function public_instance(t, op)
     operation = public_operation(op),
     servedPlan = served ~= t.plan_id and served or nil,
     waitingForRoom = t.clamp_waiting_for_room == true or nil,
-    stoppedFor = type(t.stopped_reason) == "string" and stopped_for[t.stopped_reason] or nil,
+    stoppedFor = t.desired_state == "stopped" and type(t.stopped_reason) == "string"
+      and stopped_for[t.stopped_reason] or nil,
   }
 end
 

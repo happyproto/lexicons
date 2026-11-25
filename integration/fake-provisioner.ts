@@ -112,7 +112,7 @@ function fresh() {
     billing: {} as Record<string, Json>,
     /** Whether every trial slot without a card is taken. */
     trialPoolFull: false,
-    /** Checkouts started: `{actor, plan, payment, code, session_id}`, oldest first. */
+    /** Checkouts started: `{actor, plan, with_card, code, session_id}`, oldest first. */
     checkouts: [] as Json[],
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
@@ -741,10 +741,11 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
 
   // POST /v1/billing/checkout: start a Checkout for the actor's account.
   if (req.method === "POST" && resource === "billing" && parts[2] === "checkout" && parts.length === 3) {
-    if (!state.plans.some((p) => p.id === body?.plan)) return error(400, "UnknownPlan", "no such plan");
+    if (!state.plans.some((p) => p.id === body?.plan)) return error(400, "PlanNotOffered", "that plan isn't offered");
     if (body?.code === "USED") return error(400, "CodeUsed", "that code has been used");
+    if (state.billing[actor]) return error(409, "AlreadySubscribed", "the account has a subscription");
     const session_id = `cs_test_${state.checkouts.length + 1}`;
-    state.checkouts.push({ actor, plan: body.plan, payment: body.payment, code: body.code ?? null, session_id });
+    state.checkouts.push({ actor, plan: body.plan, with_card: body.with_card === true, code: body.code ?? null, session_id });
     return reply(200, {
       url: `https://checkout.stripe.com/c/pay/${session_id}`,
       session_id,
@@ -755,26 +756,29 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
   // POST /v1/billing/checkout/confirm: the actor came back from a Checkout.
   if (req.method === "POST" && resource === "billing" && parts[2] === "checkout" && parts[3] === "confirm") {
     const started = state.checkouts.find((c) => c.session_id === body?.session_id && c.actor === actor);
-    if (!started) return error(404, "NotFound", "no such checkout");
+    if (!started) return error(400, "CheckoutNotComplete", "that checkout isn't complete");
     state.billing[actor] = {
-      status: started.payment === "trial" ? "trialing" : "active",
-      exempt: false,
-      hold: false,
-      has_payment_method: started.payment === "card",
-      cancel_at_period_end: false,
-      credit_balance_cents: 0,
-      trial_ends_at: started.payment === "trial" ? "2026-12-09T15:00:00Z" : null,
+      status: "trialing",
+      provider: "stripe_mp",
+      trial_ends_at: "2026-12-09T15:00:00Z",
+      billing_starts_at: null,
       current_period_end: "2026-12-09T15:00:00Z",
-      plans: [{ plan: started.plan, quantity: 0 }],
-      stripe_customer_id: "cus_never_passed_on",
+      cancel_at_period_end: false,
+      has_payment_method: started.with_card,
+      exempt: false,
+      hold: null,
+      discount_stage: null,
+      credit_code: { reserved: Boolean(started.code), applied: false },
+      plans_on_subscription: [{ plan: started.plan, quantity: 0 }],
+      customer_id: "cus_never_passed_on",
     };
-    return reply(200, { billing: state.billing[actor] });
+    return reply(200, state.billing[actor]);
   }
 
   // POST /v1/billing/portal: a Portal session for the actor's account.
   if (req.method === "POST" && resource === "billing" && parts[2] === "portal" && parts.length === 3) {
-    if (!state.billing[actor]) return error(402, "PaymentRequired", "start a subscription first");
-    return reply(200, { url: `https://billing.stripe.com/p/session/${body?.flow}` });
+    if (!state.billing[actor]) return error(409, "NoBillingAccount", "no billing account yet");
+    return reply(200, { url: `https://billing.stripe.com/p/session/${body?.flow ?? "home"}` });
   }
 
   // DELETE /v1/account/capacity-wait: leave the capacity queue.

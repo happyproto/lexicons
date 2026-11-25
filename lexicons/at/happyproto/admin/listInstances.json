@@ -189,11 +189,11 @@
         },
         "servedPlan": {
           "type": "string",
-          "description": "The plan whose resources the instance runs on, when it isn't plan: hobby while a trial has no card."
+          "description": "The plan whose resources the instance runs on, when it isn't plan: during a trial without a card, the trial's Hobby resources."
         },
         "waitingForRoom": {
           "type": "boolean",
-          "description": "A card was added, but the instance's host has no room for plan yet."
+          "description": "A card was added, but the instance's host has no room for plan yet, so it runs at servedPlan and waits in the capacity queue."
         },
         "stoppedFor": {
           "type": "string",
@@ -201,7 +201,7 @@
             "billing",
             "trialIdle"
           ],
-          "description": "Why the provisioner stopped it, when it did."
+          "description": "Why the provisioner stopped it, while it is stopped: billing, for a paused or held subscription; trialIdle, for a trial instance that had no traffic for a while."
         }
       }
     },

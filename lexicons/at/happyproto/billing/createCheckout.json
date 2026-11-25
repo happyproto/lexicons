@@ -1,40 +1,36 @@
 {
   "lexicon": 1,
-  "id": "at.happyproto.actor.createCheckout",
+  "id": "at.happyproto.billing.createCheckout",
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Start a Stripe Checkout for the caller's subscription, and return the URL to send them to. Stripe sends them back to the dashboard, which confirms it with actor.confirmCheckout. Customers only.",
+      "description": "Start a Stripe Checkout for the caller's subscription, and return the URL to send them to. Stripe sends them back to the dashboard, which confirms it with billing.confirmCheckout. Customers only.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
           "required": [
             "plan",
-            "payment",
             "idempotencyKey"
           ],
           "properties": {
             "plan": {
               "type": "string",
+              "maxLength": 64,
               "description": "The plan's id, from at.happyproto.server.listPlans."
             },
-            "payment": {
-              "type": "string",
-              "knownValues": [
-                "trial",
-                "card"
-              ],
-              "description": "trial: the 14-day trial without a card, at Hobby resources until a card is added. card: take a card now and run the plan at once, which skips the trial pool."
+            "withCard": {
+              "type": "boolean",
+              "description": "Take a card now and run the plan at once, which skips the trial pool. Without it, an account that hasn't had a trial gets one without a card, at Hobby resources until a card is added."
             },
             "code": {
               "type": "string",
               "maxLength": 64,
-              "description": "A waitlist code, reserved for the account until the Checkout completes or expires."
+              "description": "A waitlist code, held for the account until the Checkout completes or expires."
             },
             "idempotencyKey": {
               "type": "string",
-              "description": "A UUID the client generates once per request and resends on every retry of it."
+              "description": "A UUID the client generates once per request and resends on every retry of it. Only a success is kept against it: after a refusal, retrying with the same key runs the request again."
             }
           }
         }
@@ -71,7 +67,7 @@
         },
         {
           "name": "InvalidRequest",
-          "description": "plan, payment or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+          "description": "plan, code or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
         },
         {
           "name": "NotFound",
@@ -111,39 +107,47 @@
         },
         {
           "name": "PaymentRequired",
-          "description": "Passed through from the provisioner: no subscription covers this. Start a Checkout (actor.createCheckout)."
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
         },
         {
           "name": "CardRequired",
-          "description": "Passed through from the provisioner: a trial without a card covers one instance. Add a card (actor.createBillingPortal) for more."
+          "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
         },
         {
           "name": "TrialPoolFull",
-          "description": "Passed through from the provisioner: every trial slot without a card is taken. A Checkout with payment \"card\" starts now; otherwise the caller joins the capacity queue."
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
         },
         {
-          "name": "AccountOnHold",
-          "description": "Passed through from the provisioner: payments failed, and the account's instances stay stopped until the card is fixed."
-        },
-        {
-          "name": "CheckoutIncomplete",
-          "description": "Passed through from the provisioner: Stripe hasn't finished the Checkout yet. Try again shortly."
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
         },
         {
           "name": "CheckoutExpired",
-          "description": "Passed through from the provisioner: the Checkout was abandoned or expired. Start another."
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
         },
         {
           "name": "BillingUnavailable",
-          "description": "Passed through from the provisioner: billing is switched off."
+          "description": "Billing is switched off, or unavailable for now."
         },
         {
-          "name": "CodeInvalid",
-          "description": "Passed through from the provisioner: no such waitlist code."
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
         },
         {
           "name": "CodeUsed",
-          "description": "Passed through from the provisioner: that waitlist code has been used."
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
         },
         {
           "name": "Upstream",

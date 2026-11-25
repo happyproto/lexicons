@@ -1,6 +1,6 @@
 /**
- * Billing as a customer sees it: actor.createCheckout, actor.confirmCheckout,
- * actor.createBillingPortal and actor.getAccount's billing, on a real
+ * Billing as a customer sees it: billing.createCheckout, billing.confirmCheckout,
+ * billing.createPortalSession and actor.getAccount's billing, on a real
  * HappyView v3 against the fake provisioner.
  */
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -9,6 +9,7 @@ import { stack, type Stack } from "./setup";
 import { fails, ok } from "./xrpc";
 
 const actor = (name: string) => `at.happyproto.actor.${name}`;
+const billing = (name: string) => `at.happyproto.billing.${name}`;
 const key = () => crypto.randomUUID();
 
 let s: Stack;
@@ -25,18 +26,19 @@ describe("billing", () => {
   test("a trial Checkout, confirmed, shows on the account", async () => {
     expect((await ok(actor("getAccount"), "customer")).billing).toBeUndefined();
 
-    const started = await ok(actor("createCheckout"), "customer", {
-      input: { plan: "small", payment: "trial", code: "WAIT-1", idempotencyKey: key() },
+    const started = await ok(billing("createCheckout"), "customer", {
+      input: { plan: "small", code: "WL-1", idempotencyKey: key() },
     });
     expect(started).toEqual({ url: "https://checkout.stripe.com/c/pay/cs_test_1", expiresAt: "2026-11-26T15:00:00Z" });
     const [asked] = (await provisioner.requests()).filter((r: { path: string }) => r.path === "/v1/billing/checkout");
-    expect(asked.body).toEqual({ plan: "small", payment: "trial", code: "WAIT-1" });
+    expect(asked.body).toEqual({ plan: "small", code: "WL-1", with_card: false });
 
-    const confirmed = await ok(actor("confirmCheckout"), "customer", {
+    const confirmed = await ok(billing("confirmCheckout"), "customer", {
       input: { sessionId: "cs_test_1", idempotencyKey: key() },
     });
     expect(confirmed.billing).toMatchObject({ status: "trialing", hasPaymentMethod: false, trialEndsAt: "2026-12-09T15:00:00Z" });
-    expect(confirmed.billing.stripeCustomerId).toBeUndefined();
+    expect(confirmed.billing.customerId).toBeUndefined();
+    expect(confirmed.billing.creditCode).toEqual({ reserved: true, applied: false });
 
     const account = await ok(actor("getAccount"), "customer");
     expect(account.billing).toEqual(confirmed.billing);
@@ -44,28 +46,28 @@ describe("billing", () => {
   });
 
   test("the Portal needs a subscription, then opens on the card", async () => {
-    await fails(actor("createBillingPortal"), "customer", "PaymentRequired", {
+    await fails(billing("createPortalSession"), "customer", "NoBillingAccount", {
       input: { flow: "paymentMethod", idempotencyKey: key() },
     });
-    await ok(actor("createCheckout"), "customer", { input: { plan: "small", payment: "card", idempotencyKey: key() } });
-    await ok(actor("confirmCheckout"), "customer", { input: { sessionId: "cs_test_1", idempotencyKey: key() } });
+    await ok(billing("createCheckout"), "customer", { input: { plan: "small", withCard: true, idempotencyKey: key() } });
+    await ok(billing("confirmCheckout"), "customer", { input: { sessionId: "cs_test_1", idempotencyKey: key() } });
     expect(
-      await ok(actor("createBillingPortal"), "customer", { input: { flow: "paymentMethod", idempotencyKey: key() } }),
+      await ok(billing("createPortalSession"), "customer", { input: { flow: "paymentMethod", idempotencyKey: key() } }),
     ).toEqual({ url: "https://billing.stripe.com/p/session/payment_method_update" });
   });
 
   test("a used code is refused in the provisioner's words", async () => {
-    await fails(actor("createCheckout"), "customer", "CodeUsed", {
-      input: { plan: "small", payment: "trial", code: "USED", idempotencyKey: key() },
+    await fails(billing("createCheckout"), "customer", "CodeUsed", {
+      input: { plan: "small", code: "USED", idempotencyKey: key() },
     });
   });
 
   test("an unknown Checkout confirms nothing, and outsiders are refused", async () => {
-    await fails(actor("confirmCheckout"), "customer", "NotFound", {
+    await fails(billing("confirmCheckout"), "customer", "CheckoutNotComplete", {
       input: { sessionId: "cs_test_9", idempotencyKey: key() },
     });
-    await fails(actor("createCheckout"), "outsider", "Forbidden", {
-      input: { plan: "small", payment: "trial", idempotencyKey: key() },
+    await fails(billing("createCheckout"), "outsider", "Forbidden", {
+      input: { plan: "small", idempotencyKey: key() },
     });
   });
 });

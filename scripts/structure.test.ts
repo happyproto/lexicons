@@ -187,10 +187,6 @@ const GATE_EXCEPTIONS: Record<string, Gate> = {
   // The actor directory has no gate of its own (each script there decides
   // for itself); this one is plainly a customer's.
   "at/happyproto/actor/leaveCapacityQueue": "gate_customer",
-  // Billing: a customer's own subscription.
-  "at/happyproto/actor/createCheckout": "gate_customer",
-  "at/happyproto/actor/confirmCheckout": "gate_customer",
-  "at/happyproto/actor/createBillingPortal": "gate_customer",
 };
 
 /** Directory under at/happyproto/ -> the gate its handlers must open with. */
@@ -198,6 +194,8 @@ const GATE_FOR_DIR: Record<string, Gate> = {
   fleet: "gate_admin",
   admin: "gate_admin",
   server: "gate_customer",
+  // The caller's own subscription.
+  billing: "gate_customer",
 };
 
 /**
@@ -369,7 +367,7 @@ export function contactCodes(prelude: string): string[] {
 export function billingCodes(prelude: string): string[] {
   const table = prelude.match(/\bbilling\.ERRORS\s*=\s*\{([\s\S]*?)\}/);
   if (!table) throw new Error("prelude: no billing.ERRORS table in the billing block");
-  return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*true/g)].map((m) => m[1]);
+  return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*"/g)].map((m) => m[1]);
 }
 
 /**
@@ -603,8 +601,8 @@ describe("each rule flags a bad fixture", () => {
     // Only that script: another admin.* script may not open with gate_owner.
     expect(gateOffences("src/at/happyproto/admin/getX.lua", owner)).not.toEqual([]);
     // A directory nobody has mapped is refused, not left open.
-    expect(gateOffences("src/at/happyproto/billing/getInvoice.lua", open)).not.toEqual([]);
-    expect(requiredGate("src/at/happyproto/billing/getInvoice.lua")).toBe("unmapped");
+    expect(gateOffences("src/at/happyproto/invoices/getInvoice.lua", open)).not.toEqual([]);
+    expect(requiredGate("src/at/happyproto/invoices/getInvoice.lua")).toBe("unmapped");
   });
 
   test("customer endpoints never query ClickHouse", () => {
@@ -786,7 +784,7 @@ describe("each rule flags a bad fixture", () => {
 
   test("the billing codes are read from the prelude", () => {
     expect(
-      billingCodes("billing.ERRORS = {\n  PaymentRequired = true,\n  CardRequired = true,\n}\n"),
+      billingCodes('billing.ERRORS = {\n  PaymentRequired = "a",\n  CardRequired = "b",\n}\n'),
     ).toEqual(["PaymentRequired", "CardRequired"]);
   });
 

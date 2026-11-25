@@ -1,12 +1,12 @@
--- at.happyproto.actor.confirmCheckout
+-- at.happyproto.billing.confirmCheckout
 --
 -- Confirm a Checkout the caller has come back from. Customers only.
 --
 -- The provisioner fetches the Checkout Session from Stripe itself and checks
--- it belongs to the caller's account, so the session id is only a lookup
--- key: a made-up or another account's id confirms nothing. The webhook makes
--- the same change later; this makes it current for the page the caller lands
--- on.
+-- that it belongs to the caller's account, so the session id is only a
+-- lookup key. Stripe's webhook makes the same change later; this makes it
+-- current for the page the caller lands on. Only a success is kept against
+-- the idempotencyKey, so after CheckoutNotComplete the same key may retry.
 
 -- @prelude gate, validate, provisioner, billing
 
@@ -24,8 +24,9 @@ function handle(input, ctx)
   local status, body = provisioner(ctx, "POST", "/v1/billing/checkout/confirm", {
     session_id = id,
   }, input.idempotencyKey)
-  local state = type(body) == "table" and billing.public(body.billing) or nil
-  if status ~= 200 or not state then
+  -- The provisioner answers with the billing object itself.
+  local state = status == 200 and billing.public(body) or nil
+  if not state then
     return billing.failure(status, body)
   end
   return { billing = state }

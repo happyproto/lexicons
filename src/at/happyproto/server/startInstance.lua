@@ -28,7 +28,8 @@ function handle(input, ctx)
   if not found then return missing end
 
   local status, body = provisioner(ctx, "POST", "/v1/tenants/" .. id .. "/start", nil, input.idempotencyKey)
-  -- Billing's refusals pass through: a stopped trial or billing hold can need a card first.
+  -- Billing's refusals pass through: starting a trial instance again can
+  -- find the trial pool full.
   if status ~= 202 or type(body) ~= "table" then
     return billing.failure(status, body)
   end

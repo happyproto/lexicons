@@ -53,7 +53,7 @@
             },
             "trialPoolFull": {
               "type": "boolean",
-              "description": "Every trial slot without a card is taken, so a new trial must start with a card or wait in the queue."
+              "description": "Every trial place without a card is taken, so a new trial has to start with a card."
             }
           }
         }
@@ -167,14 +167,12 @@
     },
     "billing": {
       "type": "object",
-      "description": "The account's subscription. Absent while billing is off.",
+      "description": "The account's subscription. Absent while billing is off, or doesn't apply to the account.",
       "required": [
         "status",
         "exempt",
-        "hold",
         "hasPaymentMethod",
         "cancelAtPeriodEnd",
-        "creditBalanceCents",
         "plans"
       ],
       "properties": {
@@ -189,36 +187,40 @@
             "unpaid",
             "canceled"
           ],
-          "description": "The subscription's Stripe status; none before the first Checkout."
+          "description": "The subscription's status; none before the first Checkout."
         },
         "exempt": {
           "type": "boolean",
           "description": "Staff exempted the account from billing."
         },
-        "hold": {
-          "type": "boolean",
-          "description": "Payments failed past the retries, and the instances are stopped until the card is fixed."
-        },
         "hasPaymentMethod": {
           "type": "boolean",
-          "description": "A usable card is on file. While false, a trial runs every instance at Hobby resources."
+          "description": "A usable card is on file. While a trial has none, the account's instances run at Hobby resources."
         },
         "cancelAtPeriodEnd": {
           "type": "boolean",
           "description": "The subscription ends at currentPeriodEnd."
         },
-        "creditBalanceCents": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Credit left on the account, in cents, used up by the next invoices."
-        },
         "trialEndsAt": {
           "type": "string",
           "format": "datetime"
         },
+        "billingStartsAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the first charge is due, for a closed-beta account whose billing starts later."
+        },
         "currentPeriodEnd": {
           "type": "string",
           "format": "datetime"
+        },
+        "discountStage": {
+          "type": "string",
+          "description": "Where the account is in its closed-beta discount, when it has one."
+        },
+        "creditCode": {
+          "type": "ref",
+          "ref": "#creditCode"
         },
         "plans": {
           "type": "array",
@@ -244,6 +246,24 @@
         "quantity": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "creditCode": {
+      "type": "object",
+      "description": "The account's waitlist code.",
+      "required": [
+        "reserved",
+        "applied"
+      ],
+      "properties": {
+        "reserved": {
+          "type": "boolean",
+          "description": "Held for the account by a Checkout."
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "Its credit is on the account."
         }
       }
     }

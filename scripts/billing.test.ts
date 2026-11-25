@@ -1,6 +1,6 @@
 /**
- * The billing scripts, executed: actor.createCheckout, actor.confirmCheckout
- * and actor.createBillingPortal, the billing fields on actor.getAccount and
+ * The billing scripts, executed: billing.createCheckout, billing.confirmCheckout
+ * and billing.createPortalSession, the billing fields on actor.getAccount and
  * the instance shape, and the billing refusals a create passes through.
  * Generated from source as `bun run gen` does and run under Lua 5.4 against
  * stub modules.
@@ -23,12 +23,13 @@ async function generated(source: string): Promise<string> {
 }
 const SCRIPTS: Record<string, string> = {};
 for (const name of [
-  "actor/createCheckout",
-  "actor/confirmCheckout",
-  "actor/createBillingPortal",
+  "billing/createCheckout",
+  "billing/confirmCheckout",
+  "billing/createPortalSession",
   "actor/getAccount",
   "server/createInstance",
   "server/startInstance",
+  "server/updateInstance",
   "server/getInstance",
   "server/listPlans",
 ]) {
@@ -39,7 +40,7 @@ const HP = "did:plc:hp";
 const CUSTOMERS = `at://${HP}/space/at.happyproto.customers/main`;
 const KEY = "4f0c2e3a-1b2c-4d5e-8f90-123456789abc";
 const ID = "11111111-1111-4111-8111-111111111111";
-const ENV = `{ HAPPYPROTO_DID = "${HP}", PROVISIONER_URL = "http://provisioner:8080/", PROVISIONER_TOKEN = "tok" }`;
+const envOf = (extra = "") => `{ HAPPYPROTO_DID = "${HP}", PROVISIONER_URL = "http://provisioner:8080/", PROVISIONER_TOKEN = "tok"${extra} }`;
 
 /**
  * Run `script` with `input` (a Lua table literal). `replies` maps a URL
@@ -50,7 +51,7 @@ function run(
   script: string,
   input: string,
   replies: Record<string, { status: number; body: string }> = {},
-  { customer = true }: { customer?: boolean } = {},
+  { customer = true, env = "" }: { customer?: boolean; env?: string } = {},
 ): { out: any; calls: any[] } {
   if (!lua) {
     throw new Error(
@@ -61,8 +62,13 @@ function run(
   }
   const entries = Object.entries(replies);
   const decoded = entries.map(([, r], i) => `__decoded['{"r":${i}}'] = ${r.body}`);
+  // A key is a URL suffix, optionally after a method: "patch /v1/tenants/x".
   const routes = entries
-    .map(([suffix, r], i) => `if url:sub(-${suffix.length}) == "${suffix}" then return { status = ${r.status}, body = '{"r":${i}}', headers = {} } end`)
+    .map(([route, r], i) => {
+      const [, method, suffix] = route.match(/^(?:(get|post|patch|delete) )?(.*)$/)!;
+      const when = method ? `method == "${method}" and ` : "";
+      return `if ${when}url:sub(-${suffix.length}) == "${suffix}" then return { status = ${r.status}, body = '{"r":${i}}', headers = {} } end`;
+    })
     .join("\n  ");
   const source = [
     HARNESS,
@@ -70,7 +76,7 @@ function run(
     `__access = function(uri, did) return ${customer ? `uri == "${CUSTOMERS}" and "read" or nil` : "nil"} end`,
     ...decoded,
     `__reply = function(method, url, opts)\n  ${routes}\n  return { status = 500, body = "", headers = {} }\nend`,
-    `local out = handle(${input}, { caller_did = "did:plc:alice", env = ${ENV} })`,
+    `local out = handle(${input}, { caller_did = "did:plc:alice", env = ${envOf(env)} })`,
     `io.write(__encode({ out = out, calls = __calls }))`,
   ].join("\n\n");
   const result = Bun.spawnSync([lua, "-"], { stdin: new TextEncoder().encode(source) });
@@ -88,26 +94,26 @@ const refusal = (error: string, message = "said by the provisioner") =>
   `{ error = "${error}", message = "${message}" }`;
 
 const BILLING = `{
-  status = "trialing", exempt = false, hold = false, has_payment_method = false,
-  cancel_at_period_end = false, credit_balance_cents = 1000,
-  trial_ends_at = "2026-12-21T15:00:00Z", current_period_end = "2026-12-21T15:00:00Z",
-  plans = { { plan = "pro", quantity = 1 } },
-  stripe_customer_id = "cus_secret",
+  status = "trialing", provider = "stripe_mp", exempt = false, hold = "null", has_payment_method = false,
+  cancel_at_period_end = false, trial_ends_at = "2026-12-21T15:00:00Z",
+  current_period_end = "2026-12-21T15:00:00Z", discount_stage = "",
+  credit_code = { reserved = true, applied = false },
+  plans_on_subscription = { { plan = "pro", quantity = 1 } },
+  customer_id = "cus_secret",
 }`;
 const PUBLIC_BILLING = {
   status: "trialing",
   exempt: false,
-  hold: false,
   hasPaymentMethod: false,
   cancelAtPeriodEnd: false,
-  creditBalanceCents: 1000,
   trialEndsAt: "2026-12-21T15:00:00Z",
   currentPeriodEnd: "2026-12-21T15:00:00Z",
+  creditCode: { reserved: true, applied: false },
   plans: [{ plan: "pro", quantity: 1 }],
 };
 
-describe("actor.createCheckout", () => {
-  const input = (extra = "") => `{ plan = "pro", payment = "trial", idempotencyKey = "${KEY}"${extra} }`;
+describe("billing.createCheckout", () => {
+  const input = (extra = "") => `{ plan = "pro", idempotencyKey = "${KEY}"${extra} }`;
   const checkout = {
     "/v1/billing/checkout": {
       status: 200,
@@ -116,104 +122,138 @@ describe("actor.createCheckout", () => {
   };
 
   it("asks the provisioner for a Checkout and returns only its URL", () => {
-    const { out, calls } = run("actor/createCheckout", input(`, code = "WAIT-1234"`), checkout);
+    const { out, calls } = run("billing/createCheckout", input(`, code = "WL-12345678"`), checkout);
     expect(out).toEqual({ url: "https://checkout.stripe.com/c/pay/cs_test_1", expiresAt: "2026-11-26T15:00:00Z" });
     const post = calls.find((c) => c.fn === "post");
     expect(post.url).toBe("http://provisioner:8080/v1/billing/checkout");
     expect(post.opts.headers["Idempotency-Key"]).toBe(KEY);
-    expect(bodyOf(post)).toEqual({ plan: "pro", payment: "trial", code: "WAIT-1234" });
+    expect(bodyOf(post)).toEqual({ plan: "pro", code: "WL-12345678", with_card: false });
   });
 
-  it("refuses a bad payment, plan, code or key before asking the provisioner", () => {
+  it("withCard asks for a card now", () => {
+    const { calls } = run("billing/createCheckout", input(", withCard = true"), checkout);
+    expect(bodyOf(calls.find((c) => c.fn === "post"))).toEqual({ plan: "pro", with_card: true });
+  });
+
+  it("refuses a bad plan, code, withCard or key before asking the provisioner", () => {
     for (const bad of [
-      `{ plan = "pro", payment = "later", idempotencyKey = "${KEY}" }`,
-      `{ plan = "", payment = "card", idempotencyKey = "${KEY}" }`,
-      `{ plan = "pro", payment = "card", idempotencyKey = "nope" }`,
-      `{ plan = "pro", payment = "card", code = "${"x".repeat(65)}", idempotencyKey = "${KEY}" }`,
+      `{ plan = "", idempotencyKey = "${KEY}" }`,
+      `{ plan = "${"p".repeat(65)}", idempotencyKey = "${KEY}" }`,
+      `{ plan = "pro", withCard = "yes", idempotencyKey = "${KEY}" }`,
+      `{ plan = "pro", idempotencyKey = "nope" }`,
+      `{ plan = "pro", code = "${"x".repeat(65)}", idempotencyKey = "${KEY}" }`,
     ]) {
-      const { out, calls } = run("actor/createCheckout", bad, checkout);
+      const { out, calls } = run("billing/createCheckout", bad, checkout);
       expect(out.error).toBe("InvalidRequest");
       expect(calls.filter((c) => c.fn === "post")).toEqual([]);
     }
   });
 
-  it("never hands back a URL that isn't https", () => {
-    for (const url of ["http://checkout.stripe.com/x", "javascript:alert(1)//", "https://user@evil.example/x"]) {
-      const { out } = run("actor/createCheckout", input(), {
+  it("hands back only an https URL on a Stripe host", () => {
+    for (const url of [
+      "http://checkout.stripe.com/x",
+      "javascript:alert(1)//",
+      "https://user@checkout.stripe.com/x",
+      "https://checkout.stripe.com.example.net/x",
+      "https://example.com/x",
+    ]) {
+      const { out } = run("billing/createCheckout", input(), {
         "/v1/billing/checkout": { status: 200, body: `{ url = "${url}" }` },
       });
       expect(out.error).toBe("Upstream");
     }
   });
 
-  it("passes the billing refusals through, and is customers only", () => {
-    for (const code of ["BillingUnavailable", "CodeInvalid", "CodeUsed", "TrialPoolFull"]) {
-      const { out } = run("actor/createCheckout", input(), {
-        "/v1/billing/checkout": { status: 409, body: refusal(code) },
+  it("BILLING_URL_HOSTS replaces the allowed hosts", () => {
+    const reply = { "/v1/billing/checkout": { status: 200, body: `{ url = "https://pay.happyproto.at/c/1" }` } };
+    expect(run("billing/createCheckout", input(), reply, { env: `, BILLING_URL_HOSTS = "pay.happyproto.at"` }).out.url).toBe(
+      "https://pay.happyproto.at/c/1",
+    );
+    expect(run("billing/createCheckout", input(), reply).out.error).toBe("Upstream");
+    const stripe = run("billing/createCheckout", input(), checkout, { env: `, BILLING_URL_HOSTS = "pay.happyproto.at"` });
+    expect(stripe.out.error).toBe("Upstream");
+  });
+
+  it("passes the billing refusals through in its own words, and is customers only", () => {
+    for (const [status, code] of [
+      [409, "AlreadySubscribed"],
+      [400, "InvalidCode"],
+      [400, "CodeUsed"],
+      [400, "CodeExpired"],
+      [409, "TrialPoolFull"],
+      [503, "BillingUnavailable"],
+    ] as const) {
+      const { out } = run("billing/createCheckout", input(), {
+        "/v1/billing/checkout": { status, body: refusal(code, "provisioner detail") },
       });
-      expect(out).toEqual({ error: code, message: "said by the provisioner" });
+      expect(out.error).toBe(code);
+      expect(out.message).not.toContain("provisioner detail");
     }
-    const outsider = run("actor/createCheckout", input(), checkout, { customer: false });
+    const outsider = run("billing/createCheckout", input(), checkout, { customer: false });
     expect(outsider.out.error).toBe("Forbidden");
     expect(outsider.calls.filter((c) => c.fn === "post")).toEqual([]);
   });
 
   it("an unknown provisioner code is Upstream, with nothing of its body", () => {
-    const { out } = run("actor/createCheckout", input(), {
-      "/v1/billing/checkout": { status: 500, body: refusal("StripeKeyInvalid", "sk_live_leaked") },
+    const { out } = run("billing/createCheckout", input(), {
+      "/v1/billing/checkout": { status: 500, body: refusal("SomethingInternal", "internal detail") },
     });
     expect(out).toEqual({ error: "Upstream", message: "The provisioner could not complete the request." });
   });
 });
 
-describe("actor.confirmCheckout", () => {
+describe("billing.confirmCheckout", () => {
   const input = (id = "cs_test_a1B2") => `{ sessionId = "${id}", idempotencyKey = "${KEY}" }`;
 
   it("confirms the session and returns the account's billing, field by field", () => {
-    const { out, calls } = run("actor/confirmCheckout", input(), {
-      "/v1/billing/checkout/confirm": { status: 200, body: `{ billing = ${BILLING} }` },
+    const { out, calls } = run("billing/confirmCheckout", input(), {
+      "/v1/billing/checkout/confirm": { status: 200, body: BILLING },
     });
     expect(out).toEqual({ billing: PUBLIC_BILLING });
-    const post = calls.find((c) => c.fn === "post");
-    expect(bodyOf(post)).toEqual({ session_id: "cs_test_a1B2" });
+    expect(bodyOf(calls.find((c) => c.fn === "post"))).toEqual({ session_id: "cs_test_a1B2" });
   });
 
   it("refuses anything that isn't a Checkout Session id", () => {
     for (const id of ["", "pi_123", "cs_../../admin", `cs_${"a".repeat(260)}`]) {
-      const { out, calls } = run("actor/confirmCheckout", input(id));
+      const { out, calls } = run("billing/confirmCheckout", input(id));
       expect(out.error).toBe("InvalidRequest");
       expect(calls.filter((c) => c.fn === "post")).toEqual([]);
     }
   });
 
-  it("passes CheckoutIncomplete and CheckoutExpired through", () => {
-    for (const code of ["CheckoutIncomplete", "CheckoutExpired"]) {
-      const { out } = run("actor/confirmCheckout", input(), {
-        "/v1/billing/checkout/confirm": { status: 409, body: refusal(code) },
+  it("passes CheckoutNotComplete and CheckoutExpired through", () => {
+    for (const code of ["CheckoutNotComplete", "CheckoutExpired"]) {
+      const { out } = run("billing/confirmCheckout", input(), {
+        "/v1/billing/checkout/confirm": { status: 400, body: refusal(code) },
       });
       expect(out.error).toBe(code);
     }
   });
 });
 
-describe("actor.createBillingPortal", () => {
-  it("maps the flow to the provisioner's name for it", () => {
-    for (const [flow, wire] of [
-      ["paymentMethod", "payment_method_update"],
-      ["manage", "manage"],
-    ]) {
-      const { out, calls } = run("actor/createBillingPortal", `{ flow = "${flow}", idempotencyKey = "${KEY}" }`, {
-        "/v1/billing/portal": { status: 200, body: `{ url = "https://billing.stripe.com/p/session/x" }` },
-      });
-      expect(out).toEqual({ url: "https://billing.stripe.com/p/session/x" });
-      expect(bodyOf(calls.find((c) => c.fn === "post"))).toEqual({ flow: wire });
-    }
+describe("billing.createPortalSession", () => {
+  const portal = { "/v1/billing/portal": { status: 200, body: `{ url = "https://billing.stripe.com/p/session/x" }` } };
+
+  it("asks for the card form, or the Portal home", () => {
+    const card = run("billing/createPortalSession", `{ flow = "paymentMethod", idempotencyKey = "${KEY}" }`, portal);
+    expect(card.out).toEqual({ url: "https://billing.stripe.com/p/session/x" });
+    expect(bodyOf(card.calls.find((c) => c.fn === "post"))).toEqual({ flow: "payment_method_update" });
+    const home = run("billing/createPortalSession", `{ idempotencyKey = "${KEY}" }`, portal);
+    expect(home.out.url).toBe("https://billing.stripe.com/p/session/x");
+    expect(bodyOf(home.calls.find((c) => c.fn === "post"))).toEqual({});
   });
 
   it("refuses an unknown flow before asking the provisioner", () => {
-    const { out, calls } = run("actor/createBillingPortal", `{ flow = "payment_method_update", idempotencyKey = "${KEY}" }`);
+    const { out, calls } = run("billing/createPortalSession", `{ flow = "manage", idempotencyKey = "${KEY}" }`, portal);
     expect(out.error).toBe("InvalidRequest");
     expect(calls.filter((c) => c.fn === "post")).toEqual([]);
+  });
+
+  it("an account without a billing account is NoBillingAccount", () => {
+    const { out } = run("billing/createPortalSession", `{ idempotencyKey = "${KEY}" }`, {
+      "/v1/billing/portal": { status: 409, body: refusal("NoBillingAccount") },
+    });
+    expect(out.error).toBe("NoBillingAccount");
   });
 });
 
@@ -234,14 +274,16 @@ describe("actor.getAccount", () => {
     expect(out.trialPoolFull).toBe(false);
   });
 
-  it("never reports a negative credit or a malformed billed plan", () => {
+  it("keeps only well-formed billed plans and timestamps", () => {
     const { out } = run(
       "actor/getAccount",
       "{}",
-      account(`, billing = { status = "active", credit_balance_cents = -500, plans = { { plan = "pro" }, { plan = "hobby", quantity = 2 } } }`),
+      account(
+        `, billing = { status = "active", trial_ends_at = "soon", plans_on_subscription = { { plan = "pro" }, { plan = "x", quantity = -1 }, { plan = "y", quantity = 1.5 }, { plan = "hobby", quantity = 2 } } }`,
+      ),
     );
-    expect(out.billing.creditBalanceCents).toBe(0);
     expect(out.billing.plans).toEqual([{ plan: "hobby", quantity: 2 }]);
+    expect(out.billing.trialEndsAt).toBeUndefined();
   });
 });
 
@@ -262,6 +304,16 @@ describe("the instance shape", () => {
     expect(out.instance).toMatchObject({ plan: "pro", servedPlan: "hobby", stoppedFor: "trialIdle", waitingForRoom: true });
   });
 
+  it("reports stoppedFor only while the instance is stopped", () => {
+    const { out } = run("server/getInstance", `{ id = "${ID}" }`, {
+      [`/v1/tenants/${ID}`]: {
+        status: 200,
+        body: tenant(`, stopped_reason = "trial_idle"`).replace('desired_state = "stopped", observed_state = "stopped"', 'desired_state = "running", observed_state = "running"'),
+      },
+    });
+    expect(out.instance.stoppedFor).toBeUndefined();
+  });
+
   it("leaves them out when the instance runs its own plan and the owner stopped it", () => {
     const { out } = run("server/getInstance", `{ id = "${ID}" }`, {
       [`/v1/tenants/${ID}`]: { status: 200, body: tenant(`, resource_plan_id = "pro", stopped_reason = "owner"`) },
@@ -276,14 +328,13 @@ describe("billing refusals on instance changes", () => {
   it("a create passes PaymentRequired, CardRequired and TrialPoolFull through", () => {
     for (const [status, code] of [
       [402, "PaymentRequired"],
-      [402, "CardRequired"],
-      [503, "TrialPoolFull"],
-      [402, "AccountOnHold"],
+      [403, "CardRequired"],
+      [409, "TrialPoolFull"],
     ] as const) {
       const { out } = run("server/createInstance", `{ slug = "my-app", plan = "pro", idempotencyKey = "${KEY}" }`, {
         "/v1/tenants": { status, body: refusal(code) },
       });
-      expect(out).toEqual({ error: code, message: "said by the provisioner" });
+      expect(out.error).toBe(code);
     }
   });
 
@@ -293,9 +344,22 @@ describe("billing refusals on instance changes", () => {
         status: 200,
         body: `{ tenant = { id = "${ID}", owner_did = "did:plc:alice" } }`,
       },
-      [`/v1/tenants/${ID}/start`]: { status: 503, body: refusal("TrialPoolFull") },
+      [`/v1/tenants/${ID}/start`]: { status: 409, body: refusal("TrialPoolFull") },
     });
     expect(out.error).toBe("TrialPoolFull");
+  });
+
+  it("a plan change passes PaymentRequired and CardRequired through", () => {
+    for (const [status, code] of [
+      [402, "PaymentRequired"],
+      [403, "CardRequired"],
+    ] as const) {
+      const { out } = run("server/updateInstance", `{ id = "${ID}", plan = "pro", idempotencyKey = "${KEY}" }`, {
+        [`patch /v1/tenants/${ID}`]: { status, body: refusal(code) },
+        [`get /v1/tenants/${ID}`]: { status: 200, body: `{ tenant = { id = "${ID}", owner_did = "did:plc:alice" } }` },
+      });
+      expect(out.error).toBe(code);
+    }
   });
 });
 
