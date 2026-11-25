@@ -72,8 +72,11 @@ describe("account suspension", () => {
     expect((await ok(admin("getAccount"), "staff", { params: { did } })).suspension).toBeUndefined();
   });
 
-  test("an unknown account is NotFound", async () => {
+  test("an unknown account is NotFound, and can't be suspended", async () => {
     await fails(admin("getAccount"), "staff", "NotFound", { params: { did: "did:plc:nobodyatallhere" } });
+    await fails(admin("suspendAccount"), "staff", "NotFound", {
+      input: { did: "did:plc:nobodyatallhere", reason: "spam", idempotencyKey: key() },
+    });
   });
 
   test("a reason is required", async () => {
