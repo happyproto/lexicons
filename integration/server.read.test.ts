@@ -457,7 +457,12 @@ describe("server.getRecordsUsage", () => {
     expect(sent[0].query).toEqual({ period: "current" });
   });
 
-  test("someone else's instance is NotFound, and its records are never read", async () => {
+  test("a bad id is InvalidRequest", async () => {
+    await fails(server("getRecordsUsage"), "customer", "InvalidRequest", { params: { id: "../plans" } });
+  });
+
+  test("staff reach only their own instances here, and someone else's records are never read", async () => {
+    await fails(server("getRecordsUsage"), "staff", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
     await fails(server("getRecordsUsage"), "customer", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
     const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/records-usage"));
     expect(reads).toEqual([]);

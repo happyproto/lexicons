@@ -1356,12 +1356,12 @@ function R.only(v, kind)
   return nil
 end
 
+-- Both halves or nothing: the lexicons require both.
 function R.pair(v)
-  if type(v) ~= "table" then return nil end
-  return {
-    live = R.only(v.live, "number"),
-    backfill = R.only(v.backfill, "number"),
-  }
+  if type(v) ~= "table" or type(v.live) ~= "number" or type(v.backfill) ~= "number" then
+    return nil
+  end
+  return { live = v.live, backfill = v.backfill }
 end
 
 function R.cents(v)
@@ -1370,7 +1370,9 @@ function R.cents(v)
     if type(usd) ~= "number" then return nil end
     return math.floor(usd * 100 + 0.5)
   end
-  return { live = cents(v.live), backfill = cents(v.backfill) }
+  local live, backfill = cents(v.live), cents(v.backfill)
+  if live == nil or backfill == nil then return nil end
+  return { live = live, backfill = backfill }
 end
 
 function R.totals(t)
@@ -1395,7 +1397,7 @@ local function public_records(body)
   local days = {}
   for _, d in ipairs(type(body.days) == "table" and body.days or {}) do
     days[#days + 1] = {
-      day = d.day,
+      day = R.only(d.day, "string"),
       live = R.only(d.live, "number") or 0,
       backfill = R.only(d.backfill, "number") or 0,
       storePass = R.only(d.store_pass, "number") or 0,
@@ -1429,8 +1431,8 @@ local function public_account_records(body)
   local instances = {}
   for _, i in ipairs(type(body.instances) == "table" and body.instances or {}) do
     instances[#instances + 1] = {
-      id = i.id,
-      slug = i.slug,
+      id = R.only(i.id, "string"),
+      slug = R.only(i.slug, "string"),
       tier = R.only(i.tier, "string"),
       included = R.pair(i.included),
       totals = R.totals(i.totals),
