@@ -480,6 +480,32 @@ describe("actor.getTerms", () => {
     expect((await ok(GET_TERMS, "customer")).accepted).toBe(false);
   });
 
+  test("during a terms change, an account on the previous terms is accepted and told what comes next", async () => {
+    const until = new Date(Date.now() + 86_400_000).toISOString();
+    await provisioner.state({
+      accountTerms: { [s.accounts.customer.did]: "beta-2026-10", [s.accounts.staff.did]: TERMS.termsVersion },
+      termsPrevious: { version: "beta-2026-10", until },
+    });
+    expect(await ok(GET_TERMS, "customer")).toEqual({
+      termsVersion: TERMS.termsVersion,
+      accepted: true,
+      signedUp: false,
+      upcoming: { termsVersion: TERMS.termsVersion, effectiveAt: until },
+    });
+    // On the new terms already: nothing to announce.
+    expect((await ok(GET_TERMS, "staff")).upcoming).toBeUndefined();
+  });
+
+  test("once the previous terms stop counting, the account must accept again", async () => {
+    await provisioner.state({
+      accountTerms: { [s.accounts.customer.did]: "beta-2026-10" },
+      termsPrevious: { version: "beta-2026-10", until: new Date(Date.now() - 1000).toISOString() },
+    });
+    const out = await ok(GET_TERMS, "customer");
+    expect(out.accepted).toBe(false);
+    expect(out.upcoming).toBeUndefined();
+  });
+
   test("anyone neither customer nor staff is refused, without a provisioner call", async () => {
     await fails(GET_TERMS, "outsider", "Forbidden");
     await fails(GET_TERMS, null, "AuthRequired");
