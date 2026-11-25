@@ -172,8 +172,8 @@ const UNGATED_DIRS: Record<string, string> = {
   preferences: "record indexers that store nothing",
 };
 
-type Gate = "gate_admin" | "gate_customer" | "gate_owner";
-const GATES: Gate[] = ["gate_admin", "gate_customer", "gate_owner"];
+type Gate = "gate_admin" | "gate_customer" | "gate_owner" | "gate_provisioner";
+const GATES: Gate[] = ["gate_admin", "gate_customer", "gate_owner", "gate_provisioner"];
 
 /**
  * Scripts that open with a gate other than their directory's, each for a
@@ -194,6 +194,8 @@ const GATE_FOR_DIR: Record<string, Gate> = {
   fleet: "gate_admin",
   admin: "gate_admin",
   server: "gate_customer",
+  // Called by the provisioner with a service-auth token, never by a person.
+  internal: "gate_provisioner",
 };
 
 /**
@@ -420,6 +422,8 @@ export function errorsReturned(
   // gate_owner refuses everyone it refuses, signed-out callers included, as
   // Forbidden.
   if (/(^|[^\w.])gate_owner\s*\(/.test(bare)) names.add("Forbidden");
+  // So does gate_provisioner.
+  if (/(^|[^\w.])gate_provisioner\s*\(/.test(bare)) names.add("Forbidden");
   // preferences.proven answers contact_failure's refusals, so a script that
   // asks it can return them too.
   const contactFailure = /(^|[^\w.])contact_failure\s*\(|(^|[^\w])preferences\.proven\s*\(/.test(bare);
@@ -560,6 +564,8 @@ describe("each rule flags a bad fixture", () => {
     expect(requiredGate("src/at/happyproto/fleet/getX.lua")).toBe("gate_admin");
     expect(requiredGate("src/at/happyproto/admin/getX.lua")).toBe("gate_admin");
     expect(requiredGate("src/at/happyproto/server/getX.lua")).toBe("gate_customer");
+    expect(requiredGate("src/at/happyproto/internal/getX.lua")).toBe("gate_provisioner");
+    expect(gateOffences("src/at/happyproto/internal/getX.lua", open)).not.toEqual([]);
     expect(gateOffences("src/at/happyproto/actor/getProfile.lua", open)).toEqual([]);
     expect(gateOffences("src/at/happyproto/actor/getAccount.lua", open)).toEqual([]);
     // Another actor.* script is not allowlisted just by living beside them.
@@ -645,6 +651,9 @@ describe("each rule flags a bad fixture", () => {
     expect(undeclaredErrorOffences(lexicon, 'return failure("NotFound", e)\n', [])).not.toEqual([]);
     expect(undeclaredErrorOffences(lexicon, "local r = gate_admin(ctx)\n", [])).not.toEqual([]);
     expect(undeclaredErrorOffences(lexicon, "local r = gate_owner(ctx)\n", [])).toEqual([
+      "can return Forbidden, which the lexicon does not declare",
+    ]);
+    expect(undeclaredErrorOffences(lexicon, "local r = gate_provisioner(ctx)\n", [])).toEqual([
       "can return Forbidden, which the lexicon does not declare",
     ]);
     expect(
