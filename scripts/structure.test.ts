@@ -184,6 +184,9 @@ const GATE_EXCEPTIONS: Record<string, Gate> = {
   // Bootstraps the admin space, so it cannot be gated on membership of it:
   // the caller must be exactly HAPPYPROTO_DID instead.
   "at/happyproto/admin/createSpaces": "gate_owner",
+  // The actor directory has no gate of its own (each script there decides
+  // for itself); this one is plainly a customer's.
+  "at/happyproto/actor/leaveCapacityQueue": "gate_customer",
 };
 
 /** Directory under at/happyproto/ -> the gate its handlers must open with. */

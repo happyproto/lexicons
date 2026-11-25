@@ -104,6 +104,8 @@ function fresh() {
     accountTerms: {} as Record<string, string>,
     /** DID -> its suspension's reason, while staff have it suspended. */
     suspended: {} as Record<string, string>,
+    /** DID -> `{plan, queued_at, notified_at}`, its place in the capacity queue. */
+    capacityWaits: {} as Record<string, Json>,
     /** DIDs that signed up in the open beta. */
     signedUp: [] as string[],
     entitlementMode: "invite" as "invite" | "staff",
@@ -561,6 +563,13 @@ function upgradeTenant(tenant: Json, body: Json, actor: string): Response {
 }
 
 /** GET /v1/account's body for `actor`. */
+/** The actor's deleted tenants still in their grace period. */
+function inGrace(actor: string): Json[] {
+  return state.tenants.filter(
+    (t) => t.owner_did === actor && t.deleted_at && !t.purged_at && t.purge_after && Date.parse(t.purge_after) > Date.now(),
+  );
+}
+
 function accountBody(actor: string): Json {
   const count = state.tenants.filter((t) => t.owner_did === actor && !t.deleted_at).length;
   const recorded = state.accountEmails[actor] ?? {};
@@ -574,6 +583,15 @@ function accountBody(actor: string): Json {
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
     terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    deleted_instance_count: inGrace(actor).length,
+    deleted_instances: inGrace(actor).map((t) => ({
+      id: t.id,
+      slug: t.slug,
+      deleted_at: t.deleted_at,
+      purge_after: t.purge_after,
+    })),
+    suspended: Boolean(state.suspended[actor]),
+    capacity_wait: state.capacityWaits[actor] ?? null,
     signed_up: state.signedUp.includes(actor),
   };
 }
@@ -700,6 +718,24 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     if (refused) return refused;
     state.accountTerms[actor] = TERMS_VERSION;
     return reply(200, { terms_version: TERMS_VERSION, terms_accepted: true });
+  }
+
+  // POST /v1/tenants/:id/purge-now: give up a deleted tenant's grace period.
+  if (req.method === "POST" && resource === "tenants" && parts[3] === "purge-now" && parts.length === 4) {
+    const t = state.tenants.find((x) => x.id === id);
+    if (!t || !can(t.owner_did)) return error(404, "NotFound", "tenant not found");
+    if (!t.deleted_at || t.purged_at) {
+      return error(409, "NotInGrace", "only a deleted instance that hasn't been purged can be deleted now");
+    }
+    t.purge_after = new Date().toISOString();
+    return reply(200, { purging: true });
+  }
+
+  // DELETE /v1/account/capacity-wait: leave the capacity queue.
+  if (req.method === "DELETE" && resource === "account" && parts[2] === "capacity-wait" && parts.length === 3) {
+    const removed = Boolean(state.capacityWaits[actor]);
+    delete state.capacityWaits[actor];
+    return reply(200, { removed });
   }
 
   // POST /v1/account/signup: the account signs itself up in the open beta,

@@ -1,0 +1,103 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.server.deleteInstanceNow",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Give up one of the caller's deleted instances' 7-day grace period: it is purged at once, stops counting toward the instance limit, and can no longer be restored. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "id",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The deleted instance's id, a UUID."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per request and resends on every retry of it."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "purging"
+          ],
+          "properties": {
+            "purging": {
+              "type": "boolean",
+              "description": "Always true: the instance is being purged."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "id or idempotencyKey is missing or not a UUID."
+        },
+        {
+          "name": "NotFound",
+          "description": "No such instance, or another owner's."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner: it reserves slugs by configuration as well."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
+          "name": "NotInGrace",
+          "description": "The instance isn't deleted, or has already been purged."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
+        }
+      ]
+    }
+  }
+}
