@@ -168,13 +168,13 @@ describe("billing.createCheckout", () => {
     }
   });
 
-  it("BILLING_URL_HOSTS replaces the allowed hosts", () => {
+  it("HAPPYPROTO_BILLING_URL_HOSTS replaces the allowed hosts", () => {
     const reply = { "/v1/billing/checkout": { status: 200, body: `{ url = "https://pay.happyproto.at/c/1" }` } };
-    expect(run("billing/createCheckout", input(), reply, { env: `, BILLING_URL_HOSTS = "pay.happyproto.at"` }).out.url).toBe(
+    expect(run("billing/createCheckout", input(), reply, { env: `, HAPPYPROTO_BILLING_URL_HOSTS = "pay.happyproto.at"` }).out.url).toBe(
       "https://pay.happyproto.at/c/1",
     );
     expect(run("billing/createCheckout", input(), reply).out.error).toBe("Upstream");
-    const stripe = run("billing/createCheckout", input(), checkout, { env: `, BILLING_URL_HOSTS = "pay.happyproto.at"` });
+    const stripe = run("billing/createCheckout", input(), checkout, { env: `, HAPPYPROTO_BILLING_URL_HOSTS = "pay.happyproto.at"` });
     expect(stripe.out.error).toBe("Upstream");
   });
 
@@ -290,11 +290,27 @@ describe("actor.getAccount", () => {
       "actor/getAccount",
       "{}",
       account(
-        `, billing = { status = "active", trial_ends_at = "soon", plans_on_subscription = { { plan = "pro" }, { plan = "x", quantity = -1 }, { plan = "y", quantity = 1.5 }, { plan = "hobby", quantity = 2 } } }`,
+        `, billing = { status = "active", trial_ends_at = "soon", plans_on_subscription = { { plan = "pro" }, { plan = "x", quantity = -1 }, { plan = "y", quantity = 1.5 }, { plan = "hobby", quantity = 2 }, { plan = "pro", quantity = 3.0 } } }`,
       ),
     );
-    expect(out.billing.plans).toEqual([{ plan: "hobby", quantity: 2 }]);
+    expect(out.billing.plans).toEqual([
+      { plan: "hobby", quantity: 2 },
+      { plan: "pro", quantity: 3 },
+    ]);
     expect(out.billing.trialEndsAt).toBeUndefined();
+  });
+
+  it("passes only whole RFC 3339 timestamps, and no discount stage of none", () => {
+    for (const [at, kept] of [
+      ["2026-12-21T15:00:00Z", true],
+      ["2026-12-21T15:00:00.123+01:00", true],
+      ["2026-12-21T15:00:00junk", false],
+      ["2026-12-21T15:00:00", false],
+    ] as const) {
+      const { out } = run("actor/getAccount", "{}", account(`, billing = { status = "trialing", trial_ends_at = "${at}", discount_stage = "none" }`));
+      expect(out.billing.trialEndsAt).toBe(kept ? at : undefined);
+      expect(out.billing.discountStage).toBeUndefined();
+    }
   });
 });
 

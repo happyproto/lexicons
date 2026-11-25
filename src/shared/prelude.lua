@@ -568,14 +568,16 @@ end
 
 --- An RFC 3339 timestamp string, or nil.
 function billing.time(v)
-  if type(v) == "string" and v:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d") then
-    return v
-  end
+  if type(v) ~= "string" then return nil end
+  local rest = v:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d(.*)$")
+  if not rest then return nil end
+  rest = rest:gsub("^%.%d+", "", 1)
+  if rest == "Z" or rest:match("^[+-]%d%d:%d%d$") then return v end
   return nil
 end
 
--- Stripe's hosted pages. BILLING_URL_HOSTS (comma-separated) replaces the
--- list, for a custom Checkout or Portal domain.
+-- Stripe's hosted pages. HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
+-- replaces the list, for a custom Checkout or Portal domain.
 billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
 
 --- The URL the provisioner made for a Checkout or a Portal session, or nil
@@ -587,8 +589,8 @@ function billing.url(ctx, v)
   if not host then return nil end
   host = host:lower()
   local env = ctx.env or {}
-  local list = type(env.BILLING_URL_HOSTS) == "string" and env.BILLING_URL_HOSTS ~= ""
-    and env.BILLING_URL_HOSTS or billing.HOSTS
+  local hosts = env.HAPPYPROTO_BILLING_URL_HOSTS
+  local list = type(hosts) == "string" and hosts ~= "" and hosts or billing.HOSTS
   for allowed in list:gmatch("[^,%s]+") do
     if host == allowed:lower() then return v end
   end
@@ -609,8 +611,9 @@ function billing.public(b)
   local listed = b.plans_on_subscription
   if type(listed) == "table" then
     for _, p in ipairs(listed) do
-      local q = type(p) == "table" and p.quantity
-      if type(p) == "table" and type(p.plan) == "string" and math.type(q) == "integer" and q >= 0 then
+      -- The JSON bridge may hand a whole number over as a float.
+      local q = type(p) == "table" and math.tointeger(p.quantity)
+      if type(p) == "table" and type(p.plan) == "string" and q and q >= 0 then
         plans[#plans + 1] = { plan = p.plan, quantity = q }
       end
     end
@@ -627,7 +630,8 @@ function billing.public(b)
     trialEndsAt = billing.time(b.trial_ends_at),
     billingStartsAt = billing.time(b.billing_starts_at),
     currentPeriodEnd = billing.time(b.current_period_end),
-    discountStage = billing.text(b.discount_stage),
+    -- "none" is the provisioner's default: no discount to report.
+    discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
     creditCode = code,
     plans = json.to_array(plans),
   }

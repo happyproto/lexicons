@@ -155,6 +155,7 @@
           "type": "string",
           "knownValues": [
             "none",
+            "incomplete",
             "trialing",
             "active",
             "past_due",

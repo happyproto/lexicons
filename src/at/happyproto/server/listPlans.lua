@@ -18,7 +18,8 @@ function handle(input, ctx)
 
   -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
   local function whole(v)
-    return type(v) == "number" and v >= 0 and math.floor(v) or nil
+    local n = math.tointeger(v)
+    return n and n >= 0 and n or nil
   end
   local function named(v)
     return type(v) == "string" and v ~= "" and v or nil
