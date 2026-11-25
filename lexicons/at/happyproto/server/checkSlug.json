@@ -81,6 +81,14 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }

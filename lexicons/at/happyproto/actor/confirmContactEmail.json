@@ -107,6 +107,14 @@
           "description": "Passed through from the provisioner. Not expected here; declared because every provisioner refusal is mapped the same way."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The preferences space or the provisioner could not be reached, or answered with an error it does not explain to callers."
         }
