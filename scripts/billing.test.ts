@@ -274,7 +274,7 @@ describe("actor.getAccount", () => {
   });
 
   it("carries the account's billing and whether the trial pool is full", () => {
-    const { out } = run("actor/getAccount", "{}", account(`, billing = ${BILLING}, trial_pool_full = true`));
+    const { out } = run("actor/getAccount", "{}", account(`, billing = ${BILLING}, trial = { card_free = true, instance_limit = 1, resource_plan = "small", pool_full = true }`));
     expect(out.billing).toEqual(PUBLIC_BILLING);
     expect(out.trialPoolFull).toBe(true);
   });
@@ -284,6 +284,14 @@ describe("actor.getAccount", () => {
     expect(held.out.billing.hold).toEqual({ reason: "trial_paused", at: "2026-12-21T15:00:00Z" });
     const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", hold = { reason = "other" } }`));
     expect(odd.out.billing.hold).toBeUndefined();
+  });
+
+  it("leaves a staff unclamp wait out, and names a trial wait", () => {
+    const wait = (kind: string) =>
+      run("actor/getAccount", "{}", account(`, capacity_wait = { plan = "pro", queued_at = "2026-12-08T00:00:00Z", kind = "${kind}" }`)).out
+        .capacityWait;
+    expect(wait("unclamp")).toBeUndefined();
+    expect(wait("trial")).toMatchObject({ plan: "pro", kind: "trial" });
   });
 
   it("leaves billing out while billing is off", () => {
@@ -332,17 +340,17 @@ describe("the instance shape", () => {
     const { out } = run("server/getInstance", `{ id = "${ID}" }`, {
       [`/v1/tenants/${ID}`]: {
         status: 200,
-        body: tenant(`, resource_plan_id = "hobby", stopped_reason = "trial_idle", clamp_waiting_for_room = true`),
+        body: tenant(`, resource_plan_id = "small", stopped_by_trial_idle = true, stopped_by_billing = false, clamp_waiting_for_room = true`),
       },
     });
-    expect(out.instance).toMatchObject({ plan: "pro", servedPlan: "hobby", stoppedFor: "trialIdle", waitingForRoom: true });
+    expect(out.instance).toMatchObject({ plan: "pro", servedPlan: "small", stoppedFor: "trialIdle", waitingForRoom: true });
   });
 
   it("reports stoppedFor only while the instance is stopped", () => {
     const { out } = run("server/getInstance", `{ id = "${ID}" }`, {
       [`/v1/tenants/${ID}`]: {
         status: 200,
-        body: tenant(`, stopped_reason = "trial_idle"`).replace('desired_state = "stopped", observed_state = "stopped"', 'desired_state = "running", observed_state = "running"'),
+        body: tenant(`, stopped_by_billing = true`).replace('desired_state = "stopped", observed_state = "stopped"', 'desired_state = "running", observed_state = "running"'),
       },
     });
     expect(out.instance.stoppedFor).toBeUndefined();
@@ -350,7 +358,7 @@ describe("the instance shape", () => {
 
   it("leaves them out when the instance runs its own plan and the owner stopped it", () => {
     const { out } = run("server/getInstance", `{ id = "${ID}" }`, {
-      [`/v1/tenants/${ID}`]: { status: 200, body: tenant(`, resource_plan_id = "pro", stopped_reason = "owner"`) },
+      [`/v1/tenants/${ID}`]: { status: 200, body: tenant(`, resource_plan_id = "pro", stopped_by_billing = false, stopped_by_trial_idle = false`) },
     });
     expect(out.instance.servedPlan).toBeUndefined();
     expect(out.instance.stoppedFor).toBeUndefined();
@@ -364,6 +372,7 @@ describe("billing refusals on instance changes", () => {
       [402, "PaymentRequired"],
       [403, "CardRequired"],
       [409, "TrialPoolFull"],
+      [403, "BillingHold"],
     ] as const) {
       const { out } = run("server/createInstance", `{ slug = "my-app", plan = "pro", idempotencyKey = "${KEY}" }`, {
         "/v1/tenants": { status, body: refusal(code) },

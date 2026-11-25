@@ -600,7 +600,9 @@ function accountBody(actor: string): Json {
     capacity_wait: state.capacityWaits[actor] ?? null,
     signed_up: state.signedUp.includes(actor),
     billing: state.billing[actor] ?? null,
-    trial_pool_full: state.trialPoolFull,
+    trial: state.billing[actor] && !state.billing[actor].has_payment_method
+      ? { card_free: true, instance_limit: 1, resource_plan: "small", pool_full: state.trialPoolFull }
+      : null,
   };
 }
 

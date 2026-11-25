@@ -105,6 +105,10 @@
           "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
         },
         {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
           "name": "TrialPoolFull",
           "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
         },

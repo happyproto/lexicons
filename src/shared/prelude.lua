@@ -541,6 +541,7 @@ billing.ERRORS = {
   PaymentRequired = "No subscription covers this yet. Start a Checkout first.",
   AlreadySubscribed = "This account already has a subscription.",
   CardRequired = "A trial without a card covers one instance. Add a card for more.",
+  BillingHold = "This account is on hold until its card is added or fixed.",
   TrialPoolFull = "Every trial place without a card is taken. Add a card to start now.",
   CheckoutNotComplete = "Stripe hasn't finished this Checkout yet. Try again shortly.",
   CheckoutExpired = "This Checkout expired. Start another.",
@@ -968,12 +969,12 @@ end
 ---
 --- servedPlan is the provisioner's resource_plan_id: the plan whose resources
 --- the tenant runs on while it differs from the plan it is billed for (a
---- trial without a card runs at Hobby).
+--- trial without a card runs at Hobby's). stoppedFor is why the provisioner
+--- stopped it, while it is stopped: billing (stopped_by_billing) or trialIdle
+--- (stopped_by_trial_idle). An owner's own stop isn't reported.
 local function public_instance(t, op)
   local served = label_or_nil(t.resource_plan_id)
-  -- Why the provisioner stopped it, in its words and ours. Any other reason
-  -- is the owner's own stop, and is not reported.
-  local stopped_for = { billing = "billing", trial_idle = "trialIdle" }
+  local stopped = t.desired_state == "stopped"
   return {
     id = t.id,
     slug = t.slug,
@@ -987,8 +988,8 @@ local function public_instance(t, op)
     operation = public_operation(op),
     servedPlan = served ~= t.plan_id and served or nil,
     waitingForRoom = t.clamp_waiting_for_room == true or nil,
-    stoppedFor = t.desired_state == "stopped" and type(t.stopped_reason) == "string"
-      and stopped_for[t.stopped_reason] or nil,
+    stoppedFor = stopped and (t.stopped_by_billing == true and "billing"
+      or t.stopped_by_trial_idle == true and "trialIdle") or nil,
   }
 end
 

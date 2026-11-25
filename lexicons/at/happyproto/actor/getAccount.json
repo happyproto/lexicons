@@ -136,6 +136,14 @@
         "room": {
           "type": "boolean",
           "description": "Whether their plan has room now. An owner with no contact address learns it only here."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "create",
+            "trial"
+          ],
+          "description": "create: no room for the plan. trial: waiting for a trial place without a card."
         }
       }
     },
