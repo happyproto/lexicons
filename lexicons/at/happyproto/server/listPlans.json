@@ -142,6 +142,16 @@
           "type": "integer",
           "minimum": 0,
           "description": "How many days of logs an instance on the plan keeps."
+        },
+        "hookWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hooks an instance on the plan runs at once."
+        },
+        "jobWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Jobs an instance on the plan runs at once."
         }
       }
     }

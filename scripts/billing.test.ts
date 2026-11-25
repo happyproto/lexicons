@@ -415,7 +415,7 @@ describe("server.listPlans", () => {
         body: `{ plans = {
           { id = "pro", name = "Pro", memory_mb = 1024, cpu_millis = 1000, disk_gb = 10, tier = "pro",
             price_cents = 4000, currency = "usd", included_live_records = 25000000,
-            included_backfill_records = 250000000, limit_seats = 5, limit_log_retention_days = 7, stripe_price_id = "price_x" },
+            included_backfill_records = 250000000, limit_seats = 5, limit_log_retention_days = 7, hook_workers = 4, job_worker_concurrency = 2, stripe_price_id = "price_x" },
           { id = "small", name = "Small", memory_mb = 512, cpu_millis = 500, disk_gb = 5, tier = "", price_cents = -1 },
         } }`,
       },
@@ -434,6 +434,8 @@ describe("server.listPlans", () => {
         includedBackfillRecords: 250000000,
         seats: 5,
         logRetentionDays: 7,
+        hookWorkers: 4,
+        jobWorkers: 2,
       },
       { id: "small", name: "Small", memoryMb: 512, cpuMillis: 500, diskGb: 5 },
     ]);
