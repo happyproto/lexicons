@@ -97,6 +97,14 @@
           "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "TermsRequired",
           "description": "The caller's account hasn't accepted the beta terms (actor.acceptTerms), and the create carried no acceptance of its own, or one without its wording."
         },

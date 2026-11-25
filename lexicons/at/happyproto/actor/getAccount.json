@@ -26,6 +26,26 @@
             "instanceLimit": {
               "type": "integer",
               "description": "The most instances the caller may have. 0 for a non-customer."
+            },
+            "deletedInstanceCount": {
+              "type": "integer",
+              "description": "Deleted instances still in their grace period that also count against the limit. 0 unless the provisioner counts them."
+            },
+            "deletedInstances": {
+              "type": "array",
+              "description": "The deleted instances deletedInstanceCount counts, oldest first, which the caller can delete now (server.deleteInstanceNow).",
+              "items": {
+                "type": "ref",
+                "ref": "#deletedInstance"
+              }
+            },
+            "suspended": {
+              "type": "boolean",
+              "description": "Whether staff have suspended the account."
+            },
+            "capacityWait": {
+              "type": "ref",
+              "ref": "#capacityWait"
             }
           }
         }
@@ -72,10 +92,70 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
       ]
+    },
+    "capacityWait": {
+      "type": "object",
+      "description": "The caller's place in the capacity queue: their create found no room for plan.",
+      "required": [
+        "plan",
+        "queuedAt",
+        "notified"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "queuedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "notified": {
+          "type": "boolean",
+          "description": "Whether they have been told there's room."
+        },
+        "room": {
+          "type": "boolean",
+          "description": "Whether their plan has room now. An owner with no contact address learns it only here."
+        }
+      }
+    },
+    "deletedInstance": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "deletedAt",
+        "purgeAfter"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "purgeAfter": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When it is purged unless deleted now; until then it can be restored on request."
+        }
+      }
     }
   }
 }

@@ -1,0 +1,135 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.admin.getAccount",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "An account as the provisioner holds it: the beta cohort it joined in, its instance count and its suspension, if any. Staff only.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "did",
+            "cohort",
+            "createdAt",
+            "instanceCount"
+          ],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "cohort": {
+              "type": "string",
+              "knownValues": [
+                "closed_beta",
+                "open_beta"
+              ],
+              "description": "The beta the account joined in."
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "instanceCount": {
+              "type": "integer",
+              "description": "Live instances, as the instance limit counts them."
+            },
+            "suspension": {
+              "type": "ref",
+              "ref": "#suspension"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "An input is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not HappyProto staff, or the provisioner does not know them as staff."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner: no account has this DID."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "suspension": {
+      "type": "object",
+      "required": [
+        "suspendedAt",
+        "suspendedBy",
+        "reason"
+      ],
+      "properties": {
+        "suspendedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "suspendedBy": {
+          "type": "string",
+          "format": "did"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -423,6 +423,9 @@ describe("actor.getAccount", () => {
       isCustomer: true,
       instanceCount: 2,
       instanceLimit: 3,
+      deletedInstanceCount: 0,
+      deletedInstances: [],
+      suspended: false,
     });
     const [request] = await provisioner.requests();
     expect(request.path).toBe("/v1/account");

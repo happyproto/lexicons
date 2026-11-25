@@ -416,6 +416,10 @@ local PASSTHROUGH = {
   InstanceLimit = true,
   NoCapacity = true,
   OperationInProgress = true,
+  -- Staff suspended the owner's account (HAP-511).
+  AccountSuspended = true,
+  -- A plan owners may not pick for themselves (SELF_SERVE_PLANS).
+  PlanNotOffered = true,
 }
 
 -- Provisioner codes that mean something to a caller under another name:
