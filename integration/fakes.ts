@@ -53,6 +53,8 @@ export const provisioner = {
     tenantUsage?: Record<string, any>;
     /** Tenant id -> `{stage, rotated_at?, sealing?, blocked_by?}`. */
     encryptionKeys?: Record<string, any>;
+    /** The previous terms and when they stop counting (TERMS_PREVIOUS_*). */
+    termsPrevious?: { version: string; until: string } | null;
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>

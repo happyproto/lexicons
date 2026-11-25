@@ -7,7 +7,7 @@
 -- so this only decides what the dashboard shows.
 --
 -- `notice` is set while the caller's account is on the previous terms in
--- their notice period (the provisioner's TERMS_PREVIOUS_*): they still count
+-- their notice period (the provisioner's TERMS_PREVIOUS_*, reported as terms_upcoming): they still count
 -- as accepted, and the dashboard says when the terms in force take effect.
 --
 -- Customers and staff only, either gate admitting; each fails closed. Anyone
@@ -29,10 +29,10 @@ function handle(input, ctx)
     return provisioner_failure(status, body)
   end
   local out = { termsVersion = body.terms_version, accepted = body.terms_accepted }
-  local notice = body.terms_notice
-  if type(notice) == "table" and type(notice.terms_version) == "string"
-    and type(notice.takes_effect_at) == "string" then
-    out.notice = { termsVersion = notice.terms_version, takesEffectAt = notice.takes_effect_at }
+  local upcoming = body.terms_upcoming
+  if type(upcoming) == "table" and type(upcoming.terms_version) == "string"
+    and type(upcoming.effective_at) == "string" then
+    out.notice = { termsVersion = upcoming.terms_version, takesEffectAt = upcoming.effective_at }
   end
   return out
 end

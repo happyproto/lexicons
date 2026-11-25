@@ -477,17 +477,29 @@ describe("actor.getTerms", () => {
     expect((await ok(GET_TERMS, "customer")).accepted).toBe(false);
   });
 
-  test("an account in its notice period is accepted, and told when the new terms take effect", async () => {
-    await provisioner.script("GET", "/v1/account", 200, {
-      terms_version: "beta-2026-12",
-      terms_accepted: true,
-      terms_notice: { terms_version: "beta-2026-12", takes_effect_at: "2026-12-09T00:00:00Z" },
+  test("during a terms change, an account on the previous terms is accepted and told what comes next", async () => {
+    const until = new Date(Date.now() + 86_400_000).toISOString();
+    await provisioner.state({
+      accountTerms: { [s.accounts.customer.did]: "beta-2026-10", [s.accounts.staff.did]: TERMS.termsVersion },
+      termsPrevious: { version: "beta-2026-10", until },
     });
     expect(await ok(GET_TERMS, "customer")).toEqual({
-      termsVersion: "beta-2026-12",
+      termsVersion: TERMS.termsVersion,
       accepted: true,
-      notice: { termsVersion: "beta-2026-12", takesEffectAt: "2026-12-09T00:00:00Z" },
+      notice: { termsVersion: TERMS.termsVersion, takesEffectAt: until },
     });
+    // On the new terms already: nothing to announce.
+    expect((await ok(GET_TERMS, "staff")).notice).toBeUndefined();
+  });
+
+  test("once the previous terms stop counting, the account must accept again", async () => {
+    await provisioner.state({
+      accountTerms: { [s.accounts.customer.did]: "beta-2026-10" },
+      termsPrevious: { version: "beta-2026-10", until: new Date(Date.now() - 1000).toISOString() },
+    });
+    const out = await ok(GET_TERMS, "customer");
+    expect(out.accepted).toBe(false);
+    expect(out.notice).toBeUndefined();
   });
 
   test("anyone neither customer nor staff is refused, without a provisioner call", async () => {
