@@ -133,9 +133,15 @@
           "minimum": 0,
           "description": "Backfill records delivered a month that the price includes."
         },
+        "seats": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The HappyView admins an instance on the plan may have."
+        },
         "logRetentionDays": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many days of logs an instance on the plan keeps."
         }
       }
     }

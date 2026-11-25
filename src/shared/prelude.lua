@@ -642,6 +642,8 @@ function billing.public(b)
     discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
     creditCode = code,
     hold = hold,
+    -- A trial without a card runs every instance at Hobby's resources and limits.
+    clamped = b.clamped == true,
     plans = json.to_array(plans),
   }
 end

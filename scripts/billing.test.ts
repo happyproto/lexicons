@@ -94,7 +94,7 @@ const refusal = (error: string, message = "said by the provisioner") =>
   `{ error = "${error}", message = "${message}" }`;
 
 const BILLING = `{
-  status = "trialing", provider = "stripe_mp", exempt = false, hold = "null", has_payment_method = false,
+  status = "trialing", clamped = true, provider = "stripe_mp", exempt = false, hold = "null", has_payment_method = false,
   cancel_at_period_end = false, trial_ends_at = "2026-12-21T15:00:00Z",
   current_period_end = "2026-12-21T15:00:00Z", discount_stage = "",
   credit_code = { reserved = true, applied = false },
@@ -103,6 +103,7 @@ const BILLING = `{
 }`;
 const PUBLIC_BILLING = {
   status: "trialing",
+  clamped: true,
   exempt: false,
   hasPaymentMethod: false,
   cancelAtPeriodEnd: false,
@@ -414,7 +415,7 @@ describe("server.listPlans", () => {
         body: `{ plans = {
           { id = "pro", name = "Pro", memory_mb = 1024, cpu_millis = 1000, disk_gb = 10, tier = "pro",
             price_cents = 4000, currency = "usd", included_live_records = 25000000,
-            included_backfill_records = 250000000, log_retention_days = 7, stripe_price_id = "price_x" },
+            included_backfill_records = 250000000, limit_seats = 5, limit_log_retention_days = 7, stripe_price_id = "price_x" },
           { id = "small", name = "Small", memory_mb = 512, cpu_millis = 500, disk_gb = 5, tier = "", price_cents = -1 },
         } }`,
       },
@@ -431,6 +432,7 @@ describe("server.listPlans", () => {
         currency: "usd",
         includedLiveRecords: 25000000,
         includedBackfillRecords: 250000000,
+        seats: 5,
         logRetentionDays: 7,
       },
       { id: "small", name: "Small", memoryMb: 512, cpuMillis: 500, diskGb: 5 },

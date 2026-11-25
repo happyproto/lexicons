@@ -181,7 +181,8 @@
         "exempt",
         "hasPaymentMethod",
         "cancelAtPeriodEnd",
-        "plans"
+        "plans",
+        "clamped"
       ],
       "properties": {
         "status": {
@@ -244,6 +245,10 @@
         "hold": {
           "type": "ref",
           "ref": "#hold"
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "A trial without a card: the account's instances run at Hobby's resources, seats and log retention until a card is added."
         }
       }
     },

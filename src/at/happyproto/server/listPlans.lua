@@ -38,7 +38,9 @@ function handle(input, ctx)
       currency = named(p.currency),
       includedLiveRecords = whole(p.included_live_records),
       includedBackfillRecords = whole(p.included_backfill_records),
-      logRetentionDays = whole(p.log_retention_days),
+      -- The plan row's own limits (limit_*), never hard-coded here.
+      seats = whole(p.limit_seats),
+      logRetentionDays = whole(p.limit_log_retention_days) or whole(p.log_retention_days),
     }
   end
   return { plans = json.to_array(plans) }
