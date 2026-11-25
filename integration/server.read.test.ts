@@ -477,6 +477,19 @@ describe("actor.getTerms", () => {
     expect((await ok(GET_TERMS, "customer")).accepted).toBe(false);
   });
 
+  test("an account in its notice period is accepted, and told when the new terms take effect", async () => {
+    await provisioner.script("GET", "/v1/account", 200, {
+      terms_version: "beta-2026-12",
+      terms_accepted: true,
+      terms_notice: { terms_version: "beta-2026-12", takes_effect_at: "2026-12-09T00:00:00Z" },
+    });
+    expect(await ok(GET_TERMS, "customer")).toEqual({
+      termsVersion: "beta-2026-12",
+      accepted: true,
+      notice: { termsVersion: "beta-2026-12", takesEffectAt: "2026-12-09T00:00:00Z" },
+    });
+  });
+
   test("anyone neither customer nor staff is refused, without a provisioner call", async () => {
     await fails(GET_TERMS, "outsider", "Forbidden");
     await fails(GET_TERMS, null, "AuthRequired");

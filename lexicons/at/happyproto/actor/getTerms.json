@@ -21,6 +21,25 @@
             "accepted": {
               "type": "boolean",
               "description": "Whether the caller has accepted termsVersion for their account."
+            },
+            "notice": {
+              "type": "object",
+              "required": [
+                "termsVersion",
+                "takesEffectAt"
+              ],
+              "description": "Set while the caller's account is on the previous terms in their notice period: they still count as accepted, and termsVersion takes effect for them at takesEffectAt. Absent otherwise.",
+              "properties": {
+                "termsVersion": {
+                  "type": "string",
+                  "description": "The terms in force, which the account must accept by takesEffectAt."
+                },
+                "takesEffectAt": {
+                  "type": "string",
+                  "format": "datetime",
+                  "description": "When the terms in force take effect for this account."
+                }
+              }
             }
           }
         }

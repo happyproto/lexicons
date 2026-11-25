@@ -6,6 +6,10 @@
 -- answer, and refuses a create by anyone who hasn't accepted, staff included,
 -- so this only decides what the dashboard shows.
 --
+-- `notice` is set while the caller's account is on the previous terms in
+-- their notice period (the provisioner's TERMS_PREVIOUS_*): they still count
+-- as accepted, and the dashboard says when the terms in force take effect.
+--
 -- Customers and staff only, either gate admitting; each fails closed. Anyone
 -- else has no HappyProto account to have accepted anything.
 
@@ -24,5 +28,11 @@ function handle(input, ctx)
     or type(body.terms_version) ~= "string" or type(body.terms_accepted) ~= "boolean" then
     return provisioner_failure(status, body)
   end
-  return { termsVersion = body.terms_version, accepted = body.terms_accepted }
+  local out = { termsVersion = body.terms_version, accepted = body.terms_accepted }
+  local notice = body.terms_notice
+  if type(notice) == "table" and type(notice.terms_version) == "string"
+    and type(notice.takes_effect_at) == "string" then
+    out.notice = { termsVersion = notice.terms_version, takesEffectAt = notice.takes_effect_at }
+  end
+  return out
 end
