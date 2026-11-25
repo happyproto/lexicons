@@ -25,6 +25,11 @@
             "signedUp": {
               "type": "boolean",
               "description": "Whether the account signed up in the open beta. A terms change then asks it to accept again, not to join."
+            },
+            "upcoming": {
+              "type": "ref",
+              "ref": "#upcomingTerms",
+              "description": "Present only while new terms are announced but not yet in force for this account: it accepted the previous terms, which still count until effectiveAt. accepted is then true. The dashboard shows a notice, not the terms screen."
             }
           }
         }
@@ -75,6 +80,25 @@
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
       ]
+    },
+    "upcomingTerms": {
+      "type": "object",
+      "description": "Terms that take effect for the caller's account at a set time.",
+      "required": [
+        "termsVersion",
+        "effectiveAt"
+      ],
+      "properties": {
+        "termsVersion": {
+          "type": "string",
+          "description": "The new terms version, e.g. beta-2026-12."
+        },
+        "effectiveAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the new terms take effect for this account. From then, accepted is false until the caller accepts them."
+        }
+      }
     }
   }
 }

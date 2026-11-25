@@ -26,9 +26,21 @@ function handle(input, ctx)
   end
   -- Whether the account has signed up in the open beta, so the dashboard
   -- words a later terms change as accepting, not joining.
-  return {
+  local result = {
     termsVersion = body.terms_version,
     accepted = body.terms_accepted,
     signedUp = body.signed_up == true,
   }
+  -- During a terms change, an account still on the previous terms is told
+  -- what comes next and when (TERMS_PREVIOUS_UNTIL), so the dashboard shows
+  -- a notice instead of the terms screen. Passed on only when well formed.
+  local upcoming = body.terms_upcoming
+  if type(upcoming) == "table" and type(upcoming.terms_version) == "string"
+    and type(upcoming.effective_at) == "string" then
+    result.upcoming = {
+      termsVersion = upcoming.terms_version,
+      effectiveAt = upcoming.effective_at,
+    }
+  end
+  return result
 end
