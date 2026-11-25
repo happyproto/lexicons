@@ -599,7 +599,7 @@ end
 
 --- The customer `billing`: `{status, exempt, hasPaymentMethod,
 --- cancelAtPeriodEnd, plans, trialEndsAt?, billingStartsAt?,
---- currentPeriodEnd?, discountStage?, creditCode?}`, or nil when the
+--- currentPeriodEnd?, discountStage?, creditCode?, hold?}`, or nil when the
 --- provisioner sent none (billing off, or not billing this account). Each
 --- field is listed explicitly, so a field the provisioner adds later is never
 --- passed along by accident.
@@ -618,6 +618,13 @@ function billing.public(b)
       end
     end
   end
+  -- A hold stops the account's instances: its trial ended without a card,
+  -- or payments failed past the retries.
+  local hold = nil
+  local h = b.hold
+  if type(h) == "table" and (h.reason == "trial_paused" or h.reason == "payment_failed") then
+    hold = { reason = h.reason, at = billing.time(h.at) }
+  end
   local code = nil
   if type(b.credit_code) == "table" then
     code = { reserved = b.credit_code.reserved == true, applied = b.credit_code.applied == true }
@@ -633,6 +640,7 @@ function billing.public(b)
     -- "none" is the provisioner's default: no discount to report.
     discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
     creditCode = code,
+    hold = hold,
     plans = json.to_array(plans),
   }
 end

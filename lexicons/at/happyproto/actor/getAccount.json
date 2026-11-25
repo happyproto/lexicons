@@ -232,6 +232,10 @@
             "type": "ref",
             "ref": "#billedPlan"
           }
+        },
+        "hold": {
+          "type": "ref",
+          "ref": "#hold"
         }
       }
     },
@@ -267,6 +271,28 @@
         "applied": {
           "type": "boolean",
           "description": "Its credit is on the account."
+        }
+      }
+    },
+    "hold": {
+      "type": "object",
+      "description": "The account's instances are stopped until a card is added or fixed.",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "trial_paused",
+            "payment_failed"
+          ],
+          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries."
+        },
+        "at": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the hold began."
         }
       }
     }

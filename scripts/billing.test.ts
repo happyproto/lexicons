@@ -279,6 +279,13 @@ describe("actor.getAccount", () => {
     expect(out.trialPoolFull).toBe(true);
   });
 
+  it("carries a hold's reason, and drops one it doesn't know", () => {
+    const held = run("actor/getAccount", "{}", account(`, billing = { status = "paused", hold = { at = "2026-12-21T15:00:00Z", reason = "trial_paused" } }`));
+    expect(held.out.billing.hold).toEqual({ reason: "trial_paused", at: "2026-12-21T15:00:00Z" });
+    const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", hold = { reason = "other" } }`));
+    expect(odd.out.billing.hold).toBeUndefined();
+  });
+
   it("leaves billing out while billing is off", () => {
     const { out } = run("actor/getAccount", "{}", account(""));
     expect(out.billing).toBeUndefined();
