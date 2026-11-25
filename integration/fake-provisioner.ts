@@ -14,8 +14,11 @@
  *
  * Control routes, all under /__:
  *   POST /__state    seed { tenants?, operations?, plans?, hosts?, staff?, instanceLimit?,
- *                    entitlementMode?, invites?, accountTerms? }. accountTerms maps a DID to
- *                    the terms version its account accepted at sign-in. invites are rows as the
+ *                    entitlementMode?, invites?, accountTerms?, termsPrevious? }. accountTerms maps a DID to
+ *                    the terms version its account accepted at sign-in. termsPrevious is
+ *                    {version, until} (TERMS_PREVIOUS_VERSION and TERMS_PREVIOUS_UNTIL): an
+ *                    account on that version still counts as accepted before until, and is
+ *                    told of the terms to come. invites are rows as the
  *                    real table holds them, token_hash included. entitlementMode is "invite" (the
  *                    default, as production runs: anyone may create and
  *                    change) or "staff" (entitlement.rs today: only staff may,
@@ -104,6 +107,8 @@ function fresh() {
     accountTerms: {} as Record<string, string>,
     /** DIDs that signed up in the open beta. */
     signedUp: [] as string[],
+    /** The previous terms and when they stop counting, during a change. */
+    termsPrevious: null as { version: string; until: string } | null,
     entitlementMode: "invite" as "invite" | "staff",
     invites: [] as Json[],
     customDomains: false,
@@ -466,7 +471,7 @@ function termsRefusal(terms: Json): Response | null {
 function accountTermsRefusal(actor: string): Response | null {
   const accepted = state.accountTerms[actor];
   if (accepted === undefined) return error(400, "TermsRequired", "accept the beta terms to create an instance");
-  if (accepted !== TERMS_VERSION) {
+  if (accepted !== TERMS_VERSION && !onPreviousTerms(actor)) {
     return error(400, "TermsOutdated", "the beta terms have changed; reload and accept the current ones");
   }
   return null;
@@ -571,9 +576,20 @@ function accountBody(actor: string): Json {
     preferences_space: state.preferencesSpaces[actor] ?? null,
     contact_email: state.contactEmail,
     terms_version: TERMS_VERSION,
-    terms_accepted: state.accountTerms[actor] === TERMS_VERSION,
+    terms_accepted: state.accountTerms[actor] === TERMS_VERSION || onPreviousTerms(actor),
     signed_up: state.signedUp.includes(actor),
+    ...(onPreviousTerms(actor)
+      ? { terms_upcoming: { terms_version: TERMS_VERSION, effective_at: state.termsPrevious!.until } }
+      : {}),
   };
+}
+
+/** Whether the account is on the previous terms, while they still count. */
+function onPreviousTerms(actor: string): boolean {
+  const previous = state.termsPrevious;
+  return previous !== null
+    && state.accountTerms[actor] === previous.version
+    && Date.now() < Date.parse(previous.until);
 }
 
 /**

@@ -486,10 +486,11 @@ describe("actor.getTerms", () => {
     expect(await ok(GET_TERMS, "customer")).toEqual({
       termsVersion: TERMS.termsVersion,
       accepted: true,
-      notice: { termsVersion: TERMS.termsVersion, takesEffectAt: until },
+      signedUp: false,
+      upcoming: { termsVersion: TERMS.termsVersion, effectiveAt: until },
     });
     // On the new terms already: nothing to announce.
-    expect((await ok(GET_TERMS, "staff")).notice).toBeUndefined();
+    expect((await ok(GET_TERMS, "staff")).upcoming).toBeUndefined();
   });
 
   test("once the previous terms stop counting, the account must accept again", async () => {
@@ -499,7 +500,7 @@ describe("actor.getTerms", () => {
     });
     const out = await ok(GET_TERMS, "customer");
     expect(out.accepted).toBe(false);
-    expect(out.notice).toBeUndefined();
+    expect(out.upcoming).toBeUndefined();
   });
 
   test("anyone neither customer nor staff is refused, without a provisioner call", async () => {
