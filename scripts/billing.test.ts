@@ -478,6 +478,18 @@ describe("billing.resume", () => {
         "/v1/billing/resume": { status: 409, body: refusal("CardRequired") },
       }).out,
     ).toEqual({ error: "CardRequired", message: "Add a card first, then retry." });
+    for (const [status, code] of [
+      [402, "PaymentFailed"],
+      [402, "PaymentActionRequired"],
+      [409, "BillingInProgress"],
+      [403, "AccountSuspended"],
+    ] as const) {
+      expect(
+        run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+          "/v1/billing/resume": { status, body: refusal(code) },
+        }).out.error,
+      ).toBe(code);
+    }
     const bad = run("billing/resume", `{ idempotencyKey = "nope" }`);
     expect(bad.out.error).toBe("InvalidRequest");
     expect(bad.calls.filter((c) => c.fn === "post")).toEqual([]);
