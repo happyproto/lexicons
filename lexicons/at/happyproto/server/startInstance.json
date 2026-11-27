@@ -122,6 +122,10 @@
           "description": "The account has no billing account yet: start a Checkout first."
         },
         {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },

@@ -267,6 +267,13 @@ describe("billing.createPortalSession", () => {
     expect(calls.filter((c) => c.fn === "post")).toEqual([]);
   });
 
+  it("cancelling with no plan running is NoSubscription", () => {
+    const { out } = run("billing/createPortalSession", `{ flow = "cancel", idempotencyKey = "${KEY}" }`, {
+      "/v1/billing/portal": { status: 409, body: refusal("NoSubscription") },
+    });
+    expect(out.error).toBe("NoSubscription");
+  });
+
   it("an account without a billing account is NoBillingAccount", () => {
     const { out } = run("billing/createPortalSession", `{ idempotencyKey = "${KEY}" }`, {
       "/v1/billing/portal": { status: 409, body: refusal("NoBillingAccount") },

@@ -546,6 +546,7 @@ billing.ERRORS = {
   CheckoutNotComplete = "Stripe hasn't finished this Checkout yet. Try again shortly.",
   CheckoutExpired = "This Checkout expired. Start another.",
   NoBillingAccount = "This account has no billing account yet. Start a Checkout first.",
+  NoSubscription = "This account has no plan running to cancel.",
   BillingUnavailable = "Billing is unavailable right now. Try again later.",
   InvalidCode = "That waitlist code doesn't exist.",
   CodeUsed = "That waitlist code has been used.",
