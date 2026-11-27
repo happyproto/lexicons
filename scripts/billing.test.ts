@@ -255,6 +255,12 @@ describe("billing.createPortalSession", () => {
     expect(bodyOf(home.calls.find((c) => c.fn === "post"))).toEqual({});
   });
 
+  it("cancel goes straight to the Portal's cancel flow", () => {
+    const { out, calls } = run("billing/createPortalSession", `{ flow = "cancel", idempotencyKey = "${KEY}" }`, portal);
+    expect(out.url).toBe("https://billing.stripe.com/p/session/x");
+    expect(bodyOf(calls.find((c) => c.fn === "post"))).toEqual({ flow: "subscription_cancel" });
+  });
+
   it("refuses an unknown flow before asking the provisioner", () => {
     const { out, calls } = run("billing/createPortalSession", `{ flow = "manage", idempotencyKey = "${KEY}" }`, portal);
     expect(out.error).toBe("InvalidRequest");

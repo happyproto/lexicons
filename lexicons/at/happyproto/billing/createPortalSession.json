@@ -16,9 +16,10 @@
             "flow": {
               "type": "string",
               "knownValues": [
-                "paymentMethod"
+                "paymentMethod",
+                "cancel"
               ],
-              "description": "paymentMethod: straight to adding or changing the card. Absent: the Portal home, for invoices and cancelling."
+              "description": "paymentMethod: straight to adding or changing the card. cancel: straight to cancelling the plan, at the end of the period. Absent: the Portal home, for invoices."
             },
             "idempotencyKey": {
               "type": "string",
