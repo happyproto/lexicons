@@ -578,6 +578,10 @@ function billing.failure(status, decoded)
   return provisioner_failure(status, decoded)
 end
 
+-- Why an account is on hold: its trial ended without a card, payments failed
+-- past the retries, or the subscription ended.
+billing.HOLD_REASONS = { trial_paused = true, payment_failed = true, canceled = true }
+
 --- A non-empty string, or nil.
 function billing.text(v)
   return type(v) == "string" and v ~= "" and v or nil
@@ -639,8 +643,7 @@ function billing.public(b)
   -- payments failed past the retries, or the subscription was cancelled.
   local hold = nil
   local h = b.hold
-  local reasons = { trial_paused = true, payment_failed = true, canceled = true }
-  if type(h) == "table" and reasons[h.reason] then
+  if type(h) == "table" and billing.HOLD_REASONS[h.reason] then
     hold = { reason = h.reason, at = billing.time(h.at) }
   end
   local code = nil

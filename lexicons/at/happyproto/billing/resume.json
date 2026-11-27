@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Ask again to resume the caller's paused trial, once a card is on file. Resuming completes when Stripe confirms the first payment; until then billing stays paused. Customers only.",
+      "description": "Ask again to resume the caller's paused trial, once a card is on file. Resuming completes when Stripe confirms the first payment; until then billing stays paused. On an account that isn't paused it changes nothing and returns billing as it stands. Customers only.",
       "input": {
         "encoding": "application/json",
         "schema": {

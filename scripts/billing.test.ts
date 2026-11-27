@@ -476,8 +476,8 @@ describe("billing.resume", () => {
     expect(
       run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
         "/v1/billing/resume": { status: 409, body: refusal("CardRequired") },
-      }).out.error,
-    ).toBe("CardRequired");
+      }).out,
+    ).toEqual({ error: "CardRequired", message: "Add a card first, then retry." });
     const bad = run("billing/resume", `{ idempotencyKey = "nope" }`);
     expect(bad.out.error).toBe("InvalidRequest");
     expect(bad.calls.filter((c) => c.fn === "post")).toEqual([]);
