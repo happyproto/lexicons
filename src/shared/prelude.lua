@@ -610,7 +610,10 @@ billing.HOSTS = "checkout.stripe.com,billing.stripe.com,invoice.stripe.com"
 --- unless it is https on one of the allowed hosts. The dashboard navigates
 --- to it.
 function billing.url(ctx, v)
-  if type(v) ~= "string" then return nil end
+  -- A backslash anywhere is refused: browsers read it as a slash, which can
+  -- move where the host ends. The host is then only letters, digits, hyphens
+  -- and dots, ending at the first slash: no user, password or port.
+  if type(v) ~= "string" or v:find("\\", 1, true) then return nil end
   local host = v:match("^https://([%w%-%.]+)/")
   if not host then return nil end
   host = host:lower()

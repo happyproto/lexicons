@@ -161,10 +161,14 @@ describe("billing.createCheckout", () => {
       "javascript:alert(1)//",
       "https://user@checkout.stripe.com/x",
       "https://checkout.stripe.com.example.net/x",
+      "https://checkout.stripe.com\\@example.net/x",
+      "https://checkout.stripe.com/x\\y",
+      "https://checkout.stripe.com:443/x",
       "https://example.com/x",
     ]) {
       const { out } = run("billing/createCheckout", input(), {
-        "/v1/billing/checkout": { status: 200, body: `{ url = "${url}" }` },
+        // A Lua string literal: its backslashes escaped.
+        "/v1/billing/checkout": { status: 200, body: `{ url = "${url.replace(/\\/g, "\\\\")}" }` },
       });
       expect(out.error).toBe("Upstream");
     }
