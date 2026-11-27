@@ -1,0 +1,317 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.billing.resume",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Ask again to resume the caller's paused trial, once a card is on file. Resuming completes when Stripe confirms the first payment; until then billing stays paused. On an account that isn't paused it changes nothing and returns billing as it stands. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotencyKey"
+          ],
+          "properties": {
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per request and resends on every retry of it. Only a success is kept against it: after a refusal, retrying with the same key runs the request again."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "billing"
+          ],
+          "properties": {
+            "billing": {
+              "type": "ref",
+              "ref": "#billing"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PaymentRequired",
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
+        },
+        {
+          "name": "CardRequired",
+          "description": "No card is on file yet: add one (billing.createPortalSession, flow paymentMethod), then retry."
+        },
+        {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
+        },
+        {
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
+        },
+        {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
+          "name": "PaymentFailed",
+          "description": "The card was declined. Updating the card and retrying pays the same open invoice."
+        },
+        {
+          "name": "PaymentActionRequired",
+          "description": "The bank wants the payment confirmed (3D Secure); Stripe emails the owner a link."
+        },
+        {
+          "name": "BillingInProgress",
+          "description": "Another resume or Checkout start for the account is running. Try again shortly."
+        },
+        {
+          "name": "CardChanged",
+          "description": "The card changed during the charge attempts. Retry."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Billing is switched off, or unavailable for now."
+        },
+        {
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    },
+    "billing": {
+      "type": "object",
+      "description": "The account's subscription. Absent while billing is off, or doesn't apply to the account.",
+      "required": [
+        "status",
+        "exempt",
+        "hasPaymentMethod",
+        "cancelAtPeriodEnd",
+        "plans",
+        "clamped"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "incomplete",
+            "trialing",
+            "active",
+            "past_due",
+            "paused",
+            "unpaid",
+            "canceled"
+          ],
+          "description": "The subscription's status; none before the first Checkout."
+        },
+        "exempt": {
+          "type": "boolean",
+          "description": "Staff exempted the account from billing."
+        },
+        "hasPaymentMethod": {
+          "type": "boolean",
+          "description": "A usable card is on file. While a trial has none, the account's instances run at Hobby resources."
+        },
+        "cancelAtPeriodEnd": {
+          "type": "boolean",
+          "description": "The subscription ends at currentPeriodEnd."
+        },
+        "trialEndsAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the trial ends and the first invoice is due."
+        },
+        "billingStartsAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the first charge is due, for a closed-beta account whose billing starts later."
+        },
+        "currentPeriodEnd": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the current billing period ends: the subscription renews then, or ends if cancelAtPeriodEnd."
+        },
+        "discountStage": {
+          "type": "string",
+          "description": "Where the account is in its closed-beta discount, when it has one."
+        },
+        "creditCode": {
+          "type": "ref",
+          "ref": "#creditCode"
+        },
+        "plans": {
+          "type": "array",
+          "description": "The plans the subscription bills, with a quantity each.",
+          "items": {
+            "type": "ref",
+            "ref": "#billedPlan"
+          }
+        },
+        "hold": {
+          "type": "ref",
+          "ref": "#hold"
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "A trial without a card: the account's instances run at Hobby's resources, seats and log retention until a card is added."
+        },
+        "actionRequired": {
+          "type": "ref",
+          "ref": "#actionRequired"
+        }
+      }
+    },
+    "billedPlan": {
+      "type": "object",
+      "required": [
+        "plan",
+        "quantity"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string",
+          "description": "The plan's id."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "creditCode": {
+      "type": "object",
+      "description": "The account's waitlist code.",
+      "required": [
+        "reserved",
+        "applied"
+      ],
+      "properties": {
+        "reserved": {
+          "type": "boolean",
+          "description": "Held for the account by a Checkout."
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "Its credit is on the account."
+        }
+      }
+    },
+    "hold": {
+      "type": "object",
+      "description": "The account's instances are stopped until a card is added or fixed.",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "trial_paused",
+            "payment_failed",
+            "canceled"
+          ],
+          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries. canceled: the subscription ended; a new Checkout restarts it."
+        },
+        "at": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the hold began. The instances' data is kept for 30 days from then."
+        }
+      }
+    },
+    "actionRequired": {
+      "type": "object",
+      "description": "A payment the bank wants confirmed (3D Secure). The subscription stays paused until it's paid.",
+      "required": [
+        "invoiceUrl"
+      ],
+      "properties": {
+        "invoiceUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Stripe's page for the open invoice, where the owner confirms the payment."
+        }
+      }
+    }
+  }
+}

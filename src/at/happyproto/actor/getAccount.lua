@@ -58,7 +58,7 @@ function handle(input, ctx)
     suspended = body.suspended == true,
     capacityWait = wait,
     -- Absent while billing is off.
-    billing = billing.public(body.billing),
+    billing = billing.public(body.billing, ctx),
     -- trial is null unless the card-free trial's limits apply to the account.
     trialPoolFull = type(body.trial) == "table" and body.trial.pool_full == true,
   }

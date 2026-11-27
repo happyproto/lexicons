@@ -150,6 +150,22 @@
           "description": "The account has a billing account but no plan running, so there is nothing to cancel."
         },
         {
+          "name": "PaymentFailed",
+          "description": "The card was declined. Updating the card and retrying pays the same open invoice."
+        },
+        {
+          "name": "PaymentActionRequired",
+          "description": "The bank wants the payment confirmed (3D Secure); Stripe emails the owner a link."
+        },
+        {
+          "name": "BillingInProgress",
+          "description": "Another resume or Checkout start for the account is running. Try again shortly."
+        },
+        {
+          "name": "CardChanged",
+          "description": "The card changed during the charge attempts. Retry."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },

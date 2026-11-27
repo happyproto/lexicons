@@ -25,7 +25,7 @@ function handle(input, ctx)
     session_id = id,
   }, input.idempotencyKey)
   -- The provisioner answers with the billing object itself.
-  local state = status == 200 and billing.public(body) or nil
+  local state = status == 200 and billing.public(body, ctx) or nil
   if not state then
     return billing.failure(status, body)
   end

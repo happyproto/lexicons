@@ -782,6 +782,14 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return reply(200, state.billing[actor]);
   }
 
+  // POST /v1/billing/resume: retry a paused trial's resume.
+  if (req.method === "POST" && resource === "billing" && parts[2] === "resume" && parts.length === 3) {
+    const b = state.billing[actor];
+    if (!b) return error(409, "NoBillingAccount", "no billing account yet");
+    if (!b.has_payment_method) return error(409, "CardRequired", "add a card first");
+    return reply(200, b);
+  }
+
   // POST /v1/billing/portal: a Portal session for the actor's account.
   if (req.method === "POST" && resource === "billing" && parts[2] === "portal" && parts.length === 3) {
     if (!state.billing[actor]) return error(409, "NoBillingAccount", "no billing account yet");

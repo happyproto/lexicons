@@ -26,6 +26,7 @@ for (const name of [
   "billing/createCheckout",
   "billing/confirmCheckout",
   "billing/createPortalSession",
+  "billing/resume",
   "actor/getAccount",
   "server/createInstance",
   "server/startInstance",
@@ -160,10 +161,15 @@ describe("billing.createCheckout", () => {
       "javascript:alert(1)//",
       "https://user@checkout.stripe.com/x",
       "https://checkout.stripe.com.example.net/x",
+      "https://checkout.stripe.com\\@example.net/x",
+      "https://checkout.stripe.com/x\\y",
+      "https://checkout.stripe.com:443/x",
+      "https://CHECKOUT.stripe.com/x",
       "https://example.com/x",
     ]) {
       const { out } = run("billing/createCheckout", input(), {
-        "/v1/billing/checkout": { status: 200, body: `{ url = "${url}" }` },
+        // A Lua string literal: its backslashes escaped.
+        "/v1/billing/checkout": { status: 200, body: `{ url = "${url.replace(/\\/g, "\\\\")}" }` },
       });
       expect(out.error).toBe("Upstream");
     }
@@ -306,6 +312,20 @@ describe("actor.getAccount", () => {
         .capacityWait;
     expect(wait("unclamp")).toBeUndefined();
     expect(wait("trial")).toMatchObject({ plan: "pro", kind: "trial" });
+  });
+
+  it("carries a payment to confirm, only on a Stripe host", () => {
+    const ok = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://invoice.stripe.com/i/acct_1/x" } }`));
+    expect(ok.out.billing.actionRequired).toEqual({ invoiceUrl: "https://invoice.stripe.com/i/acct_1/x" });
+    const link = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://invoice.link.com/i/x" } }`));
+    expect(link.out.billing.actionRequired).toBeUndefined();
+    const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://example.com/x" } }`));
+    expect(odd.out.billing.actionRequired).toBeUndefined();
+  });
+
+  it("carries a canceled hold", () => {
+    const { out } = run("actor/getAccount", "{}", account(`, billing = { status = "canceled", hold = { at = "2026-12-21T15:00:00Z", reason = "canceled" } }`));
+    expect(out.billing.hold).toEqual({ reason: "canceled", at: "2026-12-21T15:00:00Z" });
   });
 
   it("leaves billing out while billing is off", () => {
@@ -452,5 +472,41 @@ describe("server.listPlans", () => {
       },
       { id: "small", name: "Small", memoryMb: 512, cpuMillis: 500, diskGb: 5 },
     ]);
+  });
+});
+
+describe("billing.resume", () => {
+  it("asks the provisioner to resume, and returns billing as it stands", () => {
+    const { out, calls } = run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+      "/v1/billing/resume": { status: 200, body: `{ status = "paused", hold = { reason = "trial_paused", at = "2026-12-21T15:00:00Z" }, has_payment_method = true }` },
+    });
+    expect(out.billing).toMatchObject({ status: "paused", hasPaymentMethod: true, hold: { reason: "trial_paused" } });
+    const post = calls.find((c) => c.fn === "post");
+    expect(post.url).toBe("http://provisioner:8080/v1/billing/resume");
+    expect(post.opts.headers["Idempotency-Key"]).toBe(KEY);
+  });
+
+  it("no card yet is CardRequired, and a bad key asks nothing", () => {
+    expect(
+      run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+        "/v1/billing/resume": { status: 409, body: refusal("CardRequired") },
+      }).out,
+    ).toEqual({ error: "CardRequired", message: "Add a card first, then retry." });
+    for (const [status, code] of [
+      [402, "PaymentFailed"],
+      [402, "PaymentActionRequired"],
+      [409, "BillingInProgress"],
+      [409, "CardChanged"],
+      [403, "AccountSuspended"],
+    ] as const) {
+      expect(
+        run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+          "/v1/billing/resume": { status, body: refusal(code) },
+        }).out.error,
+      ).toBe(code);
+    }
+    const bad = run("billing/resume", `{ idempotencyKey = "nope" }`);
+    expect(bad.out.error).toBe("InvalidRequest");
+    expect(bad.calls.filter((c) => c.fn === "post")).toEqual([]);
   });
 });

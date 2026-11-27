@@ -127,6 +127,22 @@
           "description": "The account has a billing account but no plan running, so there is nothing to cancel."
         },
         {
+          "name": "PaymentFailed",
+          "description": "The card was declined. Updating the card and retrying pays the same open invoice."
+        },
+        {
+          "name": "PaymentActionRequired",
+          "description": "The bank wants the payment confirmed (3D Secure); Stripe emails the owner a link."
+        },
+        {
+          "name": "BillingInProgress",
+          "description": "Another resume or Checkout start for the account is running. Try again shortly."
+        },
+        {
+          "name": "CardChanged",
+          "description": "The card changed during the charge attempts. Retry."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },
@@ -224,6 +240,10 @@
         "clamped": {
           "type": "boolean",
           "description": "A trial without a card: the account's instances run at Hobby's resources, seats and log retention until a card is added."
+        },
+        "actionRequired": {
+          "type": "ref",
+          "ref": "#actionRequired"
         }
       }
     },
@@ -273,14 +293,29 @@
           "type": "string",
           "knownValues": [
             "trial_paused",
-            "payment_failed"
+            "payment_failed",
+            "canceled"
           ],
-          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries."
+          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries. canceled: the subscription ended; a new Checkout restarts it."
         },
         "at": {
           "type": "string",
           "format": "datetime",
-          "description": "When the hold began."
+          "description": "When the hold began. The instances' data is kept for 30 days from then."
+        }
+      }
+    },
+    "actionRequired": {
+      "type": "object",
+      "description": "A payment the bank wants confirmed (3D Secure). The subscription stays paused until it's paid.",
+      "required": [
+        "invoiceUrl"
+      ],
+      "properties": {
+        "invoiceUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Stripe's page for the open invoice, where the owner confirms the payment."
         }
       }
     }

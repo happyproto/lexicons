@@ -562,6 +562,10 @@ billing.ERRORS = {
   CheckoutExpired = "This Checkout expired. Start another.",
   NoBillingAccount = "This account has no billing account yet. Start a Checkout first.",
   NoSubscription = "This account has no plan running to cancel.",
+  PaymentFailed = "The card was declined. Update the card, then retry.",
+  PaymentActionRequired = "The bank wants the payment confirmed. Stripe has emailed a link.",
+  BillingInProgress = "Another billing change is under way. Try again shortly.",
+  CardChanged = "The card changed while it was being charged. Try again.",
   BillingUnavailable = "Billing is unavailable right now. Try again later.",
   InvalidCode = "That waitlist code doesn't exist.",
   CodeUsed = "That waitlist code has been used.",
@@ -578,6 +582,10 @@ function billing.failure(status, decoded)
   return provisioner_failure(status, decoded)
 end
 
+-- Why an account is on hold: its trial ended without a card, payments failed
+-- past the retries, or the subscription ended.
+billing.HOLD_REASONS = { trial_paused = true, payment_failed = true, canceled = true }
+
 --- A non-empty string, or nil.
 function billing.text(v)
   return type(v) == "string" and v ~= "" and v or nil
@@ -593,23 +601,28 @@ function billing.time(v)
   return nil
 end
 
--- Stripe's hosted pages. HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
+-- Stripe's hosted pages: Checkout, the Portal and invoices. Under Managed
+-- Payments the invoice page is still on invoice.stripe.com (seen Nov 27).
+-- HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
 -- replaces the list, for a custom Checkout or Portal domain.
-billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com,invoice.stripe.com"
 
 --- The URL the provisioner made for a Checkout or a Portal session, or nil
 --- unless it is https on one of the allowed hosts. The dashboard navigates
 --- to it.
 function billing.url(ctx, v)
-  if type(v) ~= "string" then return nil end
+  -- A backslash anywhere is refused: browsers read it as a slash, which can
+  -- move where the host ends. The host is then only letters, digits, hyphens
+  -- and dots, ending at the first slash: no user, password or port.
+  if type(v) ~= "string" or v:find("\\", 1, true) then return nil end
   local host = v:match("^https://([%w%-%.]+)/")
   if not host then return nil end
-  host = host:lower()
   local env = ctx.env or {}
   local hosts = env.HAPPYPROTO_BILLING_URL_HOSTS
   local list = type(hosts) == "string" and hosts ~= "" and hosts or billing.HOSTS
   for allowed in list:gmatch("[^,%s]+") do
-    if host == allowed:lower() then return v end
+    -- Exactly as listed: the dashboard compares the same way.
+    if host == allowed then return v end
   end
   return nil
 end
@@ -620,7 +633,7 @@ end
 --- provisioner sent none (billing off, or not billing this account). Each
 --- field is listed explicitly, so a field the provisioner adds later is never
 --- passed along by accident.
-function billing.public(b)
+function billing.public(b, ctx)
   if type(b) ~= "table" then
     return nil
   end
@@ -636,11 +649,19 @@ function billing.public(b)
     end
   end
   -- A hold stops the account's instances: its trial ended without a card,
-  -- or payments failed past the retries.
+  -- payments failed past the retries, or the subscription was cancelled.
   local hold = nil
   local h = b.hold
-  if type(h) == "table" and (h.reason == "trial_paused" or h.reason == "payment_failed") then
+  if type(h) == "table" and billing.HOLD_REASONS[h.reason] then
     hold = { reason = h.reason, at = billing.time(h.at) }
+  end
+  -- A payment the bank wants confirmed (3D Secure): the invoice's own page,
+  -- on a Stripe host like every other billing URL.
+  local action = nil
+  local a = b.action_required
+  local invoice = type(a) == "table" and billing.url(ctx or {}, a.invoice_url) or nil
+  if invoice then
+    action = { invoiceUrl = invoice }
   end
   local code = nil
   if type(b.credit_code) == "table" then
@@ -658,6 +679,7 @@ function billing.public(b)
     discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
     creditCode = code,
     hold = hold,
+    actionRequired = action,
     -- A trial without a card runs every instance at Hobby's resources and limits.
     clamped = b.clamped == true,
     plans = json.to_array(plans),
