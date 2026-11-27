@@ -21,6 +21,10 @@
             "accepted": {
               "type": "boolean",
               "description": "Whether the caller has accepted termsVersion for their account."
+            },
+            "signedUp": {
+              "type": "boolean",
+              "description": "Whether the account signed up in the open beta. A terms change then asks it to accept again, not to join."
             }
           }
         }
@@ -65,6 +69,14 @@
         {
           "name": "OperationInProgress",
           "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
         },
         {
           "name": "Upstream",

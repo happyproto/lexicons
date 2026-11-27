@@ -417,12 +417,122 @@ describe("server.getUsage", () => {
   });
 });
 
+describe("server.getRecordsUsage", () => {
+  const path = `/v1/tenants/${RUNNING_ID}/records-usage`;
+
+  test("reads the caller's own instance's period, in the lexicon's shape", async () => {
+    await provisioner.script("GET", path, 200, {
+      period: { start: "2026-12-01", end: "2027-01-01" },
+      tier: "starter",
+      included: { live: 2000000, backfill: 20000000 },
+      totals: { live_actual: 50, live_billable: 40, backfill: 15, store_pass: 5, retry: 1, unknown: 0 },
+      overage: { live: 0, backfill: 0 },
+      overage_usd: { live: 1.234, backfill: 0 },
+      capped_days: ["2026-12-01"],
+      projected_month_end: null,
+      days: [
+        {
+          day: "2026-12-01", live: 50, backfill: 15, store_pass: 5, retry: 1, unknown: 0,
+          billable_live: 40, capped: true, gap: false, extra: "never passed on",
+        },
+      ],
+      source: "tenant_ingest",
+    });
+    const out = await ok(server("getRecordsUsage"), "customer", { params: { id: RUNNING_ID } });
+    expect(out).toEqual({
+      period: { start: "2026-12-01", end: "2027-01-01" },
+      tier: "starter",
+      included: { live: 2000000, backfill: 20000000 },
+      totals: { liveActual: 50, liveBillable: 40, backfill: 15, storePass: 5, retry: 1, unknown: 0 },
+      overage: { live: 0, backfill: 0 },
+      overageCents: { live: 123, backfill: 0 },
+      cappedDays: ["2026-12-01"],
+      days: [
+        { day: "2026-12-01", live: 50, backfill: 15, storePass: 5, retry: 1, unknown: 0, billableLive: 40, capped: true, gap: false },
+      ],
+      source: "tenant_ingest",
+    });
+    const sent = (await provisioner.requests()).filter((r) => r.path === path);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].query).toEqual({ period: "current" });
+  });
+
+  test("a bad id is InvalidRequest", async () => {
+    await fails(server("getRecordsUsage"), "customer", "InvalidRequest", { params: { id: "../plans" } });
+  });
+
+  test("someone else's instance is NotFound, and its records are never read", async () => {
+    await fails(server("getRecordsUsage"), "customer", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
+    const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/records-usage"));
+    expect(reads).toEqual([]);
+  });
+
+  test("is Forbidden to non-customers", async () => {
+    await fails(server("getRecordsUsage"), "outsider", "Forbidden", { params: { id: RUNNING_ID } });
+  });
+
+  describe("for staff who are customers too", () => {
+    beforeEach(async () => {
+      await putMember(s.accounts.happyproto, s.client.key, s.spaces.customers, s.accounts.staff.did);
+    });
+    afterEach(async () => {
+      await removeMember(s.accounts.happyproto, s.client.key, s.spaces.customers, s.accounts.staff.did);
+    });
+
+    test("only their own instances, though the provisioner would answer for any", async () => {
+      await fails(server("getRecordsUsage"), "staff", "NotFound", { params: { id: SOMEONE_ELSES_ID } });
+      const reads = (await provisioner.requests()).filter((r) => r.path.endsWith("/records-usage"));
+      expect(reads).toEqual([]);
+    });
+  });
+});
+
+describe("server.getAccountRecordsUsage", () => {
+  test("reads the caller's instances' totals, as the caller", async () => {
+    await provisioner.script("GET", "/v1/account/records-usage", 200, {
+      period: { start: "2026-12-01", end: "2027-01-01" },
+      totals: { live_actual: 30, live_billable: 30, backfill: 0, store_pass: 0, retry: 0, unknown: 0 },
+      overage: { live: 0, backfill: 0 },
+      overage_usd: { live: 0, backfill: 0 },
+      instances: [
+        {
+          id: RUNNING_ID, slug: "running", tier: "pro", included: { live: 25000000, backfill: 250000000 },
+          totals: { live_actual: 30, live_billable: 30, backfill: 0, store_pass: 0, retry: 0, unknown: 0 },
+          overage: { live: 0, backfill: 0 }, overage_usd: { live: 0, backfill: 0 },
+          projected_month_end: { live: 900, backfill: 0 }, gap_days: 2,
+        },
+      ],
+      source: "tenant_ingest",
+    });
+    const out = await ok(server("getAccountRecordsUsage"), "customer");
+    expect(out.totals.liveActual).toBe(30);
+    expect(out.instances).toEqual([
+      {
+        id: RUNNING_ID, slug: "running", tier: "pro", included: { live: 25000000, backfill: 250000000 },
+        totals: { liveActual: 30, liveBillable: 30, backfill: 0, storePass: 0, retry: 0, unknown: 0 },
+        overage: { live: 0, backfill: 0 }, overageCents: { live: 0, backfill: 0 },
+        projectedMonthEnd: { live: 900, backfill: 0 }, gapDays: 2,
+      },
+    ]);
+    const [request] = (await provisioner.requests()).filter((r) => r.path === "/v1/account/records-usage");
+    expect(request.headers["x-actor-did"]).toBe(s.accounts.customer.did);
+  });
+
+  test("is Forbidden to non-customers", async () => {
+    await fails(server("getAccountRecordsUsage"), "outsider", "Forbidden");
+  });
+});
+
 describe("actor.getAccount", () => {
   test("a customer gets their count and limit from the provisioner", async () => {
     expect(await ok(GET_ACCOUNT, "customer")).toEqual({
       isCustomer: true,
       instanceCount: 2,
       instanceLimit: 3,
+      deletedInstanceCount: 0,
+      deletedInstances: [],
+      suspended: false,
+      trialPoolFull: false,
     });
     const [request] = await provisioner.requests();
     expect(request.path).toBe("/v1/account");
@@ -457,7 +567,7 @@ describe("actor.getTerms", () => {
   const GET_TERMS = "at.happyproto.actor.getTerms";
 
   test("a customer who hasn't accepted is told so, with the terms in force", async () => {
-    expect(await ok(GET_TERMS, "customer")).toEqual({ termsVersion: TERMS.termsVersion, accepted: false });
+    expect(await ok(GET_TERMS, "customer")).toEqual({ termsVersion: TERMS.termsVersion, accepted: false, signedUp: false });
     const [request, ...rest] = await provisioner.requests();
     expect(rest).toEqual([]);
     expect(`${request.method} ${request.path}`).toBe("GET /v1/account");

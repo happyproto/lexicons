@@ -82,6 +82,66 @@
           "description": "Passed through from the provisioner: the instance is already changing, or a request with this idempotencyKey is still running."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
+          "name": "PaymentRequired",
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
+        },
+        {
+          "name": "CardRequired",
+          "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
+        },
+        {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
+        },
+        {
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
+        },
+        {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Billing is switched off, or unavailable for now."
+        },
+        {
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
         }

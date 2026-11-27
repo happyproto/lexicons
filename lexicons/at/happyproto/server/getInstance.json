@@ -74,6 +74,14 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
@@ -138,6 +146,22 @@
           "type": "ref",
           "ref": "#operation",
           "description": "The change in progress, if any."
+        },
+        "servedPlan": {
+          "type": "string",
+          "description": "The plan whose resources the instance runs on, when it isn't plan: during a trial without a card, the trial's Hobby resources."
+        },
+        "waitingForRoom": {
+          "type": "boolean",
+          "description": "A card was added, but the instance's host has no room for plan yet, so it runs at servedPlan and waits in the capacity queue."
+        },
+        "stoppedFor": {
+          "type": "string",
+          "knownValues": [
+            "billing",
+            "trialIdle"
+          ],
+          "description": "Why the provisioner stopped it, while it is stopped: billing, for a paused or held subscription; trialIdle, for a trial instance that had no traffic for a while."
         }
       }
     },

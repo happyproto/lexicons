@@ -47,6 +47,7 @@ __calls = {}
 __access = function(uri, did) return nil end
 __reply = function(method, url, opts) return { status = 200, body = "", headers = {} } end
 __decoded = {}
+__records = function(uri, opts) return { records = {} } end
 
 package.preload["internal.json"] = function()
   return {
@@ -93,6 +94,10 @@ package.preload["happyview.spaces"] = function()
         access = function(_, did)
           __calls[#__calls + 1] = { fn = "access", uri = uri, did = did }
           return __access(uri, did)
+        end,
+        records = function(_, opts)
+          __calls[#__calls + 1] = { fn = "records", uri = uri, collection = opts and opts.collection }
+          return __records(uri, opts)
         end,
       }
     end,

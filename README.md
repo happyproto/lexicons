@@ -50,14 +50,17 @@ Each source declares which prelude blocks it needs:
 | `validate` | `is_uuid(s)`, `is_did(s)`, `is_slug(s)` | — |
 | `access` | `MEMBER_ACCESS`, the space access levels that admit | — |
 | `authority` | `happyproto_did(ctx)`, `happyproto_space(ctx, type)`, `ADMIN_SPACE_TYPE`, `CUSTOMERS_SPACE_TYPE` | `validate` |
-| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)`, `gate_owner(ctx)` | `failure`, `access`, `validate`, `authority` |
+| `signup` | `signup_open(ctx)`: whether `HAPPYPROTO_SIGNUP` is `open` (see [Open signup](#open-signup)) | — |
+| `gate` | `gate_admin(ctx)`, `gate_customer(ctx)`, `gate_owner(ctx)`, `in_customers_space(ctx)` | `failure`, `access`, `validate`, `authority`, `signup` |
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
+| `billing` | `billing.failure(status, body)`, `billing.public(b)`, `billing.url(ctx, v)`, `billing.time(v)`, `billing.text(v)`: one table, to stay under Lua's 200 locals | `json`, `failure`, `provisioner` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 | `preferences` | `preferences.*` for the caller's preferences space (`space`, `read`, `write`, `proven`, `promote`, `sync`, `is_email`, `same_email`); `contact_failure(status, body)`, which passes the contact-email routes' own codes (`CONTACT_ERRORS`) and hands everything else to `provisioner_failure` | `json`, `failure`, `provisioner`, `gate`, `access`, `validate`, `authority` |
 | `domains` | `domain_failure(status, body)`, which passes the domain routes' own codes (`DOMAIN_ERRORS`) and hands everything else to `provisioner_failure`; `public_domain(d)` | `json`, `failure`, `provisioner` |
+| `records` | `records.public(body)` and `records.account(body)` (one local, for Lua's 200-local limit), which map the provisioner's records-usage answers field by field and turn dollars into whole cents | `json` |
 | `metrics` | `metrics_params(input)`, which checks window, step and trigger and answers `{query, trigger}` with the trigger percent-encoded; `public_script_list(body)`, `public_script_series(body)` and `public_ingest(body)`, which turn HappyView's float milliseconds into whole microseconds and always carry every outcome; `metrics_failure(status, body)`, which passes the metrics routes' own codes (`METRICS_ERRORS`) and hands everything else to `provisioner_failure`; `script_metrics_failure`, which adds `ScriptNotRun` | `json`, `failure`, `provisioner`, `urlencode` |
 | `release` | the record grammar and validators (`artifact_problem`, `sidecar_problem`, …), what each indexer asks of a first arrival (`project_record_problem`, `manifest_record_problem`, `version_record_problem`, `channel_record_problem`, `status_record_problem`) and the state it writes (`index_version`, `index_channel`), `pds_list`, `prior_row`, `pds_get`, `copy_blob`, `fetch_changelog`, `lifecycle(statuses, project_statuses)` | `validate`, `json`, `urlencode` |
 | `registry` | what the gateway and the read API share: `resolve_actor`, `caller_write`, `project_view`, `version_view`, paging | `release`, `authority`, `validate`, `failure`, `json`, `urlencode` |
@@ -379,6 +382,8 @@ works.
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
 | `PROVISIONER_AUDIENCE` | the provisioner's name for caller assertions (its `MANAGEMENT_TICKET_ISSUER`); `getManagementTicket` answers `Upstream` without it |
 | `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
+| `HAPPYPROTO_BILLING_URL_HOSTS` | optional: the hosts, comma-separated, a Checkout or Portal URL may be on. Unset: `checkout.stripe.com,billing.stripe.com` |
+| `HAPPYPROTO_SIGNUP` | `open` makes the customer gate admit any signed-in caller; anything else, or unset, keeps it to members of the customers space (see [Open signup](#open-signup)) |
 
 ClickHouse is reached over the shared Docker network by container name, which
 is why the URL is `http://clickhouse:8123` and not a public address —
@@ -430,6 +435,14 @@ Scripts fail closed when no space is configured: nobody is a member of
 anything. A missing `PROVISIONER_URL` or
 `PROVISIONER_TOKEN` answers `Upstream` rather than raising.
 
+### Open signup
+
+In the open beta, anyone signed in can use HappyProto, without an invite (HAP-509). It is one switch: with `HAPPYPROTO_SIGNUP` set to `open`, `gate_customer` admits any signed-in caller, so every customer endpoint opens at once, and `actor.getProfile` reports `isCustomer: true` and `signupOpen: true` to everyone. Members of the customers space are no longer the only customers, so `admin.listCustomers` lists only those who joined by invite or were added by hand. `in_customers_space(ctx)` still says who is a member, and `getProfile` reports it as `inCustomersSpace`.
+
+Signing up is accepting the terms: for a caller who is neither a member of the customers space nor staff, `actor.acceptTerms` goes to the provisioner's `POST /v1/account/signup` instead of `/v1/account/terms`. The provisioner refuses while its own `SIGNUP_ENABLED` is off or before `OPEN_BETA_STARTS_AT` (`SignupsClosed`), refuses a suspended account (`AccountSuspended`), and pauses signups past its breaker (`SignupsPaused`). It puts a new account in the open beta cohort. Once the open beta has launched, `HAPPYPROTO_SIGNUP` stays `open`: it is the "the beta is open" state, and turning it off would lock out every account that signed up, since none of them is a member of the customers space. Pause new signups with the provisioner's `SIGNUP_ENABLED` instead; an account that has signed up keeps accepting new terms while signup is paused. `actor.getTerms` reports `signedUp`, so the dashboard asks such an account to accept a change rather than to join.
+
+The gate doesn't check suspension: the provisioner refuses a suspended account's every change, and reads must not depend on the provisioner being up. While signup is open, removing someone from the customers space doesn't keep them out; suspending them does (`admin.suspendAccount`).
+
 ### Bootstrapping the spaces
 
 Signed in as `HAPPYPROTO_DID`, call `at.happyproto.admin.createSpaces`, with
@@ -457,3 +470,5 @@ space's creator or a HappyView super user. A staff member who is neither gets
 `Forbidden`. The admin endpoints that read the provisioner also need the
 caller's DID in the provisioner's `STAFF_DIDS`; without it they get the
 provisioner's `Forbidden`.
+
+`admin.suspendAccount` suspends an account at the provisioner (HAP-511): its running instances are stopped, and its owner is refused creates, starts, plan or version changes, upgrades and new custom domains (`AccountSuspended`) until `admin.unsuspendAccount` lifts it, which starts again only what the suspension stopped. The account stays in the customers space, so it can still sign in and read why; to take that away too, also `admin.removeCustomer` it. A suspended account can't sign up either. While signup is open, suspension is how staff keep someone out: removing them from the customers space doesn't. `admin.getAccount` shows an account's cohort, instance count and suspension.

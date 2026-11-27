@@ -48,8 +48,8 @@ describe("parsePrelude", () => {
     // must come after it.
     const blocks = parsePrelude(await readFile("src/shared/prelude.lua", "utf8"));
     expect([...blocks.keys()]).toEqual([
-      "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
-      "provisioner", "preferences", "instance", "deployments", "jobs", "domains", "scaler", "keys", "usage", "metrics", "release",
+      "json", "failure", "validate", "access", "authority", "signup", "gate", "urlencode", "clickhouse",
+      "provisioner", "billing", "preferences", "instance", "deployments", "jobs", "domains", "scaler", "keys", "usage", "records", "metrics", "release",
       "registry",
     ]);
   });
@@ -78,12 +78,12 @@ describe("parseDirective", () => {
 
 describe("expand", () => {
   const order = [
-    "json", "failure", "validate", "access", "authority", "gate", "urlencode", "clickhouse",
+    "json", "failure", "validate", "access", "authority", "signup", "gate", "urlencode", "clickhouse",
     "provisioner", "instance", "jobs", "release",
   ];
 
-  test("gate implies failure, access, validate and authority", () => {
-    expect(expand(["gate"], order)).toEqual(["failure", "validate", "access", "authority", "gate"]);
+  test("gate implies failure, access, validate, authority and signup", () => {
+    expect(expand(["gate"], order)).toEqual(["failure", "validate", "access", "authority", "signup", "gate"]);
   });
 
   test("authority implies validate, and stands without the gate", () => {
@@ -126,6 +126,7 @@ describe("expand", () => {
       "validate",
       "access",
       "authority",
+      "signup",
       "gate",
       "provisioner",
       "instance",

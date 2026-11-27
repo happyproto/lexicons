@@ -65,6 +65,14 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
@@ -95,6 +103,55 @@
         },
         "diskGb": {
           "type": "integer"
+        },
+        "tier": {
+          "type": "string",
+          "knownValues": [
+            "hobby",
+            "starter",
+            "pro",
+            "scale"
+          ],
+          "description": "The priced tier the plan is. Absent for a plan without a price."
+        },
+        "priceCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The monthly price, in the smallest unit of currency, before tax."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217, lower case, e.g. usd."
+        },
+        "includedLiveRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Live records delivered a month that the price includes."
+        },
+        "includedBackfillRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Backfill records delivered a month that the price includes."
+        },
+        "seats": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The HappyView admins an instance on the plan may have."
+        },
+        "logRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many days of logs an instance on the plan keeps."
+        },
+        "hookWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hooks an instance on the plan runs at once."
+        },
+        "jobWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Jobs an instance on the plan runs at once."
         }
       }
     }

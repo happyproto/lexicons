@@ -5,7 +5,8 @@
 -- lists them, because Lua requires a local to be declared before any function
 -- closing over it. `authority` implies `validate`; `gate` implies `failure`,
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
--- and `urlencode`; `provisioner` implies `json` and `failure`;
+-- and `urlencode`; `provisioner` implies `json` and `failure`; `billing`
+-- implies `json`, `failure` and `provisioner`;
 -- `instance` implies `json`; `keys` implies `json`, `failure`, `provisioner`
 -- and `instance`; `metrics` implies `json`, `failure`, `provisioner` and
 -- `urlencode`; `jobs` implies `failure`; `release` implies
@@ -156,6 +157,19 @@ local function happyproto_space(ctx, space_type)
 end
 -- @endblock
 
+-- @block signup
+-- Open signup (HAP-509): with the HAPPYPROTO_SIGNUP script variable set to
+-- "open", the customer gate admits any signed-in caller, not only members of
+-- the customers space. Anything else, or unset, keeps it to members. The
+-- provisioner has its own switch (SIGNUP_ENABLED) for the signups it records,
+-- and the two are flipped together.
+
+--- Whether signup is open. Exactly "open": a typo keeps it closed.
+local function signup_open(ctx)
+  return (ctx.env or {}).HAPPYPROTO_SIGNUP == "open"
+end
+-- @endblock
+
 -- @block gate
 local spaces = require("happyview.spaces")
 
@@ -191,8 +205,28 @@ local function gate_admin(ctx)
   return gate_member(ctx, ADMIN_SPACE_TYPE, "admin")
 end
 
---- Customers: membership of HappyProto's customers space.
+--- Whether the caller is a member of HappyProto's customers space, whatever
+--- signup says: false for anyone else, and when the space can't be read.
+local function in_customers_space(ctx)
+  return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer") == nil
+end
+
+--- Customers: membership of HappyProto's customers space, or, while signup
+--- is open, any signed-in caller. Suspension isn't checked here: the
+--- provisioner refuses a suspended account's every change, and reads must
+--- not depend on it being up.
 local function gate_customer(ctx)
+  if signup_open(ctx) then
+    if not ctx.caller_did or ctx.caller_did == "" then
+      return failure("AuthRequired", "This endpoint requires an authenticated caller.")
+    end
+    -- Fail closed as the membership check does: with no authority
+    -- configured, nobody is a customer, open or not.
+    if not happyproto_did(ctx) then
+      return failure("Forbidden", "No customer space is configured.")
+    end
+    return nil
+  end
   return gate_member(ctx, CUSTOMERS_SPACE_TYPE, "customer")
 end
 
@@ -204,6 +238,21 @@ local function gate_owner(ctx)
   local did = happyproto_did(ctx)
   if not did or ctx.caller_did ~= did then
     return failure("Forbidden", "Only HappyProto's own account can do this.")
+  end
+  return nil
+end
+
+--- The provisioner: the caller is exactly PROVISIONER_DID, the identity it
+--- signs service-auth tokens as (HAP-463). For `at.happyproto.internal.*`,
+--- which HappyView reaches only through a `specific` service entry listing
+--- them. Everyone else, a signed-out caller, and an unset or malformed
+--- PROVISIONER_DID are all Forbidden, so the endpoints are inert until the
+--- variable is set. HAPPYPROTO_DID is refused even if the variable names it:
+--- HappyProto's account signs in to the dashboard and must not reach these.
+local function gate_provisioner(ctx)
+  local did = (ctx.env or {}).PROVISIONER_DID
+  if not is_did(did) or ctx.caller_did ~= did or did == happyproto_did(ctx) then
+    return failure("Forbidden", "Only the provisioner can do this.")
   end
   return nil
 end
@@ -383,6 +432,10 @@ local PASSTHROUGH = {
   InstanceLimit = true,
   NoCapacity = true,
   OperationInProgress = true,
+  -- Staff suspended the owner's account (HAP-511).
+  AccountSuspended = true,
+  -- A plan owners may not pick for themselves (SELF_SERVE_PLANS).
+  PlanNotOffered = true,
 }
 
 -- Provisioner codes that mean something to a caller under another name:
@@ -485,6 +538,133 @@ local function management_ticket(ctx, id, assertion)
 end
 -- @endblock
 
+-- @block billing
+-- The account's subscription, through the provisioner's /v1/billing routes
+-- and the billing object on GET /v1/account. The provisioner talks to
+-- Stripe. No Stripe secret, customer or subscription id is returned: only
+-- the Checkout or Portal URL the caller is sent to, the Checkout Session id
+-- it comes back with, and the account's own state.
+--
+-- One table, not a local per helper: Lua allows 200 locals in a chunk, and
+-- a script with every block is near that.
+local billing = {}
+
+-- Codes the provisioner's billing checks say to a caller, each with our own
+-- fixed message; the provisioner's text is never passed on. Anything else
+-- goes to provisioner_failure.
+billing.ERRORS = {
+  PaymentRequired = "No subscription covers this yet. Start a Checkout first.",
+  AlreadySubscribed = "This account already has a subscription.",
+  CardRequired = "A trial without a card covers one instance. Add a card for more.",
+  BillingHold = "This account is on hold until its card is added or fixed.",
+  TrialPoolFull = "Every trial place without a card is taken. Add a card to start now.",
+  CheckoutNotComplete = "Stripe hasn't finished this Checkout yet. Try again shortly.",
+  CheckoutExpired = "This Checkout expired. Start another.",
+  NoBillingAccount = "This account has no billing account yet. Start a Checkout first.",
+  NoSubscription = "This account has no plan running to cancel.",
+  BillingUnavailable = "Billing is unavailable right now. Try again later.",
+  InvalidCode = "That waitlist code doesn't exist.",
+  CodeUsed = "That waitlist code has been used.",
+  CodeExpired = "That waitlist code has expired.",
+}
+
+--- A refusal mapped to a failure table: a billing.ERRORS code with our
+--- message for it, otherwise whatever provisioner_failure makes of it.
+function billing.failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and type(decoded.error) == "string" and billing.ERRORS[decoded.error] then
+    return failure(decoded.error, billing.ERRORS[decoded.error])
+  end
+  return provisioner_failure(status, decoded)
+end
+
+--- A non-empty string, or nil.
+function billing.text(v)
+  return type(v) == "string" and v ~= "" and v or nil
+end
+
+--- An RFC 3339 timestamp string, or nil.
+function billing.time(v)
+  if type(v) ~= "string" then return nil end
+  local rest = v:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d(.*)$")
+  if not rest then return nil end
+  rest = rest:gsub("^%.%d+", "", 1)
+  if rest == "Z" or rest:match("^[+-]%d%d:%d%d$") then return v end
+  return nil
+end
+
+-- Stripe's hosted pages. HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
+-- replaces the list, for a custom Checkout or Portal domain.
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
+
+--- The URL the provisioner made for a Checkout or a Portal session, or nil
+--- unless it is https on one of the allowed hosts. The dashboard navigates
+--- to it.
+function billing.url(ctx, v)
+  if type(v) ~= "string" then return nil end
+  local host = v:match("^https://([%w%-%.]+)/")
+  if not host then return nil end
+  host = host:lower()
+  local env = ctx.env or {}
+  local hosts = env.HAPPYPROTO_BILLING_URL_HOSTS
+  local list = type(hosts) == "string" and hosts ~= "" and hosts or billing.HOSTS
+  for allowed in list:gmatch("[^,%s]+") do
+    if host == allowed:lower() then return v end
+  end
+  return nil
+end
+
+--- The customer `billing`: `{status, exempt, hasPaymentMethod,
+--- cancelAtPeriodEnd, plans, trialEndsAt?, billingStartsAt?,
+--- currentPeriodEnd?, discountStage?, creditCode?, hold?}`, or nil when the
+--- provisioner sent none (billing off, or not billing this account). Each
+--- field is listed explicitly, so a field the provisioner adds later is never
+--- passed along by accident.
+function billing.public(b)
+  if type(b) ~= "table" then
+    return nil
+  end
+  local plans = {}
+  local listed = b.plans_on_subscription
+  if type(listed) == "table" then
+    for _, p in ipairs(listed) do
+      -- The JSON bridge may hand a whole number over as a float.
+      local q = type(p) == "table" and math.tointeger(p.quantity)
+      if type(p) == "table" and type(p.plan) == "string" and q and q >= 0 then
+        plans[#plans + 1] = { plan = p.plan, quantity = q }
+      end
+    end
+  end
+  -- A hold stops the account's instances: its trial ended without a card,
+  -- or payments failed past the retries.
+  local hold = nil
+  local h = b.hold
+  if type(h) == "table" and (h.reason == "trial_paused" or h.reason == "payment_failed") then
+    hold = { reason = h.reason, at = billing.time(h.at) }
+  end
+  local code = nil
+  if type(b.credit_code) == "table" then
+    code = { reserved = b.credit_code.reserved == true, applied = b.credit_code.applied == true }
+  end
+  return {
+    status = billing.text(b.status) or "none",
+    exempt = b.exempt == true,
+    hasPaymentMethod = b.has_payment_method == true,
+    cancelAtPeriodEnd = b.cancel_at_period_end == true,
+    trialEndsAt = billing.time(b.trial_ends_at),
+    billingStartsAt = billing.time(b.billing_starts_at),
+    currentPeriodEnd = billing.time(b.current_period_end),
+    -- "none" is the provisioner's default: no discount to report.
+    discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
+    creditCode = code,
+    hold = hold,
+    -- A trial without a card runs every instance at Hobby's resources and limits.
+    clamped = b.clamped == true,
+    plans = json.to_array(plans),
+  }
+end
+-- @endblock
+
 -- @block preferences
 -- The account's preferences space (HAP-463): `at.happyproto.preferences`,
 -- key `self`, one per account. The account creates it, through
@@ -537,6 +717,29 @@ local preferences = {
   -- preferences.space's reason while contact email is switched off.
   OFF = "contact email is not switched on",
 }
+
+--- The caller's PDS address and whether the PDS says it is confirmed, or
+--- nil, read through their own session with happyview.account's email()
+--- (behind HappyView's caller:email capability). `require` raises when the
+--- library isn't installed, and `email` raises on any failure, so both run
+--- under pcall and any failure reads as "no address". Never logs it.
+function preferences.pds_email()
+  local ok, address = pcall(function() return require("happyview.account").email() end)
+  if not ok then
+    log.info("could not read the caller's PDS email", { error = tostring(address) })
+    return nil, nil
+  end
+  if type(address) ~= "table" then
+    return nil, nil
+  end
+  local email = address.email
+  if type(email) ~= "string" or email == "" then
+    return nil, nil
+  end
+  local confirmed = address.email_confirmed
+  if type(confirmed) ~= "boolean" then confirmed = nil end
+  return email, confirmed
+end
 
 --- Enough to refuse garbage before anything is written; the provisioner and
 --- the link are the authority.
@@ -734,7 +937,12 @@ end
 -- never passed along by accident. Customers never see host_id, image,
 -- spec_hash, routed, owner_confirmed_at or the purge timestamps.
 
-local IN_PROGRESS = { pending = true, running = true }
+-- Operation statuses still under way, and the kinds that change a live
+-- tenant. One table, not two locals: the prelude is at Lua's 200-local limit.
+local OPS = {
+  in_progress = { pending = true, running = true },
+  changes = { start = true, stop = true, update = true, upgrade = true },
+}
 
 --- `{id, kind, status, step?, error?}`, or nil when there is no operation.
 --- Takes either provisioner shape: the tenant list's `current_operation`
@@ -761,10 +969,9 @@ local function public_operation(op)
   }
 end
 
--- Operations that change a live tenant. While one is in progress, observed
--- lags desired by design, so the state follows desired rather than reading
+-- OPS.changes are the operations that change a live tenant. While one is in
+-- progress, observed lags desired by design, so the state follows desired rather than reading
 -- the gap as a failure; the operation field already shows the progress.
-local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 
 --- The spec's state table, first match wins:
 ---   create pending/running  -> provisioning
@@ -774,10 +981,10 @@ local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 ---   desired stopped -> stopped
 ---   otherwise -> failed
 local function instance_state(t, op)
-  local live = type(op) == "table" and IN_PROGRESS[op.status]
+  local live = type(op) == "table" and OPS.in_progress[op.status]
   if live and op.kind == "create" then return "provisioning" end
   if live and op.kind == "destroy" then return "deleting" end
-  if live and CHANGES[op.kind] then
+  if live and OPS.changes[op.kind] then
     if t.desired_state == "running" then return "running" end
     if t.desired_state == "stopped" then return "stopped" end
   end
@@ -802,8 +1009,17 @@ local function public_available_version(a)
 end
 
 --- The customer `instance`: `{id, slug, url, plan, version, versionLabel?,
---- availableVersion?, state, createdAt, operation?}`.
+--- availableVersion?, state, createdAt, operation?, servedPlan?,
+--- waitingForRoom?, stoppedFor?}`.
+---
+--- servedPlan is the provisioner's resource_plan_id: the plan whose resources
+--- the tenant runs on while it differs from the plan it is billed for (a
+--- trial without a card runs at Hobby's). stoppedFor is why the provisioner
+--- stopped it, while it is stopped: billing (stopped_by_billing) or trialIdle
+--- (stopped_by_trial_idle). An owner's own stop isn't reported.
 local function public_instance(t, op)
+  local served = label_or_nil(t.resource_plan_id)
+  local stopped = t.desired_state == "stopped"
   return {
     id = t.id,
     slug = t.slug,
@@ -815,6 +1031,10 @@ local function public_instance(t, op)
     state = instance_state(t, op),
     createdAt = t.created_at,
     operation = public_operation(op),
+    servedPlan = served ~= t.plan_id and served or nil,
+    waitingForRoom = t.clamp_waiting_for_room == true or nil,
+    stoppedFor = stopped and (t.stopped_by_billing == true and "billing"
+      or t.stopped_by_trial_idle == true and "trialIdle") or nil,
   }
 end
 
@@ -1287,7 +1507,10 @@ end
 -- provisioner adds later is never passed along by accident.
 
 -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
-local function usage_only(v, kind)
+-- One local, `usage`: the prelude is near Lua's 200-local limit.
+local usage = {}
+
+function usage.only(v, kind)
   if type(v) == kind then
     return v
   end
@@ -1295,22 +1518,22 @@ local function usage_only(v, kind)
 end
 
 --- `{tenant, grain, rows, gaps}` from a usage route's body.
-local function public_usage(body)
+function usage.public(body)
   local rows = {}
   for _, r in ipairs(type(body.rows) == "table" and body.rows or {}) do
     rows[#rows + 1] = {
-      hour = usage_only(r.hour, "string"),
-      day = usage_only(r.day, "string"),
+      hour = usage.only(r.hour, "string"),
+      day = usage.only(r.day, "string"),
       runningSeconds = r.running_seconds,
       cpuUsec = r.cpu_usec,
       memByteSeconds = r.mem_byte_seconds,
       memPeakBytes = r.mem_peak_bytes,
       egressBytes = r.egress_bytes,
       ingressBytes = r.ingress_bytes,
-      diskAvgBytes = usage_only(r.disk_avg_bytes, "number"),
-      diskPeakBytes = usage_only(r.disk_peak_bytes, "number"),
-      seats = usage_only(r.seats, "number"),
-      apiClients = usage_only(r.api_clients, "number"),
+      diskAvgBytes = usage.only(r.disk_avg_bytes, "number"),
+      diskPeakBytes = usage.only(r.disk_peak_bytes, "number"),
+      seats = usage.only(r.seats, "number"),
+      apiClients = usage.only(r.api_clients, "number"),
       partial = r.partial,
     }
   end
@@ -1327,7 +1550,7 @@ local function public_usage(body)
 end
 
 --- The query string a usage read forwards: from, to and grain, when given.
-local function usage_query(input)
+function usage.query(input)
   local query = {}
   for _, key in ipairs({ "from", "to", "grain" }) do
     if type(input[key]) == "string" and input[key] ~= "" then
@@ -1335,6 +1558,122 @@ local function usage_query(input)
     end
   end
   return query
+end
+-- @endblock
+
+-- @block records
+-- Records delivered over the current billing period, as the provisioner's
+-- records-usage routes answer them (an owner's /tenants/:id/records-usage,
+-- and /account/records-usage), mapped to the lexicons' shapes. Each field is
+-- listed explicitly, so a field the provisioner adds later is never passed
+-- along by accident. Dollars become whole cents: lexicons have no floats.
+
+-- The whole block is one local, `records`: the prelude is near Lua's
+-- 200-local limit.
+local records = {}
+
+-- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+function records.only(v, kind)
+  if type(v) == kind then
+    return v
+  end
+  return nil
+end
+
+-- Both halves or nothing: the lexicons require both.
+function records.pair(v)
+  if type(v) ~= "table" or type(v.live) ~= "number" or type(v.backfill) ~= "number" then
+    return nil
+  end
+  return { live = v.live, backfill = v.backfill }
+end
+
+function records.cents(v)
+  if type(v) ~= "table" then return nil end
+  local function cents(usd)
+    if type(usd) ~= "number" then return nil end
+    return math.floor(usd * 100 + 0.5)
+  end
+  local live, backfill = cents(v.live), cents(v.backfill)
+  if live == nil or backfill == nil then return nil end
+  return { live = live, backfill = backfill }
+end
+
+function records.totals(t)
+  t = type(t) == "table" and t or {}
+  return {
+    liveActual = records.only(t.live_actual, "number") or 0,
+    liveBillable = records.only(t.live_billable, "number") or 0,
+    backfill = records.only(t.backfill, "number") or 0,
+    storePass = records.only(t.store_pass, "number") or 0,
+    retry = records.only(t.retry, "number") or 0,
+    unknown = records.only(t.unknown, "number") or 0,
+  }
+end
+
+function records.period(p)
+  p = type(p) == "table" and p or {}
+  return { start = records.only(p.start, "string"), ["end"] = records.only(p["end"], "string") }
+end
+
+--- One instance's period, from /tenants/:id/records-usage.
+function records.public(body)
+  local days = {}
+  for _, d in ipairs(type(body.days) == "table" and body.days or {}) do
+    days[#days + 1] = {
+      day = records.only(d.day, "string"),
+      live = records.only(d.live, "number") or 0,
+      backfill = records.only(d.backfill, "number") or 0,
+      storePass = records.only(d.store_pass, "number") or 0,
+      retry = records.only(d.retry, "number") or 0,
+      unknown = records.only(d.unknown, "number") or 0,
+      billableLive = records.only(d.billable_live, "number") or 0,
+      capped = d.capped == true,
+      gap = d.gap == true,
+    }
+  end
+  local capped = {}
+  for _, day in ipairs(type(body.capped_days) == "table" and body.capped_days or {}) do
+    if type(day) == "string" then capped[#capped + 1] = day end
+  end
+  return {
+    period = records.period(body.period),
+    tier = records.only(body.tier, "string"),
+    included = records.pair(body.included),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
+    cappedDays = json.to_array(capped),
+    projectedMonthEnd = records.pair(body.projected_month_end),
+    days = json.to_array(days),
+    source = records.only(body.source, "string"),
+  }
+end
+
+--- Every instance's totals and their sum, from /account/records-usage.
+function records.account(body)
+  local instances = {}
+  for _, i in ipairs(type(body.instances) == "table" and body.instances or {}) do
+    instances[#instances + 1] = {
+      id = records.only(i.id, "string"),
+      slug = records.only(i.slug, "string"),
+      tier = records.only(i.tier, "string"),
+      included = records.pair(i.included),
+      totals = records.totals(i.totals),
+      overage = records.pair(i.overage),
+      overageCents = records.cents(i.overage_usd),
+      projectedMonthEnd = records.pair(i.projected_month_end),
+      gapDays = records.only(i.gap_days, "number") or 0,
+    }
+  end
+  return {
+    period = records.period(body.period),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
+    instances = json.to_array(instances),
+    source = records.only(body.source, "string"),
+  }
 end
 -- @endblock
 

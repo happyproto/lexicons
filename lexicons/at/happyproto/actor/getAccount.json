@@ -26,6 +26,34 @@
             "instanceLimit": {
               "type": "integer",
               "description": "The most instances the caller may have. 0 for a non-customer."
+            },
+            "deletedInstanceCount": {
+              "type": "integer",
+              "description": "Deleted instances still in their grace period that also count against the limit. 0 unless the provisioner counts them."
+            },
+            "deletedInstances": {
+              "type": "array",
+              "description": "The deleted instances deletedInstanceCount counts, oldest first, which the caller can delete now (server.deleteInstanceNow).",
+              "items": {
+                "type": "ref",
+                "ref": "#deletedInstance"
+              }
+            },
+            "suspended": {
+              "type": "boolean",
+              "description": "Whether staff have suspended the account."
+            },
+            "capacityWait": {
+              "type": "ref",
+              "ref": "#capacityWait"
+            },
+            "billing": {
+              "type": "ref",
+              "ref": "#billing"
+            },
+            "trialPoolFull": {
+              "type": "boolean",
+              "description": "Every trial place without a card is taken, so a new trial has to start with a card."
             }
           }
         }
@@ -72,10 +100,214 @@
           "description": "Passed through from the provisioner."
         },
         {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner: staff have suspended the account."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner: owners may not pick that plan themselves; it is available on request."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
         }
       ]
+    },
+    "capacityWait": {
+      "type": "object",
+      "description": "The caller's place in the capacity queue: their create found no room for plan.",
+      "required": [
+        "plan",
+        "queuedAt",
+        "notified"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "queuedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "notified": {
+          "type": "boolean",
+          "description": "Whether they have been told there's room."
+        },
+        "room": {
+          "type": "boolean",
+          "description": "Whether their plan has room now. An owner with no contact address learns it only here."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "create",
+            "trial"
+          ],
+          "description": "create: no room for the plan. trial: waiting for a trial place without a card."
+        }
+      }
+    },
+    "deletedInstance": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "deletedAt",
+        "purgeAfter"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "purgeAfter": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When it is purged unless deleted now; until then it can be restored on request."
+        }
+      }
+    },
+    "billing": {
+      "type": "object",
+      "description": "The account's subscription. Absent while billing is off, or doesn't apply to the account.",
+      "required": [
+        "status",
+        "exempt",
+        "hasPaymentMethod",
+        "cancelAtPeriodEnd",
+        "plans",
+        "clamped"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "none",
+            "incomplete",
+            "trialing",
+            "active",
+            "past_due",
+            "paused",
+            "unpaid",
+            "canceled"
+          ],
+          "description": "The subscription's status; none before the first Checkout."
+        },
+        "exempt": {
+          "type": "boolean",
+          "description": "Staff exempted the account from billing."
+        },
+        "hasPaymentMethod": {
+          "type": "boolean",
+          "description": "A usable card is on file. While a trial has none, the account's instances run at Hobby resources."
+        },
+        "cancelAtPeriodEnd": {
+          "type": "boolean",
+          "description": "The subscription ends at currentPeriodEnd."
+        },
+        "trialEndsAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the trial ends and the first invoice is due."
+        },
+        "billingStartsAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the first charge is due, for a closed-beta account whose billing starts later."
+        },
+        "currentPeriodEnd": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the current billing period ends: the subscription renews then, or ends if cancelAtPeriodEnd."
+        },
+        "discountStage": {
+          "type": "string",
+          "description": "Where the account is in its closed-beta discount, when it has one."
+        },
+        "creditCode": {
+          "type": "ref",
+          "ref": "#creditCode"
+        },
+        "plans": {
+          "type": "array",
+          "description": "The plans the subscription bills, with a quantity each.",
+          "items": {
+            "type": "ref",
+            "ref": "#billedPlan"
+          }
+        },
+        "hold": {
+          "type": "ref",
+          "ref": "#hold"
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "A trial without a card: the account's instances run at Hobby's resources, seats and log retention until a card is added."
+        }
+      }
+    },
+    "billedPlan": {
+      "type": "object",
+      "required": [
+        "plan",
+        "quantity"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string",
+          "description": "The plan's id."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "creditCode": {
+      "type": "object",
+      "description": "The account's waitlist code.",
+      "required": [
+        "reserved",
+        "applied"
+      ],
+      "properties": {
+        "reserved": {
+          "type": "boolean",
+          "description": "Held for the account by a Checkout."
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "Its credit is on the account."
+        }
+      }
+    },
+    "hold": {
+      "type": "object",
+      "description": "The account's instances are stopped until a card is added or fixed.",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "knownValues": [
+            "trial_paused",
+            "payment_failed"
+          ],
+          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries."
+        },
+        "at": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the hold began."
+        }
+      }
     }
   }
 }

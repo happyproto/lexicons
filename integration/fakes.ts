@@ -36,6 +36,8 @@ export const provisioner = {
     staff?: string[];
     instanceLimit?: number;
     entitlementMode?: "invite" | "staff";
+    /** DID -> `{plan, queued_at, notified_at}`: the capacity queue. */
+    capacityWaits?: Record<string, any>;
     invites?: any[];
     /** CUSTOM_DOMAINS_ENABLED; off unless set. */
     customDomains?: boolean;
@@ -53,6 +55,10 @@ export const provisioner = {
     tenantUsage?: Record<string, any>;
     /** Tenant id -> `{stage, rotated_at?, sealing?, blocked_by?}`. */
     encryptionKeys?: Record<string, any>;
+    /** DID -> GET /v1/account's `billing`. */
+    billing?: Record<string, any>;
+    /** Whether every trial slot without a card is taken. */
+    trialPoolFull?: boolean;
     /** DIDs that used a notice's one-click unsubscribe. */
     maintenanceUnsubscribed?: string[];
   }) => post(`${PROVISIONER_URL}/__state`, state),

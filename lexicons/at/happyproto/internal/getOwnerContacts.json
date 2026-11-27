@@ -1,0 +1,90 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.internal.getOwnerContacts",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The contact email and maintenance setting in each preferences space named, for HappyProto's provisioner, which emails owners about maintenance. Only the provisioner may call it, with a service-auth token; everyone else is refused.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "spaces"
+        ],
+        "properties": {
+          "spaces": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 50,
+            "items": {
+              "type": "string"
+            },
+            "description": "Preferences space uris (at://<space DID>/space/at.happyproto.preferences/self), 1 to 50. Repeats are answered once. Not format at-uri: a space uri has three path segments, which that format refuses."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "contacts"
+          ],
+          "properties": {
+            "contacts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#contact"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "Forbidden",
+          "description": "The caller is not the provisioner, or the provisioner's DID is not configured."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "spaces is missing, has more than 50 entries, or names something that is not a preferences space."
+        }
+      ]
+    },
+    "contact": {
+      "type": "object",
+      "required": [
+        "space",
+        "status"
+      ],
+      "properties": {
+        "space": {
+          "type": "string",
+          "description": "The space asked about."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "ok",
+            "missing",
+            "unreadable"
+          ],
+          "description": "ok: read. missing: no such preferences space. unreadable: it could not be read just now; ask again later."
+        },
+        "creator": {
+          "type": "string",
+          "format": "did",
+          "description": "The account that owns the space. Present when status is ok."
+        },
+        "email": {
+          "type": "string",
+          "description": "The contact email in use. Absent when there is none. Never the pending address. Whether it is confirmed is the provisioner's to check."
+        },
+        "maintenance": {
+          "type": "boolean",
+          "description": "Whether the owner wants maintenance emails. True unless they turned them off. Present when status is ok."
+        }
+      }
+    }
+  }
+}

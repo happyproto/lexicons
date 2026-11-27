@@ -26,7 +26,7 @@ async function generated(name: string): Promise<string> {
 
 const SCRIPTS = Object.fromEntries(
   await Promise.all(
-    ["syncAccount", "getContact", "setContactEmail", "confirmContactEmail", "removeContactEmail", "setNotices"].map(
+    ["syncAccount", "acceptTerms", "getContact", "setContactEmail", "confirmContactEmail", "removeContactEmail", "setNotices"].map(
       async (name) => [name, await generated(name)] as const,
     ),
   ),
@@ -90,6 +90,8 @@ __reply = function(method, url, opts)
     end
     __account.preferences_space = opts.body:match('"uri":"([^"]+)"')
     return respond(200, { preferences_space = __account.preferences_space })
+  elseif method == "post" and path == "/v1/account/terms" then
+    return respond(200, { terms_version = "beta-2026-12", terms_accepted = true })
   elseif method == "put" and path == "/v1/account/email" then
     return respond(200, { email_recorded = true })
   elseif method == "post" and path == "/v1/account/email-proofs/check" then
@@ -442,5 +444,40 @@ describe("getContact and a one-click unsubscribe", () => {
   it("reads maintenance as off while it stands", () => {
     const { out } = run("getContact", "{}", { setup: [recorded, "__unsubscribed = true"].join("\n") });
     expect(out.maintenance).toBe(false);
+  });
+});
+
+describe("acceptTerms (HAP-463 phase 2)", () => {
+  const ACCEPT = `{ termsVersion = "beta-2026-12", textVersion = "v1", text = "I agree", idempotencyKey = "${KEY}" }`;
+
+  it("makes sure of the space and seeds it from the PDS, as a fresh sign-in would", () => {
+    const { out, calls, records, account } = run("acceptTerms", ACCEPT, {
+      setup: `__pds = { email = "alice@example.com", email_confirmed = true }`,
+    });
+    expect(out).toEqual({ termsVersion: "beta-2026-12", accepted: true });
+    expect(calls.filter((c) => c.fn === "create").length).toBe(1);
+    expect(account.preferences_space).toBe(SPACE);
+    expect(records["at.happyproto.preferences.contact"]).toMatchObject({ email: "alice@example.com", source: "pds" });
+  });
+
+  it("never overwrites a contact record that exists", () => {
+    const { calls } = run("acceptTerms", ACCEPT, {
+      setup: [recorded, contact(`{ source = "owner" }`), `__pds = { email = "pds@example.com" }`].join("\n"),
+    });
+    expect(calls.filter((c) => c.fn === "put_record")).toEqual([]);
+    expect(calls.filter((c) => c.fn === "create")).toEqual([]);
+  });
+
+  it("accepts even when the space can't be made", () => {
+    const { out } = run("acceptTerms", ACCEPT, { ctx: CTX("") });
+    expect(out).toEqual({ termsVersion: "beta-2026-12", accepted: true });
+  });
+
+  it("touches no space when the terms were refused", () => {
+    const { out, calls } = run("acceptTerms", ACCEPT, {
+      setup: `__fail["post /v1/account/terms"] = { 400, "TermsOutdated" }`,
+    });
+    expect(out.error).toBe("TermsOutdated");
+    expect(calls.filter((c) => c.fn === "create")).toEqual([]);
   });
 });

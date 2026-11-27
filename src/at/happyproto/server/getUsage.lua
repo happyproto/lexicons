@@ -23,7 +23,7 @@ function handle(input, ctx)
 
   -- Safe in the path: is_uuid admits only hex digits and hyphens.
   local path = "/v1/tenants/" .. id .. "/usage"
-  local query = usage_query(input)
+  local query = usage.query(input)
   if #query > 0 then
     path = path .. "?" .. table.concat(query, "&")
   end
@@ -31,5 +31,5 @@ function handle(input, ctx)
   if status ~= 200 or type(body) ~= "table" then
     return provisioner_failure(status, body)
   end
-  return public_usage(body)
+  return usage.public(body)
 end
