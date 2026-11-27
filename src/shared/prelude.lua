@@ -565,6 +565,7 @@ billing.ERRORS = {
   PaymentFailed = "The card was declined. Update the card, then retry.",
   PaymentActionRequired = "The bank wants the payment confirmed. Stripe has emailed a link.",
   BillingInProgress = "Another billing change is under way. Try again shortly.",
+  CardChanged = "The card changed while it was being charged. Try again.",
   BillingUnavailable = "Billing is unavailable right now. Try again later.",
   InvalidCode = "That waitlist code doesn't exist.",
   CodeUsed = "That waitlist code has been used.",

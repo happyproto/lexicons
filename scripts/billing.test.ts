@@ -496,6 +496,7 @@ describe("billing.resume", () => {
       [402, "PaymentFailed"],
       [402, "PaymentActionRequired"],
       [409, "BillingInProgress"],
+      [409, "CardChanged"],
       [403, "AccountSuspended"],
     ] as const) {
       expect(

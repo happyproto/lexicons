@@ -150,6 +150,10 @@
           "description": "Another resume or Checkout start for the account is running. Try again shortly."
         },
         {
+          "name": "CardChanged",
+          "description": "The card changed during the charge attempts. Retry."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },
