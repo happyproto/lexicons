@@ -164,6 +164,7 @@ describe("billing.createCheckout", () => {
       "https://checkout.stripe.com\\@example.net/x",
       "https://checkout.stripe.com/x\\y",
       "https://checkout.stripe.com:443/x",
+      "https://CHECKOUT.stripe.com/x",
       "https://example.com/x",
     ]) {
       const { out } = run("billing/createCheckout", input(), {

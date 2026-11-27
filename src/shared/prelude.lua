@@ -616,12 +616,12 @@ function billing.url(ctx, v)
   if type(v) ~= "string" or v:find("\\", 1, true) then return nil end
   local host = v:match("^https://([%w%-%.]+)/")
   if not host then return nil end
-  host = host:lower()
   local env = ctx.env or {}
   local hosts = env.HAPPYPROTO_BILLING_URL_HOSTS
   local list = type(hosts) == "string" and hosts ~= "" and hosts or billing.HOSTS
   for allowed in list:gmatch("[^,%s]+") do
-    if host == allowed:lower() then return v end
+    -- Exactly as listed: the dashboard compares the same way.
+    if host == allowed then return v end
   end
   return nil
 end
