@@ -26,6 +26,7 @@ for (const name of [
   "billing/createCheckout",
   "billing/confirmCheckout",
   "billing/createPortalSession",
+  "billing/resume",
   "actor/getAccount",
   "server/createInstance",
   "server/startInstance",
@@ -308,6 +309,11 @@ describe("actor.getAccount", () => {
     expect(wait("trial")).toMatchObject({ plan: "pro", kind: "trial" });
   });
 
+  it("carries a canceled hold", () => {
+    const { out } = run("actor/getAccount", "{}", account(`, billing = { status = "canceled", hold = { at = "2026-12-21T15:00:00Z", reason = "canceled" } }`));
+    expect(out.billing.hold).toEqual({ reason: "canceled", at: "2026-12-21T15:00:00Z" });
+  });
+
   it("leaves billing out while billing is off", () => {
     const { out } = run("actor/getAccount", "{}", account(""));
     expect(out.billing).toBeUndefined();
@@ -452,5 +458,28 @@ describe("server.listPlans", () => {
       },
       { id: "small", name: "Small", memoryMb: 512, cpuMillis: 500, diskGb: 5 },
     ]);
+  });
+});
+
+describe("billing.resume", () => {
+  it("asks the provisioner to resume, and returns billing as it stands", () => {
+    const { out, calls } = run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+      "/v1/billing/resume": { status: 200, body: `{ status = "paused", hold = { reason = "trial_paused", at = "2026-12-21T15:00:00Z" }, has_payment_method = true }` },
+    });
+    expect(out.billing).toMatchObject({ status: "paused", hasPaymentMethod: true, hold: { reason: "trial_paused" } });
+    const post = calls.find((c) => c.fn === "post");
+    expect(post.url).toBe("http://provisioner:8080/v1/billing/resume");
+    expect(post.opts.headers["Idempotency-Key"]).toBe(KEY);
+  });
+
+  it("no card yet is CardRequired, and a bad key asks nothing", () => {
+    expect(
+      run("billing/resume", `{ idempotencyKey = "${KEY}" }`, {
+        "/v1/billing/resume": { status: 409, body: refusal("CardRequired") },
+      }).out.error,
+    ).toBe("CardRequired");
+    const bad = run("billing/resume", `{ idempotencyKey = "nope" }`);
+    expect(bad.out.error).toBe("InvalidRequest");
+    expect(bad.calls.filter((c) => c.fn === "post")).toEqual([]);
   });
 });

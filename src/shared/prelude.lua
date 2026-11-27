@@ -636,10 +636,11 @@ function billing.public(b)
     end
   end
   -- A hold stops the account's instances: its trial ended without a card,
-  -- or payments failed past the retries.
+  -- payments failed past the retries, or the subscription was cancelled.
   local hold = nil
   local h = b.hold
-  if type(h) == "table" and (h.reason == "trial_paused" or h.reason == "payment_failed") then
+  local reasons = { trial_paused = true, payment_failed = true, canceled = true }
+  if type(h) == "table" and reasons[h.reason] then
     hold = { reason = h.reason, at = billing.time(h.at) }
   end
   local code = nil

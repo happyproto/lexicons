@@ -74,4 +74,10 @@ describe("billing", () => {
       input: { plan: "small", idempotencyKey: key() },
     });
   });
+
+  test("resuming needs a card", async () => {
+    await ok(billing("createCheckout"), "customer", { input: { plan: "small", idempotencyKey: key() } });
+    await ok(billing("confirmCheckout"), "customer", { input: { sessionId: "cs_test_1", idempotencyKey: key() } });
+    await fails(billing("resume"), "customer", "CardRequired", { input: { idempotencyKey: key() } });
+  });
 });
