@@ -56,6 +56,7 @@ __proofs = {}
 __links = {}
 __fail = {}
 __pds = nil
+__unsubscribed = false
 __reply_n = 0
 
 local function respond(status, body)
@@ -77,7 +78,11 @@ __reply = function(method, url, opts)
   local failing = __fail[method .. " " .. path]
   if failing then return respond(failing[1], { error = failing[2], message = "stubbed " .. failing[2] }) end
   if method == "get" and path == "/v1/account" then
-    return respond(200, { preferences_space = __account.preferences_space, contact_email = __email_on })
+    return respond(200, { preferences_space = __account.preferences_space, contact_email = __email_on,
+      maintenance_unsubscribed = __unsubscribed })
+  elseif method == "delete" and path == "/v1/account/maintenance-unsubscribe" then
+    __unsubscribed = false
+    return respond(200, { maintenance_unsubscribed = false })
   elseif method == "put" and path == "/v1/account/preferences-space" then
     if __put_space_failures > 0 then
       __put_space_failures = __put_space_failures - 1
@@ -412,6 +417,33 @@ describe("setNotices", () => {
   it("refuses anything but a boolean", () => {
     const { out } = run("setNotices", `{ maintenance = "no", idempotencyKey = "${KEY}" }`);
     expect(out.error).toBe("InvalidRequest");
+  });
+
+  it("turning emails on clears a one-click unsubscribe first; turning them off leaves it", () => {
+    const on = run("setNotices", `{ maintenance = true, idempotencyKey = "${KEY}" }`, {
+      setup: [recorded, "__unsubscribed = true"].join("\n"),
+    });
+    const clears = (calls: any[]) =>
+      calls.filter((c) => c.fn === "delete" && c.url.endsWith("/v1/account/maintenance-unsubscribe"));
+    expect(clears(on.calls).length).toBe(1);
+    expect(on.out).toEqual({ maintenance: true });
+    const off = run("setNotices", `{ maintenance = false, idempotencyKey = "${KEY}" }`, { setup: recorded });
+    expect(clears(off.calls)).toEqual([]);
+  });
+
+  it("writes nothing if the unsubscribe can't be cleared", () => {
+    const { out, calls } = run("setNotices", `{ maintenance = true, idempotencyKey = "${KEY}" }`, {
+      setup: [recorded, `__fail["delete /v1/account/maintenance-unsubscribe"] = { 503, "Unavailable" }`].join("\n"),
+    });
+    expect(out.error).toBeDefined();
+    expect(calls.filter((c) => c.fn === "put_record")).toEqual([]);
+  });
+});
+
+describe("getContact and a one-click unsubscribe", () => {
+  it("reads maintenance as off while it stands", () => {
+    const { out } = run("getContact", "{}", { setup: [recorded, "__unsubscribed = true"].join("\n") });
+    expect(out.maintenance).toBe(false);
   });
 });
 

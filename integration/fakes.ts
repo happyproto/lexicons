@@ -59,6 +59,8 @@ export const provisioner = {
     billing?: Record<string, any>;
     /** Whether every trial slot without a card is taken. */
     trialPoolFull?: boolean;
+    /** DIDs that used a notice's one-click unsubscribe. */
+    maintenanceUnsubscribed?: string[];
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>

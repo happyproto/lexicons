@@ -131,6 +131,13 @@ describe("the preferences space", () => {
     expect((await ok(actor("getContact"), "customer")).maintenance).toBe(true);
   });
 
+  test("a one-click unsubscribe reads as off until maintenance emails are turned back on", async () => {
+    await provisioner.state({ maintenanceUnsubscribed: [s.accounts.customer.did] });
+    expect((await ok(actor("getContact"), "customer")).maintenance).toBe(false);
+    await ok(actor("setNotices"), "customer", { input: { maintenance: true, ...key() } });
+    expect((await ok(actor("getContact"), "customer")).maintenance).toBe(true);
+  });
+
   test("removing the address leaves none, and sign-in does not write one back", async () => {
     expect(await ok(actor("removeContactEmail"), "customer", { input: key() })).toEqual({ removed: true });
     await ok(actor("syncAccount"), "customer", { input: key() });

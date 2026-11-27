@@ -10,6 +10,11 @@
 -- whose link was opened is reported as verified here and promoted by the
 -- next write or sign-in; a query writes nothing.
 --
+-- `maintenance` is off while the owner's one-click unsubscribe (from a
+-- notice's link, kept by the provisioner) stands, whatever the space says:
+-- the sender honours it, so the screen does too. Turning maintenance email
+-- back on clears it (setNotices).
+--
 -- Customers and staff only, either gate admitting; each fails closed.
 
 -- @prelude gate, validate, provisioner, preferences
@@ -39,7 +44,9 @@ function handle(input, ctx)
   if contact == nil or notices == nil then
     return failure("Upstream", "Your preferences could not be read.")
   end
-  if notices and notices.maintenance == false then out.maintenance = false end
+  if (notices and notices.maintenance == false) or account.maintenance_unsubscribed == true then
+    out.maintenance = false
+  end
   if not contact then return out end
 
   local email = preferences.is_email(contact.email) and contact.email or nil
