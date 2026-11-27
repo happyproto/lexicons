@@ -16,7 +16,7 @@ function handle(input, ctx)
   end
 
   local status, body = provisioner(ctx, "POST", "/v1/billing/resume", {}, input.idempotencyKey)
-  local state = status == 200 and billing.public(body) or nil
+  local state = status == 200 and billing.public(body, ctx) or nil
   -- Here CardRequired means no card yet, not the trial's instance limit.
   if not state and type(body) == "table" and body.error == "CardRequired" then
     return failure("CardRequired", "Add a card first, then retry.")

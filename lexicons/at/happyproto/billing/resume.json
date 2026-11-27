@@ -230,6 +230,10 @@
         "clamped": {
           "type": "boolean",
           "description": "A trial without a card: the account's instances run at Hobby's resources, seats and log retention until a card is added."
+        },
+        "actionRequired": {
+          "type": "ref",
+          "ref": "#actionRequired"
         }
       }
     },
@@ -288,6 +292,20 @@
           "type": "string",
           "format": "datetime",
           "description": "When the hold began. The instances' data is kept for 30 days from then."
+        }
+      }
+    },
+    "actionRequired": {
+      "type": "object",
+      "description": "A payment the bank wants confirmed (3D Secure). The subscription stays paused until it's paid.",
+      "required": [
+        "invoiceUrl"
+      ],
+      "properties": {
+        "invoiceUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Stripe's page for the open invoice, where the owner confirms the payment."
         }
       }
     }

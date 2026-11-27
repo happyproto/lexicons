@@ -309,6 +309,13 @@ describe("actor.getAccount", () => {
     expect(wait("trial")).toMatchObject({ plan: "pro", kind: "trial" });
   });
 
+  it("carries a payment to confirm, only on a Stripe host", () => {
+    const ok = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://invoice.stripe.com/i/acct_1/x" } }`));
+    expect(ok.out.billing.actionRequired).toEqual({ invoiceUrl: "https://invoice.stripe.com/i/acct_1/x" });
+    const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://example.com/x" } }`));
+    expect(odd.out.billing.actionRequired).toBeUndefined();
+  });
+
   it("carries a canceled hold", () => {
     const { out } = run("actor/getAccount", "{}", account(`, billing = { status = "canceled", hold = { at = "2026-12-21T15:00:00Z", reason = "canceled" } }`));
     expect(out.billing.hold).toEqual({ reason: "canceled", at: "2026-12-21T15:00:00Z" });

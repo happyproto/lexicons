@@ -600,9 +600,10 @@ function billing.time(v)
   return nil
 end
 
--- Stripe's hosted pages. HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
+-- Stripe's hosted pages: Checkout, the Portal and invoices.
+-- HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
 -- replaces the list, for a custom Checkout or Portal domain.
-billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com,invoice.stripe.com"
 
 --- The URL the provisioner made for a Checkout or a Portal session, or nil
 --- unless it is https on one of the allowed hosts. The dashboard navigates
@@ -627,7 +628,7 @@ end
 --- provisioner sent none (billing off, or not billing this account). Each
 --- field is listed explicitly, so a field the provisioner adds later is never
 --- passed along by accident.
-function billing.public(b)
+function billing.public(b, ctx)
   if type(b) ~= "table" then
     return nil
   end
@@ -649,6 +650,14 @@ function billing.public(b)
   if type(h) == "table" and billing.HOLD_REASONS[h.reason] then
     hold = { reason = h.reason, at = billing.time(h.at) }
   end
+  -- A payment the bank wants confirmed (3D Secure): the invoice's own page,
+  -- on a Stripe host like every other billing URL.
+  local action = nil
+  local a = b.action_required
+  local invoice = type(a) == "table" and billing.url(ctx or {}, a.invoice_url) or nil
+  if invoice then
+    action = { invoiceUrl = invoice }
+  end
   local code = nil
   if type(b.credit_code) == "table" then
     code = { reserved = b.credit_code.reserved == true, applied = b.credit_code.applied == true }
@@ -665,6 +674,7 @@ function billing.public(b)
     discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
     creditCode = code,
     hold = hold,
+    actionRequired = action,
     -- A trial without a card runs every instance at Hobby's resources and limits.
     clamped = b.clamped == true,
     plans = json.to_array(plans),
