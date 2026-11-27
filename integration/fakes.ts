@@ -55,6 +55,10 @@ export const provisioner = {
     tenantUsage?: Record<string, any>;
     /** Tenant id -> `{stage, rotated_at?, sealing?, blocked_by?}`. */
     encryptionKeys?: Record<string, any>;
+    /** DID -> GET /v1/account's `billing`. */
+    billing?: Record<string, any>;
+    /** Whether every trial slot without a card is taken. */
+    trialPoolFull?: boolean;
   }) => post(`${PROVISIONER_URL}/__state`, state),
   /** The next `method path` request gets this reply, once. */
   script: (method: string, path: string, status: number, body: unknown) =>

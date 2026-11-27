@@ -16,7 +16,7 @@
 -- before sign-in acceptance send; it is forwarded as given and only
 -- shape-checked here.
 
--- @prelude gate, validate, provisioner, instance, jobs
+-- @prelude gate, validate, provisioner, billing, instance, jobs
 
 function handle(input, ctx)
   local refused = gate_customer(ctx)
@@ -51,8 +51,10 @@ function handle(input, ctx)
     if body.error == "TermsRequired" then return failure("TermsRequired", body.message) end
     if body.error == "TermsOutdated" then return failure("TermsOutdated", body.message) end
   end
+  -- Billing's refusals (PaymentRequired, CardRequired, TrialPoolFull)
+  -- tell the dashboard which Checkout or card step comes next.
   if status ~= 201 or type(body) ~= "table" or type(body.tenant) ~= "table" then
-    return provisioner_failure(status, body)
+    return billing.failure(status, body)
   end
 
   local job_id, failed = follow_operation(body.operation)

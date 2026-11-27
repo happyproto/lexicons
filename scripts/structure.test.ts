@@ -194,6 +194,8 @@ const GATE_FOR_DIR: Record<string, Gate> = {
   fleet: "gate_admin",
   admin: "gate_admin",
   server: "gate_customer",
+  // The caller's own subscription.
+  billing: "gate_customer",
   // Called by the provisioner with a service-auth token, never by a person.
   internal: "gate_provisioner",
 };
@@ -361,6 +363,16 @@ export function contactCodes(prelude: string): string[] {
 }
 
 /**
+ * The codes billing.failure passes through on top of provisioner_failure's,
+ * read from the prelude's billing.ERRORS table.
+ */
+export function billingCodes(prelude: string): string[] {
+  const table = prelude.match(/\bbilling\.ERRORS\s*=\s*\{([\s\S]*?)\}/);
+  if (!table) throw new Error("prelude: no billing.ERRORS table in the billing block");
+  return [...table[1].matchAll(/\b([A-Z][A-Za-z]+)\s*=\s*"/g)].map((m) => m[1]);
+}
+
+/**
  * The codes scaler_failure passes through on top of provisioner_failure's,
  * read from the prelude's SCALER_ERRORS table.
  */
@@ -397,7 +409,8 @@ export function metricsCodes(prelude: string, table = "METRICS_ERRORS"): string[
  * the REMAP targets. `domain` is what domain_failure adds to those, and
  * `scaler` what scaler_failure adds, and `keys` what key_failure adds.
  * `metrics` is what metrics_failure adds, and `scriptMetrics` what
- * script_metrics_failure adds on top of that.
+ * script_metrics_failure adds on top of that. `billing` is what
+ * billing.failure adds.
  */
 export function errorsReturned(
   text: string,
@@ -408,6 +421,7 @@ export function errorsReturned(
   metrics: string[] = [],
   scriptMetrics: string[] = [],
   contact: string[] = [],
+  billing: string[] = [],
 ): Set<string> {
   const code = stripLua(text, true);
   const bare = stripLua(text);
@@ -433,6 +447,11 @@ export function errorsReturned(
   }
   if (/(^|[^\w.])domain_failure\s*\(/.test(bare)) {
     for (const name of domain) names.add(name);
+  }
+  const billingFailure = /(^|[^\w.])billing\.failure\s*\(/.test(bare);
+  if (billingFailure) {
+    for (const name of [...passthrough, ...billing]) names.add(name);
+    names.add("Upstream");
   }
   if (/(^|[^\w.])scaler_failure\s*\(/.test(bare)) {
     for (const name of scaler) names.add(name);
@@ -465,11 +484,12 @@ export function undeclaredErrorOffences(
   metrics: string[] = [],
   scriptMetrics: string[] = [],
   contact: string[] = [],
+  billing: string[] = [],
 ): string[] {
   const declared = new Set<string>(
     (lexicon?.defs?.main?.errors ?? []).map((e: { name: string }) => e.name),
   );
-  return [...errorsReturned(text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact)]
+  return [...errorsReturned(text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact, billing)]
     .filter((name) => !declared.has(name))
     .sort()
     .map((name) => `can return ${name}, which the lexicon does not declare`);
@@ -587,8 +607,8 @@ describe("each rule flags a bad fixture", () => {
     // Only that script: another admin.* script may not open with gate_owner.
     expect(gateOffences("src/at/happyproto/admin/getX.lua", owner)).not.toEqual([]);
     // A directory nobody has mapped is refused, not left open.
-    expect(gateOffences("src/at/happyproto/billing/getInvoice.lua", open)).not.toEqual([]);
-    expect(requiredGate("src/at/happyproto/billing/getInvoice.lua")).toBe("unmapped");
+    expect(gateOffences("src/at/happyproto/invoices/getInvoice.lua", open)).not.toEqual([]);
+    expect(requiredGate("src/at/happyproto/invoices/getInvoice.lua")).toBe("unmapped");
   });
 
   test("customer endpoints never query ClickHouse", () => {
@@ -759,6 +779,24 @@ describe("each rule flags a bad fixture", () => {
     ).toEqual(["InvalidLink", "ExpiredLink"]);
   });
 
+  test("billing.failure can return the billing codes and whatever provisioner_failure can", () => {
+    const lexicon = { defs: { main: { errors: [{ name: "Upstream" }, { name: "SlugTaken" }] } } };
+    const text = "return billing.failure(status, body)";
+    expect(undeclaredErrorOffences(lexicon, text, ["SlugTaken"], [], [], [], [], [], [], ["CardRequired"])).toEqual([
+      "can return CardRequired, which the lexicon does not declare",
+    ]);
+    // provisioner_failure alone never returns a billing code.
+    expect(
+      undeclaredErrorOffences(lexicon, "return provisioner_failure(s, b)", ["SlugTaken"], [], [], [], [], [], [], ["CardRequired"]),
+    ).toEqual([]);
+  });
+
+  test("the billing codes are read from the prelude", () => {
+    expect(
+      billingCodes('billing.ERRORS = {\n  PaymentRequired = "a",\n  CardRequired = "b",\n}\n'),
+    ).toEqual(["PaymentRequired", "CardRequired"]);
+  });
+
   test("the domain codes are read from the prelude", () => {
     expect(
       domainCodes("local DOMAIN_ERRORS = {\n  DomainLimit = true,\n  TooSoon = true,\n}\n"),
@@ -867,12 +905,13 @@ describe("every script is deployable", () => {
     const metrics = metricsCodes(prelude);
     const scriptMetrics = metricsCodes(prelude, "SCRIPT_METRICS_ERRORS");
     const contact = contactCodes(prelude);
+    const billing = billingCodes(prelude);
     const offenders: string[] = [];
     for (const script of await sources()) {
       const lexicon = await lexiconFor(script);
       if (!lexicon) continue;
       const text = await readFile(script, "utf8");
-      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact)) {
+      for (const o of undeclaredErrorOffences(lexicon, text, passthrough, domain, scaler, keys, metrics, scriptMetrics, contact, billing)) {
         offenders.push(`${script}: ${o}`);
       }
     }

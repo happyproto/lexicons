@@ -21,7 +21,8 @@
             },
             "plan": {
               "type": "string",
-              "description": "The plan's id, from at.happyproto.server.listPlans."
+              "description": "The plan's id, from at.happyproto.server.listPlans.",
+              "maxLength": 64
             },
             "idempotencyKey": {
               "type": "string",
@@ -113,6 +114,58 @@
           "description": "The caller accepted only older beta terms than the ones in force: accept the current ones and try again."
         },
         {
+          "name": "PaymentRequired",
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
+        },
+        {
+          "name": "CardRequired",
+          "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
+        },
+        {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
+        },
+        {
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
+        },
+        {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Billing is switched off, or unavailable for now."
+        },
+        {
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
+        },
+        {
           "name": "Upstream",
           "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers, or the job could not be started."
         }
@@ -177,6 +230,22 @@
           "type": "ref",
           "ref": "#operation",
           "description": "The change in progress, if any."
+        },
+        "servedPlan": {
+          "type": "string",
+          "description": "The plan whose resources the instance runs on, when it isn't plan: during a trial without a card, the trial's Hobby resources."
+        },
+        "waitingForRoom": {
+          "type": "boolean",
+          "description": "A card was added, but the instance's host has no room for plan yet, so it runs at servedPlan and waits in the capacity queue."
+        },
+        "stoppedFor": {
+          "type": "string",
+          "knownValues": [
+            "billing",
+            "trialIdle"
+          ],
+          "description": "Why the provisioner stopped it, while it is stopped: billing, for a paused or held subscription; trialIdle, for a trial instance that had no traffic for a while."
         }
       }
     },

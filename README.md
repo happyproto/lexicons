@@ -55,6 +55,7 @@ Each source declares which prelude blocks it needs:
 | `urlencode` | `url_encode(s)`, for query values and path segments, DIDs included | — |
 | `clickhouse` | `query(ctx, sql, params)` | `json`, `failure`, `urlencode` |
 | `provisioner` | `provisioner(ctx, method, path, body?, key?)`, `provisioner_failure(status, body)`, `owned_tenant(ctx, id)` | `json`, `failure` |
+| `billing` | `billing.failure(status, body)`, `billing.public(b)`, `billing.url(ctx, v)`, `billing.time(v)`, `billing.text(v)`: one table, to stay under Lua's 200 locals | `json`, `failure`, `provisioner` |
 | `instance` | `public_instance(t, op)`, `admin_instance(t, op, host_name)`, `instance_state(t, op)`, `public_operation(op)` | `json` |
 | `jobs` | `follow_operation(op)`, which starts the `instance.operation` job as the caller | `failure` |
 | `preferences` | `preferences.*` for the caller's preferences space (`space`, `read`, `write`, `proven`, `promote`, `sync`, `is_email`, `same_email`); `contact_failure(status, body)`, which passes the contact-email routes' own codes (`CONTACT_ERRORS`) and hands everything else to `provisioner_failure` | `json`, `failure`, `provisioner`, `gate`, `access`, `validate`, `authority` |
@@ -380,6 +381,7 @@ works.
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
 | `PROVISIONER_AUDIENCE` | the provisioner's name for caller assertions (its `MANAGEMENT_TICKET_ISSUER`); `getManagementTicket` answers `Upstream` without it |
 | `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
+| `HAPPYPROTO_BILLING_URL_HOSTS` | optional: the hosts, comma-separated, a Checkout or Portal URL may be on. Unset: `checkout.stripe.com,billing.stripe.com` |
 | `HAPPYPROTO_SIGNUP` | `open` makes the customer gate admit any signed-in caller; anything else, or unset, keeps it to members of the customers space (see [Open signup](#open-signup)) |
 
 ClickHouse is reached over the shared Docker network by container name, which

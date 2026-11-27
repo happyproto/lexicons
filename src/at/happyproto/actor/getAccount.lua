@@ -7,7 +7,7 @@
 --
 -- Only a customer costs a provisioner call; anyone else gets zeros.
 
--- @prelude gate, provisioner, json
+-- @prelude gate, provisioner, billing, json
 
 function handle(input, ctx)
   if not ctx.caller_did or ctx.caller_did == "" then
@@ -28,12 +28,15 @@ function handle(input, ctx)
   end
   local wait = nil
   local w = body.capacity_wait
-  if type(w) == "table" and type(w.plan) == "string" and type(w.queued_at) == "string" then
+  -- An "unclamp" wait is staff's: the instance's own billing note covers it.
+  if type(w) == "table" and type(w.plan) == "string" and type(w.queued_at) == "string"
+    and w.kind ~= "unclamp" then
     wait = {
       plan = w.plan,
       queuedAt = w.queued_at,
       notified = type(w.notified_at) == "string",
       room = w.room == true,
+      kind = (w.kind == "create" or w.kind == "trial") and w.kind or nil,
     }
   end
   local deleted = {}
@@ -54,5 +57,9 @@ function handle(input, ctx)
     deletedInstances = json.to_array(deleted),
     suspended = body.suspended == true,
     capacityWait = wait,
+    -- Absent while billing is off.
+    billing = billing.public(body.billing),
+    -- trial is null unless the card-free trial's limits apply to the account.
+    trialPoolFull = type(body.trial) == "table" and body.trial.pool_full == true,
   }
 end

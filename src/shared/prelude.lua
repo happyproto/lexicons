@@ -5,7 +5,8 @@
 -- lists them, because Lua requires a local to be declared before any function
 -- closing over it. `authority` implies `validate`; `gate` implies `failure`,
 -- `access`, `validate` and `authority`; `clickhouse` implies `json`, `failure`
--- and `urlencode`; `provisioner` implies `json` and `failure`;
+-- and `urlencode`; `provisioner` implies `json` and `failure`; `billing`
+-- implies `json`, `failure` and `provisioner`;
 -- `instance` implies `json`; `keys` implies `json`, `failure`, `provisioner`
 -- and `instance`; `metrics` implies `json`, `failure`, `provisioner` and
 -- `urlencode`; `jobs` implies `failure`; `release` implies
@@ -537,6 +538,133 @@ local function management_ticket(ctx, id, assertion)
 end
 -- @endblock
 
+-- @block billing
+-- The account's subscription, through the provisioner's /v1/billing routes
+-- and the billing object on GET /v1/account. The provisioner talks to
+-- Stripe. No Stripe secret, customer or subscription id is returned: only
+-- the Checkout or Portal URL the caller is sent to, the Checkout Session id
+-- it comes back with, and the account's own state.
+--
+-- One table, not a local per helper: Lua allows 200 locals in a chunk, and
+-- a script with every block is near that.
+local billing = {}
+
+-- Codes the provisioner's billing checks say to a caller, each with our own
+-- fixed message; the provisioner's text is never passed on. Anything else
+-- goes to provisioner_failure.
+billing.ERRORS = {
+  PaymentRequired = "No subscription covers this yet. Start a Checkout first.",
+  AlreadySubscribed = "This account already has a subscription.",
+  CardRequired = "A trial without a card covers one instance. Add a card for more.",
+  BillingHold = "This account is on hold until its card is added or fixed.",
+  TrialPoolFull = "Every trial place without a card is taken. Add a card to start now.",
+  CheckoutNotComplete = "Stripe hasn't finished this Checkout yet. Try again shortly.",
+  CheckoutExpired = "This Checkout expired. Start another.",
+  NoBillingAccount = "This account has no billing account yet. Start a Checkout first.",
+  NoSubscription = "This account has no plan running to cancel.",
+  BillingUnavailable = "Billing is unavailable right now. Try again later.",
+  InvalidCode = "That waitlist code doesn't exist.",
+  CodeUsed = "That waitlist code has been used.",
+  CodeExpired = "That waitlist code has expired.",
+}
+
+--- A refusal mapped to a failure table: a billing.ERRORS code with our
+--- message for it, otherwise whatever provisioner_failure makes of it.
+function billing.failure(status, decoded)
+  if type(status) == "number" and status >= 400 and type(decoded) == "table"
+    and type(decoded.error) == "string" and billing.ERRORS[decoded.error] then
+    return failure(decoded.error, billing.ERRORS[decoded.error])
+  end
+  return provisioner_failure(status, decoded)
+end
+
+--- A non-empty string, or nil.
+function billing.text(v)
+  return type(v) == "string" and v ~= "" and v or nil
+end
+
+--- An RFC 3339 timestamp string, or nil.
+function billing.time(v)
+  if type(v) ~= "string" then return nil end
+  local rest = v:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d(.*)$")
+  if not rest then return nil end
+  rest = rest:gsub("^%.%d+", "", 1)
+  if rest == "Z" or rest:match("^[+-]%d%d:%d%d$") then return v end
+  return nil
+end
+
+-- Stripe's hosted pages. HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
+-- replaces the list, for a custom Checkout or Portal domain.
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com"
+
+--- The URL the provisioner made for a Checkout or a Portal session, or nil
+--- unless it is https on one of the allowed hosts. The dashboard navigates
+--- to it.
+function billing.url(ctx, v)
+  if type(v) ~= "string" then return nil end
+  local host = v:match("^https://([%w%-%.]+)/")
+  if not host then return nil end
+  host = host:lower()
+  local env = ctx.env or {}
+  local hosts = env.HAPPYPROTO_BILLING_URL_HOSTS
+  local list = type(hosts) == "string" and hosts ~= "" and hosts or billing.HOSTS
+  for allowed in list:gmatch("[^,%s]+") do
+    if host == allowed:lower() then return v end
+  end
+  return nil
+end
+
+--- The customer `billing`: `{status, exempt, hasPaymentMethod,
+--- cancelAtPeriodEnd, plans, trialEndsAt?, billingStartsAt?,
+--- currentPeriodEnd?, discountStage?, creditCode?, hold?}`, or nil when the
+--- provisioner sent none (billing off, or not billing this account). Each
+--- field is listed explicitly, so a field the provisioner adds later is never
+--- passed along by accident.
+function billing.public(b)
+  if type(b) ~= "table" then
+    return nil
+  end
+  local plans = {}
+  local listed = b.plans_on_subscription
+  if type(listed) == "table" then
+    for _, p in ipairs(listed) do
+      -- The JSON bridge may hand a whole number over as a float.
+      local q = type(p) == "table" and math.tointeger(p.quantity)
+      if type(p) == "table" and type(p.plan) == "string" and q and q >= 0 then
+        plans[#plans + 1] = { plan = p.plan, quantity = q }
+      end
+    end
+  end
+  -- A hold stops the account's instances: its trial ended without a card,
+  -- or payments failed past the retries.
+  local hold = nil
+  local h = b.hold
+  if type(h) == "table" and (h.reason == "trial_paused" or h.reason == "payment_failed") then
+    hold = { reason = h.reason, at = billing.time(h.at) }
+  end
+  local code = nil
+  if type(b.credit_code) == "table" then
+    code = { reserved = b.credit_code.reserved == true, applied = b.credit_code.applied == true }
+  end
+  return {
+    status = billing.text(b.status) or "none",
+    exempt = b.exempt == true,
+    hasPaymentMethod = b.has_payment_method == true,
+    cancelAtPeriodEnd = b.cancel_at_period_end == true,
+    trialEndsAt = billing.time(b.trial_ends_at),
+    billingStartsAt = billing.time(b.billing_starts_at),
+    currentPeriodEnd = billing.time(b.current_period_end),
+    -- "none" is the provisioner's default: no discount to report.
+    discountStage = b.discount_stage ~= "none" and billing.text(b.discount_stage) or nil,
+    creditCode = code,
+    hold = hold,
+    -- A trial without a card runs every instance at Hobby's resources and limits.
+    clamped = b.clamped == true,
+    plans = json.to_array(plans),
+  }
+end
+-- @endblock
+
 -- @block preferences
 -- The account's preferences space (HAP-463): `at.happyproto.preferences`,
 -- key `self`, one per account. The account creates it, through
@@ -809,7 +937,12 @@ end
 -- never passed along by accident. Customers never see host_id, image,
 -- spec_hash, routed, owner_confirmed_at or the purge timestamps.
 
-local IN_PROGRESS = { pending = true, running = true }
+-- Operation statuses still under way, and the kinds that change a live
+-- tenant. One table, not two locals: the prelude is at Lua's 200-local limit.
+local OPS = {
+  in_progress = { pending = true, running = true },
+  changes = { start = true, stop = true, update = true, upgrade = true },
+}
 
 --- `{id, kind, status, step?, error?}`, or nil when there is no operation.
 --- Takes either provisioner shape: the tenant list's `current_operation`
@@ -836,10 +969,9 @@ local function public_operation(op)
   }
 end
 
--- Operations that change a live tenant. While one is in progress, observed
--- lags desired by design, so the state follows desired rather than reading
+-- OPS.changes are the operations that change a live tenant. While one is in
+-- progress, observed lags desired by design, so the state follows desired rather than reading
 -- the gap as a failure; the operation field already shows the progress.
-local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 
 --- The spec's state table, first match wins:
 ---   create pending/running  -> provisioning
@@ -849,10 +981,10 @@ local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 ---   desired stopped -> stopped
 ---   otherwise -> failed
 local function instance_state(t, op)
-  local live = type(op) == "table" and IN_PROGRESS[op.status]
+  local live = type(op) == "table" and OPS.in_progress[op.status]
   if live and op.kind == "create" then return "provisioning" end
   if live and op.kind == "destroy" then return "deleting" end
-  if live and CHANGES[op.kind] then
+  if live and OPS.changes[op.kind] then
     if t.desired_state == "running" then return "running" end
     if t.desired_state == "stopped" then return "stopped" end
   end
@@ -877,8 +1009,17 @@ local function public_available_version(a)
 end
 
 --- The customer `instance`: `{id, slug, url, plan, version, versionLabel?,
---- availableVersion?, state, createdAt, operation?}`.
+--- availableVersion?, state, createdAt, operation?, servedPlan?,
+--- waitingForRoom?, stoppedFor?}`.
+---
+--- servedPlan is the provisioner's resource_plan_id: the plan whose resources
+--- the tenant runs on while it differs from the plan it is billed for (a
+--- trial without a card runs at Hobby's). stoppedFor is why the provisioner
+--- stopped it, while it is stopped: billing (stopped_by_billing) or trialIdle
+--- (stopped_by_trial_idle). An owner's own stop isn't reported.
 local function public_instance(t, op)
+  local served = label_or_nil(t.resource_plan_id)
+  local stopped = t.desired_state == "stopped"
   return {
     id = t.id,
     slug = t.slug,
@@ -890,6 +1031,10 @@ local function public_instance(t, op)
     state = instance_state(t, op),
     createdAt = t.created_at,
     operation = public_operation(op),
+    servedPlan = served ~= t.plan_id and served or nil,
+    waitingForRoom = t.clamp_waiting_for_room == true or nil,
+    stoppedFor = stopped and (t.stopped_by_billing == true and "billing"
+      or t.stopped_by_trial_idle == true and "trialIdle") or nil,
   }
 end
 
