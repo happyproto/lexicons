@@ -241,6 +241,21 @@ local function gate_owner(ctx)
   end
   return nil
 end
+
+--- The provisioner: the caller is exactly PROVISIONER_DID, the identity it
+--- signs service-auth tokens as (HAP-463). For `at.happyproto.internal.*`,
+--- which HappyView reaches only through a `specific` service entry listing
+--- them. Everyone else, a signed-out caller, and an unset or malformed
+--- PROVISIONER_DID are all Forbidden, so the endpoints are inert until the
+--- variable is set. HAPPYPROTO_DID is refused even if the variable names it:
+--- HappyProto's account signs in to the dashboard and must not reach these.
+local function gate_provisioner(ctx)
+  local did = (ctx.env or {}).PROVISIONER_DID
+  if not is_did(did) or ctx.caller_did ~= did or did == happyproto_did(ctx) then
+    return failure("Forbidden", "Only the provisioner can do this.")
+  end
+  return nil
+end
 -- @endblock
 
 -- @block urlencode
@@ -703,6 +718,29 @@ local preferences = {
   OFF = "contact email is not switched on",
 }
 
+--- The caller's PDS address and whether the PDS says it is confirmed, or
+--- nil, read through their own session with happyview.account's email()
+--- (behind HappyView's caller:email capability). `require` raises when the
+--- library isn't installed, and `email` raises on any failure, so both run
+--- under pcall and any failure reads as "no address". Never logs it.
+function preferences.pds_email()
+  local ok, address = pcall(function() return require("happyview.account").email() end)
+  if not ok then
+    log.info("could not read the caller's PDS email", { error = tostring(address) })
+    return nil, nil
+  end
+  if type(address) ~= "table" then
+    return nil, nil
+  end
+  local email = address.email
+  if type(email) ~= "string" or email == "" then
+    return nil, nil
+  end
+  local confirmed = address.email_confirmed
+  if type(confirmed) ~= "boolean" then confirmed = nil end
+  return email, confirmed
+end
+
 --- Enough to refuse garbage before anything is written; the provisioner and
 --- the link are the authority.
 function preferences.is_email(s)
@@ -899,7 +937,12 @@ end
 -- never passed along by accident. Customers never see host_id, image,
 -- spec_hash, routed, owner_confirmed_at or the purge timestamps.
 
-local IN_PROGRESS = { pending = true, running = true }
+-- Operation statuses still under way, and the kinds that change a live
+-- tenant. One table, not two locals: the prelude is at Lua's 200-local limit.
+local OPS = {
+  in_progress = { pending = true, running = true },
+  changes = { start = true, stop = true, update = true, upgrade = true },
+}
 
 --- `{id, kind, status, step?, error?}`, or nil when there is no operation.
 --- Takes either provisioner shape: the tenant list's `current_operation`
@@ -926,10 +969,9 @@ local function public_operation(op)
   }
 end
 
--- Operations that change a live tenant. While one is in progress, observed
--- lags desired by design, so the state follows desired rather than reading
+-- OPS.changes are the operations that change a live tenant. While one is in
+-- progress, observed lags desired by design, so the state follows desired rather than reading
 -- the gap as a failure; the operation field already shows the progress.
-local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 
 --- The spec's state table, first match wins:
 ---   create pending/running  -> provisioning
@@ -939,10 +981,10 @@ local CHANGES = { start = true, stop = true, update = true, upgrade = true }
 ---   desired stopped -> stopped
 ---   otherwise -> failed
 local function instance_state(t, op)
-  local live = type(op) == "table" and IN_PROGRESS[op.status]
+  local live = type(op) == "table" and OPS.in_progress[op.status]
   if live and op.kind == "create" then return "provisioning" end
   if live and op.kind == "destroy" then return "deleting" end
-  if live and CHANGES[op.kind] then
+  if live and OPS.changes[op.kind] then
     if t.desired_state == "running" then return "running" end
     if t.desired_state == "stopped" then return "stopped" end
   end

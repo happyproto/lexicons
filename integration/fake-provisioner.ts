@@ -971,6 +971,32 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
     return reply(200, hostsList());
   }
 
+  // api/fleet.rs and api/capacity_notify.rs: the capacity queue. Every
+  // waiting row counts as due here; there's no placement to ask.
+  if (resource === "admin" && id === "capacity-waits") {
+    if (!staff) return error(403, "Forbidden", "staff only");
+    if (req.method === "GET" && parts.length === 3) {
+      const due = url.searchParams.get("due") === "true";
+      const waits = Object.entries(state.capacityWaits)
+        .filter(([, w]) => !due || !w.notified_at)
+        .map(([did, w]) => ({ did, ...w, preferences_space: state.preferencesSpaces[did] ?? null }));
+      return reply(200, { waits, waiting: {} });
+    }
+    if (req.method === "POST" && parts[3] === "notify" && parts.length === 4) {
+      const notices = Array.isArray(body?.notices) ? body.notices : [];
+      if (notices.length < 1 || notices.length > 15) return error(400, "InvalidRequest", "notices must hold 1 to 15 notices");
+      const results = notices.map((n: Json) => {
+        const w = state.capacityWaits[n.did];
+        if (!w || w.notified_at) return { did: n.did, outcome: "not_waiting" };
+        const proven = (state.emailProofs[n.did] ?? []).includes(String(n.email).trim().toLowerCase());
+        if (!proven) return { did: n.did, outcome: "not_verified" };
+        w.notified_at = new Date().toISOString();
+        return { did: n.did, outcome: "sent" };
+      });
+      return reply(200, { results });
+    }
+  }
+
   // api/suspension.rs: an account's cohort and suspension, and staff
   // suspending it or lifting that. Accounts here are any DID asked about.
   if (resource === "admin" && id === "accounts" && parts.length >= 4) {
@@ -994,6 +1020,10 @@ async function route(req: Request, url: URL, actor: string, body: Json): Promise
       });
     }
     if (req.method === "POST" && parts[4] === "suspend" && parts.length === 5) {
+      // provisioner#95: only an account it already knows.
+      if (!state.accountTerms[did] && !state.suspended[did] && owned.length === 0) {
+        return error(404, "NotFound", "no account has this DID");
+      }
       const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
       if (!reason) return error(400, "InvalidRequest", "reason must be 1 to 500 characters");
       state.suspended[did] ??= reason;
