@@ -9,7 +9,7 @@
 -- endpoint. Another owner's instance, a deleted one and one that does not
 -- exist are the same NotFound, and nothing is changed.
 
--- @prelude gate, validate, provisioner, jobs
+-- @prelude gate, validate, provisioner, billing, jobs
 
 function handle(input, ctx)
   local refused = gate_customer(ctx)
@@ -28,8 +28,10 @@ function handle(input, ctx)
   if not found then return missing end
 
   local status, body = provisioner(ctx, "POST", "/v1/tenants/" .. id .. "/start", nil, input.idempotencyKey)
+  -- Billing's refusals pass through: starting a trial instance again can
+  -- find the trial pool full.
   if status ~= 202 or type(body) ~= "table" then
-    return provisioner_failure(status, body)
+    return billing.failure(status, body)
   end
 
   local job_id, failed = follow_operation(body.operation)

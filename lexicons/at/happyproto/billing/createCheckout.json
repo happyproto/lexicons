@@ -1,0 +1,171 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.billing.createCheckout",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Start a Stripe Checkout for the caller's subscription, and return the URL to send them to. Stripe sends them back to the dashboard, which confirms it with billing.confirmCheckout. Customers only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "plan",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "plan": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "The plan's id, from at.happyproto.server.listPlans."
+            },
+            "withCard": {
+              "type": "boolean",
+              "description": "Take a card now and run the plan at once, which skips the trial pool. Without it, an account that hasn't had a trial gets one without a card, at Hobby resources until a card is added."
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "A waitlist code, held for the account until the Checkout completes or expires."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per request and resends on every retry of it. Only a success is kept against it: after a refusal, retrying with the same key runs the request again."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Stripe's hosted Checkout page."
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "When the Checkout stops accepting payment."
+            },
+            "sessionId": {
+              "type": "string",
+              "description": "The Checkout Session id, which Stripe puts on the return URL; the dashboard checks the two match."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "plan, code or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PaymentRequired",
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
+        },
+        {
+          "name": "CardRequired",
+          "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
+        },
+        {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
+        },
+        {
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
+        },
+        {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Billing is switched off, or unavailable for now."
+        },
+        {
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

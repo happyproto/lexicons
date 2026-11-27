@@ -1,0 +1,155 @@
+{
+  "lexicon": 1,
+  "id": "at.happyproto.billing.createPortalSession",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Open a Stripe Customer Portal session for the caller's account, and return the URL to send them to. Customers with a billing account only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotencyKey"
+          ],
+          "properties": {
+            "flow": {
+              "type": "string",
+              "knownValues": [
+                "paymentMethod",
+                "cancel"
+              ],
+              "description": "paymentMethod: straight to adding or changing the card. cancel: straight to cancelling the plan, at the end of the period. Absent: the Portal home, for invoices."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "A UUID the client generates once per request and resends on every retry of it. Only a success is kept against it: after a refusal, retrying with the same key runs the request again."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Stripe's hosted Portal page."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired",
+          "description": "This endpoint requires an authenticated caller."
+        },
+        {
+          "name": "Forbidden",
+          "description": "The caller is not a HappyProto customer, or the provisioner refused them."
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "flow or idempotencyKey is missing or malformed, or the provisioner refused the request as malformed."
+        },
+        {
+          "name": "NotFound",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InvalidSlug",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "SlugTaken",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NotEntitled",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "InstanceLimit",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "NoCapacity",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "OperationInProgress",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "AccountSuspended",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PlanNotOffered",
+          "description": "Passed through from the provisioner."
+        },
+        {
+          "name": "PaymentRequired",
+          "description": "No subscription covers this yet: start a Checkout (billing.createCheckout)."
+        },
+        {
+          "name": "AlreadySubscribed",
+          "description": "The account already has a subscription: create the instance directly."
+        },
+        {
+          "name": "CardRequired",
+          "description": "A trial without a card covers one instance: add a card (billing.createPortalSession) for more."
+        },
+        {
+          "name": "BillingHold",
+          "description": "The account is on hold (its trial ended without a card, or payments failed) until its card is added or fixed."
+        },
+        {
+          "name": "TrialPoolFull",
+          "description": "Every trial place without a card is taken: a Checkout with withCard starts now."
+        },
+        {
+          "name": "CheckoutNotComplete",
+          "description": "Stripe hasn't finished the Checkout yet. Retry shortly; the same idempotencyKey may be reused, since a refusal releases it."
+        },
+        {
+          "name": "CheckoutExpired",
+          "description": "The Checkout expired. Start another."
+        },
+        {
+          "name": "NoBillingAccount",
+          "description": "The account has no billing account yet: start a Checkout first."
+        },
+        {
+          "name": "NoSubscription",
+          "description": "The account has a billing account but no plan running, so there is nothing to cancel."
+        },
+        {
+          "name": "BillingUnavailable",
+          "description": "Billing is switched off, or unavailable for now."
+        },
+        {
+          "name": "InvalidCode",
+          "description": "No such waitlist code."
+        },
+        {
+          "name": "CodeUsed",
+          "description": "That waitlist code has been used."
+        },
+        {
+          "name": "CodeExpired",
+          "description": "That waitlist code has expired."
+        },
+        {
+          "name": "Upstream",
+          "description": "The provisioner is unreachable, not configured, or answered with an error it does not explain to callers."
+        }
+      ]
+    }
+  }
+}

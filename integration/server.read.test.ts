@@ -532,6 +532,7 @@ describe("actor.getAccount", () => {
       deletedInstanceCount: 0,
       deletedInstances: [],
       suspended: false,
+      trialPoolFull: false,
     });
     const [request] = await provisioner.requests();
     expect(request.path).toBe("/v1/account");
