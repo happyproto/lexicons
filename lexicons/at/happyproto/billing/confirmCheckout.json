@@ -143,6 +143,10 @@
           "description": "The card changed during the charge attempts. Retry."
         },
         {
+          "name": "ClosedBetaNotBilling",
+          "description": "A closed-beta account asked for a Checkout before closed-beta billing has started."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },
@@ -244,6 +248,19 @@
         "actionRequired": {
           "type": "ref",
           "ref": "#actionRequired"
+        },
+        "cohort": {
+          "type": "string",
+          "knownValues": [
+            "closed_beta",
+            "open_beta"
+          ],
+          "description": "Which beta the account joined in."
+        },
+        "closedBetaBillingStarts": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When closed-beta accounts start paying. Absent until it's set; until then they can't subscribe."
         }
       }
     },
@@ -294,9 +311,10 @@
           "knownValues": [
             "trial_paused",
             "payment_failed",
-            "canceled"
+            "canceled",
+            "closed_beta_ended"
           ],
-          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries. canceled: the subscription ended; a new Checkout restarts it."
+          "description": "trial_paused: the trial ended without a card. payment_failed: payments failed past the retries. canceled: the subscription ended; a new Checkout restarts it. closed_beta_ended: a closed-beta account reached its billing start without subscribing; a Checkout restarts it."
         },
         "at": {
           "type": "string",

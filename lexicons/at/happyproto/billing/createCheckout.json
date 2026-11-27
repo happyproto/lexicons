@@ -162,6 +162,10 @@
           "description": "The card changed during the charge attempts. Retry."
         },
         {
+          "name": "ClosedBetaNotBilling",
+          "description": "A closed-beta account asked for a Checkout before closed-beta billing has started."
+        },
+        {
           "name": "BillingUnavailable",
           "description": "Billing is switched off, or unavailable for now."
         },
