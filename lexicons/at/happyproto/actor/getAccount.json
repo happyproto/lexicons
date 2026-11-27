@@ -265,7 +265,7 @@
         "closedBetaBillingStarts": {
           "type": "string",
           "format": "datetime",
-          "description": "When closed-beta accounts start paying. Absent until it's set; until then they can't subscribe."
+          "description": "When closed-beta accounts start paying. Absent until it's set; closed-beta accounts can't subscribe until then."
         }
       }
     },
