@@ -381,7 +381,7 @@ works.
 | `PROVISIONER_TOKEN` | the provisioner's bearer token |
 | `PROVISIONER_AUDIENCE` | the provisioner's name for caller assertions (its `MANAGEMENT_TICKET_ISSUER`); `getManagementTicket` answers `Upstream` without it |
 | `HAPPYPROTO_APP` | the managing app every preferences space defers to, `did:plc:mo7vq4jbioxwafy5zkcc3eux#happyproto_app`. Unset or not a service identifier, no preferences space is created (see [Preferences](#preferences)) |
-| `HAPPYPROTO_BILLING_URL_HOSTS` | optional: the hosts, comma-separated, a Checkout or Portal URL may be on. Unset: `checkout.stripe.com,billing.stripe.com,invoice.stripe.com,invoice.link.com` |
+| `HAPPYPROTO_BILLING_URL_HOSTS` | optional: the hosts, comma-separated, a Checkout or Portal URL may be on. Unset: `checkout.stripe.com,billing.stripe.com,invoice.stripe.com` |
 | `HAPPYPROTO_SIGNUP` | `open` makes the customer gate admit any signed-in caller; anything else, or unset, keeps it to members of the customers space (see [Open signup](#open-signup)) |
 
 ClickHouse is reached over the shared Docker network by container name, which
