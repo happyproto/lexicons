@@ -1507,7 +1507,10 @@ end
 -- provisioner adds later is never passed along by accident.
 
 -- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
-local function usage_only(v, kind)
+-- One local, `usage`: the prelude is near Lua's 200-local limit.
+local usage = {}
+
+function usage.only(v, kind)
   if type(v) == kind then
     return v
   end
@@ -1515,22 +1518,22 @@ local function usage_only(v, kind)
 end
 
 --- `{tenant, grain, rows, gaps}` from a usage route's body.
-local function public_usage(body)
+function usage.public(body)
   local rows = {}
   for _, r in ipairs(type(body.rows) == "table" and body.rows or {}) do
     rows[#rows + 1] = {
-      hour = usage_only(r.hour, "string"),
-      day = usage_only(r.day, "string"),
+      hour = usage.only(r.hour, "string"),
+      day = usage.only(r.day, "string"),
       runningSeconds = r.running_seconds,
       cpuUsec = r.cpu_usec,
       memByteSeconds = r.mem_byte_seconds,
       memPeakBytes = r.mem_peak_bytes,
       egressBytes = r.egress_bytes,
       ingressBytes = r.ingress_bytes,
-      diskAvgBytes = usage_only(r.disk_avg_bytes, "number"),
-      diskPeakBytes = usage_only(r.disk_peak_bytes, "number"),
-      seats = usage_only(r.seats, "number"),
-      apiClients = usage_only(r.api_clients, "number"),
+      diskAvgBytes = usage.only(r.disk_avg_bytes, "number"),
+      diskPeakBytes = usage.only(r.disk_peak_bytes, "number"),
+      seats = usage.only(r.seats, "number"),
+      apiClients = usage.only(r.api_clients, "number"),
       partial = r.partial,
     }
   end
@@ -1547,7 +1550,7 @@ local function public_usage(body)
 end
 
 --- The query string a usage read forwards: from, to and grain, when given.
-local function usage_query(input)
+function usage.query(input)
   local query = {}
   for _, key in ipairs({ "from", "to", "grain" }) do
     if type(input[key]) == "string" and input[key] ~= "" then
@@ -1555,6 +1558,122 @@ local function usage_query(input)
     end
   end
   return query
+end
+-- @endblock
+
+-- @block records
+-- Records delivered over the current billing period, as the provisioner's
+-- records-usage routes answer them (an owner's /tenants/:id/records-usage,
+-- and /account/records-usage), mapped to the lexicons' shapes. Each field is
+-- listed explicitly, so a field the provisioner adds later is never passed
+-- along by accident. Dollars become whole cents: lexicons have no floats.
+
+-- The whole block is one local, `records`: the prelude is near Lua's
+-- 200-local limit.
+local records = {}
+
+-- A JSON null decodes to a sentinel, not nil: keep only a value of the type.
+function records.only(v, kind)
+  if type(v) == kind then
+    return v
+  end
+  return nil
+end
+
+-- Both halves or nothing: the lexicons require both.
+function records.pair(v)
+  if type(v) ~= "table" or type(v.live) ~= "number" or type(v.backfill) ~= "number" then
+    return nil
+  end
+  return { live = v.live, backfill = v.backfill }
+end
+
+function records.cents(v)
+  if type(v) ~= "table" then return nil end
+  local function cents(usd)
+    if type(usd) ~= "number" then return nil end
+    return math.floor(usd * 100 + 0.5)
+  end
+  local live, backfill = cents(v.live), cents(v.backfill)
+  if live == nil or backfill == nil then return nil end
+  return { live = live, backfill = backfill }
+end
+
+function records.totals(t)
+  t = type(t) == "table" and t or {}
+  return {
+    liveActual = records.only(t.live_actual, "number") or 0,
+    liveBillable = records.only(t.live_billable, "number") or 0,
+    backfill = records.only(t.backfill, "number") or 0,
+    storePass = records.only(t.store_pass, "number") or 0,
+    retry = records.only(t.retry, "number") or 0,
+    unknown = records.only(t.unknown, "number") or 0,
+  }
+end
+
+function records.period(p)
+  p = type(p) == "table" and p or {}
+  return { start = records.only(p.start, "string"), ["end"] = records.only(p["end"], "string") }
+end
+
+--- One instance's period, from /tenants/:id/records-usage.
+function records.public(body)
+  local days = {}
+  for _, d in ipairs(type(body.days) == "table" and body.days or {}) do
+    days[#days + 1] = {
+      day = records.only(d.day, "string"),
+      live = records.only(d.live, "number") or 0,
+      backfill = records.only(d.backfill, "number") or 0,
+      storePass = records.only(d.store_pass, "number") or 0,
+      retry = records.only(d.retry, "number") or 0,
+      unknown = records.only(d.unknown, "number") or 0,
+      billableLive = records.only(d.billable_live, "number") or 0,
+      capped = d.capped == true,
+      gap = d.gap == true,
+    }
+  end
+  local capped = {}
+  for _, day in ipairs(type(body.capped_days) == "table" and body.capped_days or {}) do
+    if type(day) == "string" then capped[#capped + 1] = day end
+  end
+  return {
+    period = records.period(body.period),
+    tier = records.only(body.tier, "string"),
+    included = records.pair(body.included),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
+    cappedDays = json.to_array(capped),
+    projectedMonthEnd = records.pair(body.projected_month_end),
+    days = json.to_array(days),
+    source = records.only(body.source, "string"),
+  }
+end
+
+--- Every instance's totals and their sum, from /account/records-usage.
+function records.account(body)
+  local instances = {}
+  for _, i in ipairs(type(body.instances) == "table" and body.instances or {}) do
+    instances[#instances + 1] = {
+      id = records.only(i.id, "string"),
+      slug = records.only(i.slug, "string"),
+      tier = records.only(i.tier, "string"),
+      included = records.pair(i.included),
+      totals = records.totals(i.totals),
+      overage = records.pair(i.overage),
+      overageCents = records.cents(i.overage_usd),
+      projectedMonthEnd = records.pair(i.projected_month_end),
+      gapDays = records.only(i.gap_days, "number") or 0,
+    }
+  end
+  return {
+    period = records.period(body.period),
+    totals = records.totals(body.totals),
+    overage = records.pair(body.overage),
+    overageCents = records.cents(body.overage_usd),
+    instances = json.to_array(instances),
+    source = records.only(body.source, "string"),
+  }
 end
 -- @endblock
 

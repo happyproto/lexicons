@@ -56,6 +56,7 @@ const IMPLIES: Record<string, string[]> = {
   // public_operation lives in `instance`; provisioner_failure is
   // key_failure's fallback.
   keys: ["json", "failure", "provisioner", "instance"],
+  records: ["json"],
   // provisioner_failure is metrics_failure's fallback; `urlencode` for the
   // trigger in the path.
   metrics: ["json", "failure", "provisioner", "urlencode"],

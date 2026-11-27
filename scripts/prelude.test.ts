@@ -981,6 +981,48 @@ describe("follow_operation", () => {
   });
 });
 
+describe("records", () => {
+  it("records.public leaves nulls absent, rounds dollars to cents, and drops what it doesn't know", () => {
+    const { r1 } = run(`
+      local null = setmetatable({}, { __name = "null" })
+      return records.public({
+        period = { start = "2026-12-01", ["end"] = "2027-01-01" },
+        tier = null, included = null, overage = { live = 5, backfill = null },
+        overage_usd = { live = 0.125, backfill = 2.004 },
+        totals = { live_actual = 9, live_billable = 7, backfill = 3, store_pass = 1, retry = null, unknown = 0, extra = 1 },
+        capped_days = { "2026-12-02", null }, projected_month_end = null,
+        days = { { day = "2026-12-02", live = 9, backfill = 3, store_pass = 1, retry = 0, unknown = 0,
+                   billable_live = 7, capped = true, gap = null, extra = "x" } },
+        source = "tenant_ingest", extra = "never passed on",
+      })
+    `);
+    expect(r1).toEqual({
+      period: { start: "2026-12-01", end: "2027-01-01" },
+      totals: { liveActual: 9, liveBillable: 7, backfill: 3, storePass: 1, retry: 0, unknown: 0 },
+      overageCents: { live: 13, backfill: 200 },
+      cappedDays: ["2026-12-02"],
+      days: [{ day: "2026-12-02", live: 9, backfill: 3, storePass: 1, retry: 0, unknown: 0, billableLive: 7, capped: true, gap: false }],
+      source: "tenant_ingest",
+    });
+  });
+
+  it("records.account keeps each instance's own nulls absent", () => {
+    const { r1 } = run(`
+      local null = setmetatable({}, { __name = "null" })
+      return records.account({
+        period = { start = "2026-12-01", ["end"] = "2027-01-01" },
+        totals = {}, overage = { live = 0, backfill = 0 }, overage_usd = { live = 0, backfill = 0 },
+        instances = { { id = "i-1", slug = "one", tier = null, included = null, totals = {},
+                        overage = null, overage_usd = null, projected_month_end = null, gap_days = 2 } },
+      })
+    `);
+    expect(r1.instances).toEqual([
+      { id: "i-1", slug: "one", totals: { liveActual: 0, liveBillable: 0, backfill: 0, storePass: 0, retry: 0, unknown: 0 }, gapDays: 2 },
+    ]);
+    expect(r1.overageCents).toEqual({ live: 0, backfill: 0 });
+  });
+});
+
 describe("metrics", () => {
   const ZERO = {
     ok: 0, syntax: 0, runtime: 0, missingHandle: 0, timeout: 0,
