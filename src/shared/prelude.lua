@@ -600,10 +600,11 @@ function billing.time(v)
   return nil
 end
 
--- Stripe's hosted pages: Checkout, the Portal and invoices.
+-- Stripe's hosted pages: Checkout, the Portal and invoices (Link issues
+-- them under Managed Payments).
 -- HAPPYPROTO_BILLING_URL_HOSTS (comma-separated)
 -- replaces the list, for a custom Checkout or Portal domain.
-billing.HOSTS = "checkout.stripe.com,billing.stripe.com,invoice.stripe.com"
+billing.HOSTS = "checkout.stripe.com,billing.stripe.com,invoice.stripe.com,invoice.link.com"
 
 --- The URL the provisioner made for a Checkout or a Portal session, or nil
 --- unless it is https on one of the allowed hosts. The dashboard navigates

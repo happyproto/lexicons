@@ -312,6 +312,8 @@ describe("actor.getAccount", () => {
   it("carries a payment to confirm, only on a Stripe host", () => {
     const ok = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://invoice.stripe.com/i/acct_1/x" } }`));
     expect(ok.out.billing.actionRequired).toEqual({ invoiceUrl: "https://invoice.stripe.com/i/acct_1/x" });
+    const link = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://invoice.link.com/i/x" } }`));
+    expect(link.out.billing.actionRequired).toEqual({ invoiceUrl: "https://invoice.link.com/i/x" });
     const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://example.com/x" } }`));
     expect(odd.out.billing.actionRequired).toBeUndefined();
   });
