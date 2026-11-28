@@ -193,6 +193,7 @@ describe("billing.createCheckout", () => {
       [400, "CodeExpired"],
       [409, "TrialPoolFull"],
       [503, "BillingUnavailable"],
+      [409, "ClosedBetaNotBilling"],
     ] as const) {
       const { out } = run("billing/createCheckout", input(), {
         "/v1/billing/checkout": { status, body: refusal(code, "provisioner detail") },
@@ -321,6 +322,22 @@ describe("actor.getAccount", () => {
     expect(link.out.billing.actionRequired).toBeUndefined();
     const odd = run("actor/getAccount", "{}", account(`, billing = { status = "paused", action_required = { invoice_url = "https://example.com/x" } }`));
     expect(odd.out.billing.actionRequired).toBeUndefined();
+  });
+
+  it("carries the cohort and the closed-beta start, and a closed_beta_ended hold", () => {
+    const { out } = run(
+      "actor/getAccount",
+      "{}",
+      account(`, billing = { status = "none", cohort = "closed_beta", closed_beta_billing_starts = "2027-01-06T06:00:00Z", hold = { reason = "closed_beta_ended", at = "2027-01-06T06:00:00Z" } }`),
+    );
+    expect(out.billing).toMatchObject({
+      cohort: "closed_beta",
+      closedBetaBillingStarts: "2027-01-06T06:00:00Z",
+      hold: { reason: "closed_beta_ended" },
+    });
+    const odd = run("actor/getAccount", "{}", account(`, billing = { status = "none", cohort = "staff", closed_beta_billing_starts = "null" }`));
+    expect(odd.out.billing.cohort).toBeUndefined();
+    expect(odd.out.billing.closedBetaBillingStarts).toBeUndefined();
   });
 
   it("carries a canceled hold", () => {

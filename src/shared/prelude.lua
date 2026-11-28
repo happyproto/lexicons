@@ -566,6 +566,7 @@ billing.ERRORS = {
   PaymentActionRequired = "The bank wants the payment confirmed. Stripe has emailed a link.",
   BillingInProgress = "Another billing change is under way. Try again shortly.",
   CardChanged = "The card changed while it was being charged. Try again.",
+  ClosedBetaNotBilling = "Billing for closed-beta accounts hasn't started yet.",
   BillingUnavailable = "Billing is unavailable right now. Try again later.",
   InvalidCode = "That waitlist code doesn't exist.",
   CodeUsed = "That waitlist code has been used.",
@@ -583,8 +584,9 @@ function billing.failure(status, decoded)
 end
 
 -- Why an account is on hold: its trial ended without a card, payments failed
--- past the retries, or the subscription ended.
-billing.HOLD_REASONS = { trial_paused = true, payment_failed = true, canceled = true }
+-- past the retries, the subscription ended, or a closed-beta account reached
+-- its billing start without subscribing.
+billing.HOLD_REASONS = { trial_paused = true, payment_failed = true, canceled = true, closed_beta_ended = true }
 
 --- A non-empty string, or nil.
 function billing.text(v)
@@ -680,6 +682,10 @@ function billing.public(b, ctx)
     creditCode = code,
     hold = hold,
     actionRequired = action,
+    -- Which beta the account joined in, and when a closed-beta account starts
+    -- paying (absent until it's set).
+    cohort = (b.cohort == "closed_beta" or b.cohort == "open_beta") and b.cohort or nil,
+    closedBetaBillingStarts = billing.time(b.closed_beta_billing_starts),
     -- A trial without a card runs every instance at Hobby's resources and limits.
     clamped = b.clamped == true,
     plans = json.to_array(plans),
